@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LearningItemType } from '../learning-item.js';
 import { TaskOrigin, TaskType } from '../session.js';
+import { CorrectionSegment } from '../ai/index.js';
 
 // ---------- 任务视图（不含正确答案；选择题由前端 shuffle 后提交 option id）----------
 
@@ -19,9 +20,16 @@ export const ClozeQuestionView = z.object({
 });
 export type ClozeQuestionView = z.infer<typeof ClozeQuestionView>;
 
+export const ProductionQuestionView = z.object({
+  questionId: z.string(),
+  zhPrompt: z.string(),
+  mustUse: z.string(),
+});
+export type ProductionQuestionView = z.infer<typeof ProductionQuestionView>;
+
 export const TodayTaskView = z.object({
   taskId: z.string(),
-  taskType: z.enum(['learn', 'understanding', 'cloze']),
+  taskType: z.enum(['learn', 'understanding', 'cloze', 'production']),
   dimension: z.enum(['understanding', 'production']),
   origin: TaskOrigin,
   deferCount: z.number().int().min(0),
@@ -36,9 +44,19 @@ export const TodayTaskView = z.object({
   sourceExample: z.string().nullable(),
   /** 补充/个人例句（learn 卡最多展示 1 条） */
   supplementaryExamples: z.array(z.string()),
-  question: z.union([ChoiceQuestionView, ClozeQuestionView]).nullable(),
+  question: z
+    .union([ChoiceQuestionView, ClozeQuestionView, ProductionQuestionView])
+    .nullable(),
 });
 export type TodayTaskView = z.infer<typeof TodayTaskView>;
+
+/** 表达题批改结果（check_production 最小纠错 diff） */
+export const CorrectionView = z.object({
+  segments: z.array(CorrectionSegment),
+  correctedSentence: z.string(),
+  betterVersion: z.string().nullable(),
+});
+export type CorrectionView = z.infer<typeof CorrectionView>;
 
 // ---------- GET /api/today（三种状态）----------
 
@@ -119,6 +137,10 @@ export const AnswerResponse = z.object({
   /** 填空题揭示：完整句子与可接受答案 */
   completeSentence: z.string().nullable(),
   acceptedAnswer: z.string().nullable(),
+  /** 表达题批改 diff（仅 production 任务） */
+  correction: CorrectionView.nullable(),
+  /** 本次 corrected 句子是否已存入 Personal Example */
+  personalExampleSaved: z.boolean(),
   reinforcementAdded: z.boolean(),
   progress: TodayProgress,
   /** 本次作答使会话完成时给出摘要 */

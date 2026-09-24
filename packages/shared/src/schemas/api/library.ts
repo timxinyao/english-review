@@ -80,6 +80,18 @@ export const LibraryItemDetail = z.object({
   extraExamples: z.array(z.string()),
   personalExamples: z.array(PersonalExampleDto),
   reviewStates: z.array(ReviewStateDto),
+  /** 近期造句历史（每项最多保留 10 次，PRODUCT §7.5），按时间倒序 */
+  productionHistory: z.array(
+    z.object({
+      id: z.string(),
+      createdAt: z.string(),
+      originalText: z.string().nullable(),
+      correctedSentence: z.string().nullable(),
+      betterVersion: z.string().nullable(),
+      result: z.enum(['pass', 'basic_pass', 'fail', 'void']),
+      mode: z.enum(['today', 'library_practice']),
+    }),
+  ),
 });
 export type LibraryItemDetail = z.infer<typeof LibraryItemDetail>;
 

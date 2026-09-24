@@ -26,6 +26,7 @@ export default defineConfig({
         PORT: String(API_PORT),
         HOST: '127.0.0.1',
         NODE_ENV: 'test',
+        E2E_SEED: '1',
       },
     },
     {

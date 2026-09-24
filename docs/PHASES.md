@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | 工程地基 | Monorepo/DB/认证/Prompt Registry/AI Provider/测试与 lint 基础 | done（2026-09-24） | [phase-1-foundation.md](phases/phase-1-foundation.md) |
 | 2 | 内容进出 | Import→New Queue→Library 管理→导出（含 AI 重复判定） | done（2026-09-24） | [phase-2-content.md](phases/phase-2-content.md) |
-| 3 | 复习引擎与 Today | 状态机、Session、理解/填空题、补强、坏题撤销 | planned | [phase-3-review.md](phases/phase-3-review.md) |
+| 3 | 复习引擎与 Today | 状态机、Session、理解/填空题、补强、坏题撤销 | done（2026-09-24） | [phase-3-review.md](phases/phase-3-review.md) |
 | 4 | 表达与个人例句 | 表达题生成/实时批改/diff、Personal Example、练一下 | planned | [phase-4-production.md](phases/phase-4-production.md) |
 | 5 | Read | 阅读生成、检查题、needs_reinforcement 闭环 | planned | [phase-5-read.md](phases/phase-5-read.md) |
 | 6 | 统计/备份/部署 | Stats+热力图、备份恢复、清理任务、Nginx/systemd/S3、PWA | planned | [phase-6-ops.md](phases/phase-6-ops.md) |

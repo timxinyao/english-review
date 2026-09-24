@@ -70,8 +70,7 @@ export const TodayActiveResponse = z.object({
   session: z.object({
     id: z.string(),
     sessionDate: z.string(),
-  },
-  ),
+  }),
   progress: TodayProgress,
   currentTask: TodayTaskView.nullable(),
 });

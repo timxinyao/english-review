@@ -12,6 +12,7 @@ import { healthRoutes } from './modules/health/routes.js';
 import { importExportRoutes } from './modules/import-export/routes.js';
 import { learningItemsRoutes } from './modules/learning-items/routes.js';
 import { settingsRoutes } from './modules/settings/routes.js';
+import { todayRoutes } from './modules/today/routes.js';
 
 const PUBLIC_ROUTES = new Set(['POST/api/auth/login', 'GET/api/health']);
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -53,6 +54,7 @@ export function buildApp({ config, db, logger = true }: AppOptions): FastifyInst
   authRoutes(app, config);
   settingsRoutes(app, db);
   learningItemsRoutes(app, db);
+  todayRoutes(app, db, config);
   importExportRoutes(app, db, config);
 
   return app;

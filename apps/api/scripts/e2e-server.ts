@@ -1,9 +1,321 @@
-/** Playwright E2E 专用 API 服务：独立临时数据库（每次运行前清空） */
+/** Playwright E2E 专用 API 服务：独立临时数据库（每次运行前清空）；E2E_SEED=1 时播种确定性数据 */
 import { rmSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { loadConfig } from '../src/config.js';
-import { createDatabase } from '../src/db/client.js';
+import { createDatabase, type AppDatabase } from '../src/db/client.js';
 import { runMigrations } from '../src/db/migrate.js';
 import { buildApp } from '../src/app.js';
+import { learningExamples, learningItems, questions, reviewStates } from '../src/db/schema.js';
+
+// ---------------------------------------------------------------------------
+// E2E 确定性播种（前端 Playwright 依赖这些内容，勿随意改动文案）
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 24 * 3600 * 1000;
+
+interface SeedQuestionSpec {
+  id: string;
+  itemId: string;
+  type: 'understanding' | 'cloze';
+  contextText: string | null;
+  promptText: string | null;
+  payload: Record<string, unknown>;
+  correctOptionId: string | null;
+}
+
+const SEED_QUESTIONS: SeedQuestionSpec[] = [
+  {
+    id: 'e2e-q-stable',
+    itemId: 'e2e-item-stable',
+    type: 'understanding',
+    contextText: 'The connection is finally ____.',
+    promptText: 'stable 在这里最接近什么意思？',
+    payload: {
+      options: [
+        { id: 'o1', text: '稳定的' },
+        { id: 'o2', text: '快速的' },
+        { id: 'o3', text: '昂贵的' },
+        { id: 'o4', text: '危险的' },
+      ],
+      explanation: 'stable 表示稳定。',
+    },
+    correctOptionId: 'o1',
+  },
+  {
+    id: 'e2e-q-wear-down',
+    itemId: 'e2e-item-wear-down',
+    type: 'understanding',
+    contextText: 'Long-term stress can ____ you down.',
+    promptText: 'wear down 在这里最接近什么意思？',
+    payload: {
+      options: [
+        { id: 'o1', text: '逐渐消耗' },
+        { id: 'o2', text: '支持' },
+        { id: 'o3', text: '加速' },
+        { id: 'o4', text: '打断' },
+      ],
+      explanation: 'wear down 表示逐渐消耗。',
+    },
+    correctOptionId: 'o1',
+  },
+  {
+    id: 'e2e-q-raw',
+    itemId: 'e2e-item-raw',
+    type: 'cloze',
+    // questions 模块约定：cloze 的 text_with_blank 存 promptText
+    contextText: null,
+    promptText: 'We need the ____ data before processing.',
+    payload: { acceptedAnswers: ['raw'], explanation: 'raw 表示未经处理的。' },
+    correctOptionId: null,
+  },
+  {
+    id: 'e2e-q-make-sense',
+    itemId: 'e2e-item-make-sense',
+    type: 'understanding',
+    contextText: 'His explanation ____ to me.',
+    promptText: 'make sense 在这里最接近什么意思？',
+    payload: {
+      options: [
+        { id: 'o1', text: '讲得通' },
+        { id: 'o2', text: '失败' },
+        { id: 'o3', text: '离开' },
+        { id: 'o4', text: '开始' },
+      ],
+      explanation: 'make sense 表示讲得通。',
+    },
+    correctOptionId: 'o1',
+  },
+  {
+    id: 'e2e-q-gravity',
+    itemId: 'e2e-item-gravity',
+    type: 'understanding',
+    contextText: '____ keeps us on the ground.',
+    promptText: 'gravity 最接近什么意思？',
+    payload: {
+      options: [
+        { id: 'o1', text: '重力' },
+        { id: 'o2', text: '声音' },
+        { id: 'o3', text: '光线' },
+        { id: 'o4', text: '时间' },
+      ],
+      explanation: 'gravity 是重力。',
+    },
+    correctOptionId: 'o1',
+  },
+];
+
+/**
+ * 播种幂等：已存在 seed 标记（target='stable' 且 queue started 的项）则跳过。
+ * 返回是否实际播种。
+ */
+export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
+  const marker = db
+    .select()
+    .from(learningItems)
+    .all()
+    .find((i) => i.target === 'stable' && i.queueState === 'started');
+  if (marker) return false;
+
+  const nowIso = now.toISOString();
+  const yesterday = new Date(now.getTime() - DAY_MS).toISOString();
+  const fourDaysAgo = new Date(now.getTime() - 4 * DAY_MS).toISOString();
+  const inSevenDays = new Date(now.getTime() + 7 * DAY_MS).toISOString();
+  const createdAt = '2026-09-10T00:00:00.000Z';
+
+  const items: Array<Partial<typeof learningItems.$inferInsert> & { id: string }> = [
+    {
+      id: 'e2e-item-stable',
+      type: 'word',
+      target: 'stable',
+      meaning: '稳定的',
+      ipa: null,
+      status: 'active',
+      queueState: 'started',
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: 'e2e-item-wear-down',
+      type: 'chunk',
+      target: 'wear down',
+      meaning: '逐渐消耗',
+      ipa: null,
+      status: 'active',
+      queueState: 'started',
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: 'e2e-item-raw',
+      type: 'word',
+      target: 'raw',
+      meaning: '未经处理的',
+      ipa: null,
+      status: 'active',
+      queueState: 'started',
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: 'e2e-item-make-sense',
+      type: 'chunk',
+      target: 'make sense',
+      meaning: '讲得通',
+      ipa: null,
+      status: 'active',
+      queueState: 'started',
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: 'e2e-item-gravity',
+      type: 'word',
+      target: 'gravity',
+      meaning: '重力',
+      ipa: null,
+      status: 'active',
+      queueState: 'new',
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ];
+  for (const item of items) {
+    db.insert(learningItems)
+      .values({
+        type: 'word',
+        target: item.id,
+        meaning: '',
+        ipa: null,
+        source: null,
+        sourceUrl: null,
+        tagsJson: '[]',
+        notes: null,
+        status: 'active',
+        queueState: 'new',
+        needsReinforcement: 0,
+        createdAt,
+        updatedAt: createdAt,
+        archivedAt: null,
+        ...item,
+      })
+      .run();
+  }
+
+  const examples: Array<{ itemId: string; text: string }> = [
+    { itemId: 'e2e-item-stable', text: 'The connection has been stable all week.' },
+    { itemId: 'e2e-item-wear-down', text: 'The long hike wore me down.' },
+    { itemId: 'e2e-item-raw', text: 'We only had raw data at first.' },
+    { itemId: 'e2e-item-make-sense', text: 'His explanation makes sense to me.' },
+    { itemId: 'e2e-item-gravity', text: 'I laugh at gravity all the time.' },
+  ];
+  for (const ex of examples) {
+    db.insert(learningExamples)
+      .values({
+        id: `e2e-ex-${ex.itemId}`,
+        learningItemId: ex.itemId,
+        kind: 'source',
+        text: ex.text,
+        originalText: null,
+        betterText: null,
+        pinned: 0,
+        qualityScore: null,
+        sortOrder: 0,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .run();
+  }
+
+  const states: Array<{
+    itemId: string;
+    dimension: 'understanding' | 'production';
+    level: number;
+    nextReviewAt: string | null;
+    lastReviewAt: string | null;
+  }> = [
+    {
+      itemId: 'e2e-item-stable',
+      dimension: 'understanding',
+      level: 3,
+      nextReviewAt: yesterday,
+      lastReviewAt: fourDaysAgo,
+    },
+    {
+      itemId: 'e2e-item-wear-down',
+      dimension: 'understanding',
+      level: 2,
+      nextReviewAt: yesterday,
+      lastReviewAt: fourDaysAgo,
+    },
+    {
+      itemId: 'e2e-item-raw',
+      dimension: 'understanding',
+      level: 2,
+      nextReviewAt: inSevenDays,
+      lastReviewAt: fourDaysAgo,
+    },
+    {
+      itemId: 'e2e-item-raw',
+      dimension: 'production',
+      level: 1,
+      nextReviewAt: yesterday,
+      lastReviewAt: fourDaysAgo,
+    },
+    {
+      itemId: 'e2e-item-make-sense',
+      dimension: 'understanding',
+      level: 5,
+      nextReviewAt: yesterday,
+      lastReviewAt: fourDaysAgo,
+    },
+  ];
+  for (const st of states) {
+    db.insert(reviewStates)
+      .values({
+        id: `e2e-state-${st.itemId}-${st.dimension}`,
+        learningItemId: st.itemId,
+        dimension: st.dimension,
+        level: st.level,
+        stable: 0,
+        nextReviewAt: st.nextReviewAt,
+        lastReviewAt: st.lastReviewAt,
+        correctStreak: st.level,
+        wrongStreak: 0,
+        updatedAt: nowIso,
+      })
+      .run();
+  }
+
+  for (const q of SEED_QUESTIONS) {
+    db.insert(questions)
+      .values({
+        id: q.id,
+        learningItemId: q.itemId,
+        type: q.type,
+        status: 'fresh',
+        meaningSnapshot: items.find((i) => i.id === q.itemId)?.meaning ?? '',
+        promptText: q.promptText,
+        contextText: q.contextText,
+        payloadJson: JSON.stringify(q.payload),
+        correctOptionId: q.correctOptionId,
+        promptKey: 'seed',
+        promptVersion: 1,
+        promptHash: 'seed',
+        model: 'seed',
+        useCount: 0,
+        correctCount: 0,
+        lastUsedAt: null,
+        retiredAt: null,
+        createdAt,
+      })
+      .run();
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// 服务入口
+// ---------------------------------------------------------------------------
 
 function main(): void {
   const config = loadConfig();
@@ -14,6 +326,10 @@ function main(): void {
 
   const db = createDatabase(dbPath);
   runMigrations(db);
+  if (process.env.E2E_SEED === '1') {
+    const seeded = seedE2eData(db);
+    console.info(`[e2e] seed ${seeded ? 'created' : 'skipped (already present)'}`);
+  }
   const app = buildApp({ config, db, logger: false });
 
   void app.listen({ port: config.port, host: config.host }).then(() => {
@@ -21,4 +337,16 @@ function main(): void {
   });
 }
 
-main();
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (isMain) {
+  main();
+}

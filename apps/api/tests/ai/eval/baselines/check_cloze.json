@@ -1,0 +1,9 @@
+{
+  "promptVersion": 1,
+  "cases": {
+    "cc01-inflection-accept": "9c973862a713863f",
+    "cc02-target-inflection-accept": "284e9a7923ab9659",
+    "cc03-synonym-reject": "4a19e646d319569d",
+    "cc04-typo-reject": "4a19e646d319569d"
+  }
+}

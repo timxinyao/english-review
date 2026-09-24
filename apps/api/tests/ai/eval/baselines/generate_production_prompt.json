@@ -1,0 +1,7 @@
+{
+  "promptVersion": 1,
+  "cases": {
+    "gp01-chunk": "89bb47476db8e3bf",
+    "gp02-word-polysemy-lock": "32812f1d91467635"
+  }
+}

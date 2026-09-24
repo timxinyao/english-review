@@ -1,0 +1,11 @@
+{
+  "promptVersion": 1,
+  "cases": {
+    "cp01-natural-pass": "ac5814fb5d7d9389",
+    "cp02-small-grammar-basic": "17c2ae8627482a87",
+    "cp03-wrong-meaning-fail": "4415d06e45dc3f70",
+    "cp04-alternative-natural-pass": "aa6973e8e847fb88",
+    "cp05-missing-target-fail": "d201778e9f0491b5",
+    "cp06-punctuation-only-pass": "b2b6724c16a7da3d"
+  }
+}

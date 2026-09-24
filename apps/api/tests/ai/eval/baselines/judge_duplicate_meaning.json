@@ -1,0 +1,8 @@
+{
+  "promptVersion": 1,
+  "cases": {
+    "jd01-merge-same-meaning": "56d5a74ac9e43260",
+    "jd02-new-polysemy": "56d5a74ac9e43260",
+    "jd03-exact-duplicate": "5062d1d79617336e"
+  }
+}

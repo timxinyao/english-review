@@ -1,0 +1,27 @@
+{
+  "name": "english-review",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.22.0",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "e2e": "pnpm --filter @el/web run e2e",
+    "ai:eval": "pnpm --filter @el/api run ai:eval"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

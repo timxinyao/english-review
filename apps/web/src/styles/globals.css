@@ -1,0 +1,58 @@
+@import 'tailwindcss';
+
+/*
+ * 全局样式唯一来源（docs/ARCHITECTURE.md §3.2）
+ * 设计取值遵循 PRODUCT_DESIGN §12：暖白背景、深灰文字、
+ * 低饱和暖色强调、细边框、极少阴影。
+ * 新增视觉语义必须先加 token，再使用工具类。
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-diff-delete: var(--diff-delete);
+  --color-diff-insert: var(--diff-insert);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.25rem);
+}
+
+:root {
+  --background: #faf9f6; /* 暖白 */
+  --foreground: #3d3a34; /* 深暖灰 */
+  --card: #ffffff;
+  --card-foreground: #3d3a34;
+  --muted: #efece5;
+  --muted-foreground: #8a8378;
+  --accent: #a8541f; /* 低饱和暖橙 */
+  --accent-foreground: #ffffff;
+  --accent-soft: #f5e7dc;
+  --border: #e5e0d6;
+  --input: #d9d3c7;
+  --destructive: #b3402a;
+  --success: #4a7c59;
+  --diff-delete: #b3402a;
+  --diff-insert: #3e7d52;
+  --radius: 0.5rem;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'PingFang SC',
+    'Noto Sans SC',
+    sans-serif;
+}

@@ -16,15 +16,15 @@ export function parseBody<T>(schema: ZodType<T>, data: unknown): T {
 /** 统一错误响应：{ error: { code, message } }，不泄漏内部细节 */
 export function errorHandler(error: unknown, _req: FastifyRequest, reply: FastifyReply): void {
   if (error instanceof AppError) {
-    void reply.status(error.statusCode).send({ error: { code: error.code, message: error.message } });
+    void reply
+      .status(error.statusCode)
+      .send({ error: { code: error.code, message: error.message } });
     return;
   }
   // Zod 直接抛出（未经 parseBody）也归一化为 400
   const err = error as { name?: string; issues?: unknown[] };
   if (err?.name === 'ZodError') {
-    void reply
-      .status(400)
-      .send({ error: { code: 'VALIDATION_ERROR', message: '请求参数无效' } });
+    void reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: '请求参数无效' } });
     return;
   }
   _req.log.error({ err: error }, 'unhandled error');

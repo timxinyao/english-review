@@ -82,8 +82,7 @@ describe('auth', () => {
     const loginCookieHeader = login.headers['set-cookie'];
     const cookie = (
       Array.isArray(loginCookieHeader) ? loginCookieHeader[0] : loginCookieHeader
-    )!
-      .split(';')[0]!;
+    )!.split(';')[0]!;
 
     const logout = await app.inject({
       method: 'POST',
@@ -109,8 +108,7 @@ describe('auth', () => {
     const loginCookieHeader = login.headers['set-cookie'];
     const cookie = (
       Array.isArray(loginCookieHeader) ? loginCookieHeader[0] : loginCookieHeader
-    )!
-      .split(';')[0]!;
+    )!.split(';')[0]!;
     const res = await app.inject({
       method: 'PATCH',
       url: '/api/settings',

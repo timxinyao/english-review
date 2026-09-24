@@ -149,6 +149,14 @@ export function renderPrompt(
     return rendered[name]!;
   });
 
-  const { body: _body, ...meta } = prompt;
+  const meta: PromptMeta = {
+    key: prompt.key,
+    version: prompt.version,
+    task: prompt.task,
+    responseSchemaName: prompt.responseSchemaName,
+    hash: prompt.hash,
+    filePath: prompt.filePath,
+    variables: prompt.variables,
+  };
   return { text, meta };
 }

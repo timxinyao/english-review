@@ -32,10 +32,7 @@
         "count": 3,
         "recent_question_summaries": []
       },
-      "expected_invariants": [
-        "must not test raw=疼痛/粗糙等其他义项",
-        "new contexts are natural"
-      ]
+      "expected_invariants": ["must not test raw=疼痛/粗糙等其他义项", "new contexts are natural"]
     }
   ]
 }

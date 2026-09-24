@@ -6,7 +6,7 @@
 
 | Phase | 名称 | 目标一句话 | 状态 | 留档 |
 | --- | --- | --- | --- | --- |
-| 1 | 工程地基 | Monorepo/DB/认证/Prompt Registry/AI Provider/测试与 lint 基础 | in-progress | [phase-1-foundation.md](phases/phase-1-foundation.md) |
+| 1 | 工程地基 | Monorepo/DB/认证/Prompt Registry/AI Provider/测试与 lint 基础 | done（2026-09-24） | [phase-1-foundation.md](phases/phase-1-foundation.md) |
 | 2 | 内容进出 | Import→New Queue→Library 管理→导出（含 AI 重复判定） | planned | [phase-2-content.md](phases/phase-2-content.md) |
 | 3 | 复习引擎与 Today | 状态机、Session、理解/填空题、补强、坏题撤销 | planned | [phase-3-review.md](phases/phase-3-review.md) |
 | 4 | 表达与个人例句 | 表达题生成/实时批改/diff、Personal Example、练一下 | planned | [phase-4-production.md](phases/phase-4-production.md) |

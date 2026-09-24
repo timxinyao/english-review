@@ -43,11 +43,15 @@ interface CaseResult {
   digest: string;
 }
 
-const HERE = fileURLToPath(new URL('.', import.meta.url));
 const FIXTURES_DIR = fileURLToPath(new URL('../tests/ai/eval/fixtures', import.meta.url));
 const BASELINES_DIR = fileURLToPath(new URL('../tests/ai/eval/baselines', import.meta.url));
 
-function parseArgs(): { task: string | null; all: boolean; provider: 'mock' | 'glm' | 'auto'; saveBaseline: boolean } {
+function parseArgs(): {
+  task: string | null;
+  all: boolean;
+  provider: 'mock' | 'glm' | 'auto';
+  saveBaseline: boolean;
+} {
   const args = process.argv.slice(2);
   const out = {
     task: null as string | null,
@@ -66,7 +70,9 @@ function parseArgs(): { task: string | null; all: boolean; provider: 'mock' | 'g
     } else if (args[i] === '--save-baseline') out.saveBaseline = true;
   }
   if (!out.all && !out.task) {
-    console.error('用法：pnpm ai:eval -- --task <task|prompt_key> | --all [--provider mock|glm] [--save-baseline]');
+    console.error(
+      '用法：pnpm ai:eval -- --task <task|prompt_key> | --all [--provider mock|glm] [--save-baseline]',
+    );
     process.exit(2);
   }
   return out;
@@ -84,7 +90,11 @@ function digestOf(data: unknown): string {
 }
 
 /** 期望结果对比（有标签任务） */
-function expectedFailures(task: AiTask, output: unknown, expected: Record<string, unknown>): string[] {
+function expectedFailures(
+  task: AiTask,
+  output: unknown,
+  expected: Record<string, unknown>,
+): string[] {
   const failures: string[] = [];
   const out = output as Record<string, unknown>;
   if (task === 'checkProduction' && 'result' in expected) {
@@ -99,7 +109,9 @@ function expectedFailures(task: AiTask, output: unknown, expected: Record<string
   }
   if (task === 'judgeDuplicateMeaning' && 'decision' in expected) {
     if ((out as JudgeDuplicateMeaningResult).decision !== expected.decision) {
-      failures.push(`decision=${(out as JudgeDuplicateMeaningResult).decision}，期望 ${expected.decision}`);
+      failures.push(
+        `decision=${(out as JudgeDuplicateMeaningResult).decision}，期望 ${expected.decision}`,
+      );
     }
   }
   return failures;
@@ -111,7 +123,13 @@ async function runTask(
   config: AppConfig,
   registry: ReturnType<typeof loadPromptRegistry>,
   saveBaseline: boolean,
-): Promise<{ total: number; passed: number; failed: CaseResult[]; changed: string[]; manual: number }> {
+): Promise<{
+  total: number;
+  passed: number;
+  failed: CaseResult[];
+  changed: string[];
+  manual: number;
+}> {
   const spec = AI_TASK_CATALOG[task];
   const fixturePath = `${FIXTURES_DIR}/${spec.promptKey}.sample.json`;
   const fixture = JSON.parse(readFileSync(fixturePath, 'utf-8')) as Fixture;
@@ -139,7 +157,8 @@ async function runTask(
     } catch (err) {
       failures.push((err as Error).message);
     }
-    if (data && c.expected && !skipExpected) failures.push(...expectedFailures(task, data, c.expected));
+    if (data && c.expected && !skipExpected)
+      failures.push(...expectedFailures(task, data, c.expected));
     if (fixtureCaseHasInvariants(c)) manualNotes.push(c);
 
     results.push({ id: c.id, ok: failures.length === 0, failures, digest: digestOf(data) });
@@ -160,14 +179,19 @@ async function runTask(
   console.log(
     `prompt v${prompt.version} hash=${prompt.hash.slice(0, 12)} model=${provider.name === 'mock' ? `mock(${taskConf.model})` : taskConf.model} provider=${provider.name}`,
   );
-  if (skipExpected) console.log('（mock 模式：跳过语言判定类 expected 对比，仅验证 Schema/不变式）');
+  if (skipExpected)
+    console.log('（mock 模式：跳过语言判定类 expected 对比，仅验证 Schema/不变式）');
   const passed = results.filter((r) => r.ok).length;
-  console.log(`fixtures: ${results.length}，schema/不变式通过: ${passed}，失败: ${results.length - passed}`);
+  console.log(
+    `fixtures: ${results.length}，schema/不变式通过: ${passed}，失败: ${results.length - passed}`,
+  );
   for (const r of results.filter((x) => !x.ok)) {
     console.log(`  ✗ ${r.id}: ${r.failures.join('；')}`);
   }
   if (baseline?.cases) {
-    console.log(changed.length ? `changed cases（对比基线）: ${changed.join(', ')}` : 'changed cases: 无');
+    console.log(
+      changed.length ? `changed cases（对比基线）: ${changed.join(', ')}` : 'changed cases: 无',
+    );
   } else {
     console.log('changed cases: 无基线可对比（首次可用 --save-baseline 生成）');
   }
@@ -180,7 +204,10 @@ async function runTask(
     writeFileSync(
       baselinePath,
       JSON.stringify(
-        { promptVersion: meta.promptVersion, cases: Object.fromEntries(results.map((r) => [r.id, r.digest])) },
+        {
+          promptVersion: meta.promptVersion,
+          cases: Object.fromEntries(results.map((r) => [r.id, r.digest])),
+        },
         null,
         2,
       ) + '\n',
@@ -188,7 +215,13 @@ async function runTask(
     console.log(`已保存基线：${baselinePath}`);
   }
 
-  return { total: results.length, passed, failed: results.filter((r) => !r.ok), changed, manual: manualNotes.length };
+  return {
+    total: results.length,
+    passed,
+    failed: results.filter((r) => !r.ok),
+    changed,
+    manual: manualNotes.length,
+  };
 }
 
 function fixtureCaseHasInvariants(c: FixtureCase): boolean {
@@ -206,9 +239,7 @@ async function main(): Promise<void> {
   validateRegistry(registry);
   const provider = resolveProvider(args.provider, config);
 
-  const tasks: AiTask[] = args.all
-    ? [...AI_TASKS]
-    : [resolveTask(args.task!)];
+  const tasks: AiTask[] = args.all ? [...AI_TASKS] : [resolveTask(args.task!)];
 
   let exitCode = 0;
   for (const task of tasks) {

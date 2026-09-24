@@ -34,7 +34,8 @@ export function checkAiOutput(
         if (ids.size !== q.options.length) violations.push(`第 ${i + 1} 题 option id 重复`);
         const texts = new Set(q.options.map((o) => o.text));
         if (texts.size !== q.options.length) violations.push(`第 ${i + 1} 题选项文本重复`);
-        if (!ids.has(q.correct_option_id)) violations.push(`第 ${i + 1} 题 correct_option_id 不存在`);
+        if (!ids.has(q.correct_option_id))
+          violations.push(`第 ${i + 1} 题 correct_option_id 不存在`);
       });
       break;
     }
@@ -49,7 +50,8 @@ export function checkAiOutput(
     case 'generateProductionPrompt': {
       const out = output as { must_use: string; reference_answer: string };
       const target = String(vars.target ?? '');
-      if (out.must_use !== target) violations.push(`must_use "${out.must_use}" ≠ target "${target}"`);
+      if (out.must_use !== target)
+        violations.push(`must_use "${out.must_use}" ≠ target "${target}"`);
       const ref = out.reference_answer.toLowerCase();
       const head = target.split(/\s+/)[0]?.toLowerCase() ?? '';
       if (head && !ref.includes(head)) violations.push('reference_answer 未包含目标词');

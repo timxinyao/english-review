@@ -21,7 +21,9 @@ export const learningItems = sqliteTable(
     ipa: text('ipa'),
     source: text('source'),
     sourceUrl: text('source_url'),
-    tagsJson: text('tags_json').notNull().default(sql`'[]'`),
+    tagsJson: text('tags_json')
+      .notNull()
+      .default(sql`'[]'`),
     notes: text('notes'),
     status: text('status').notNull().default('active'), // active|mastered|paused|archived
     queueState: text('queue_state').notNull().default('new'), // new|started
@@ -97,7 +99,9 @@ export const questions = sqliteTable(
     meaningSnapshot: text('meaning_snapshot').notNull(),
     promptText: text('prompt_text'),
     contextText: text('context_text'),
-    payloadJson: text('payload_json').notNull().default(sql`'{}'`),
+    payloadJson: text('payload_json')
+      .notNull()
+      .default(sql`'{}'`),
     correctOptionId: text('correct_option_id'),
     promptKey: text('prompt_key').notNull(),
     promptVersion: integer('prompt_version').notNull(),
@@ -110,7 +114,11 @@ export const questions = sqliteTable(
     createdAt: text('created_at').notNull(),
   },
   (t) => ({
-    itemTypeStatusIdx: index('idx_questions_item_type_status').on(t.learningItemId, t.type, t.status),
+    itemTypeStatusIdx: index('idx_questions_item_type_status').on(
+      t.learningItemId,
+      t.type,
+      t.status,
+    ),
     statusRetiredIdx: index('idx_questions_status_retired').on(t.status, t.retiredAt),
   }),
 );

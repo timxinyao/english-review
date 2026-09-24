@@ -10,8 +10,11 @@ export const MaxNewItemsPerDay = z
   .number()
   .int()
   .refine(
-    (v) => v === MAX_NEW_ITEMS_UNLIMITED || (MAX_NEW_ITEMS_CHOICES as readonly number[]).includes(v),
-    { message: `必须是 ${MAX_NEW_ITEMS_CHOICES.join('/')} 或 ${MAX_NEW_ITEMS_UNLIMITED}（不限制）` },
+    (v) =>
+      v === MAX_NEW_ITEMS_UNLIMITED || (MAX_NEW_ITEMS_CHOICES as readonly number[]).includes(v),
+    {
+      message: `必须是 ${MAX_NEW_ITEMS_CHOICES.join('/')} 或 ${MAX_NEW_ITEMS_UNLIMITED}（不限制）`,
+    },
   );
 export type MaxNewItemsPerDay = z.infer<typeof MaxNewItemsPerDay>;
 

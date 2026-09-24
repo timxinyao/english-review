@@ -30,9 +30,9 @@ describe('parseFrontmatter', () => {
   });
 
   it('缺少闭合分隔线时报错', () => {
-    expect(() => parseFrontmatter('---\nkey: x\nversion: 1\ntask: t\nresponse_schema: S\n')).toThrow(
-      /闭合/,
-    );
+    expect(() =>
+      parseFrontmatter('---\nkey: x\nversion: 1\ntask: t\nresponse_schema: S\n'),
+    ).toThrow(/闭合/);
   });
 
   it('缺少必需字段时报错', () => {
@@ -41,14 +41,12 @@ describe('parseFrontmatter', () => {
   });
 
   it('version 非正整数时报错', () => {
-    const bad =
-      '---\nkey: x\nversion: two\ntask: t\nresponse_schema: S\n---\nbody';
+    const bad = '---\nkey: x\nversion: two\ntask: t\nresponse_schema: S\n---\nbody';
     expect(() => parseFrontmatter(bad)).toThrow(/version/);
   });
 
   it('未知字段时报错', () => {
-    const bad =
-      '---\nkey: x\nversion: 1\ntask: t\nresponse_schema: S\nextra: 1\n---\nbody';
+    const bad = '---\nkey: x\nversion: 1\ntask: t\nresponse_schema: S\nextra: 1\n---\nbody';
     expect(() => parseFrontmatter(bad)).toThrow(/extra/);
   });
 

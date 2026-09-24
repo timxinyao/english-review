@@ -27,9 +27,7 @@ function toDto(row: {
 async function ensureRow(db: AppDatabase) {
   const existing = await db.select().from(settingsTable).where(eq(settingsTable.id, ROW_ID));
   if (existing.length === 0) {
-    await db
-      .insert(settingsTable)
-      .values({ id: ROW_ID, ...DEFAULT_SETTINGS, updatedAt: nowIso() });
+    await db.insert(settingsTable).values({ id: ROW_ID, ...DEFAULT_SETTINGS, updatedAt: nowIso() });
   }
 }
 

@@ -149,7 +149,8 @@ function duplicate(req: ProviderRequest): string {
   const candidate = (req.vars.candidate_item ?? {}) as { target?: string; meaning?: string };
   const sameTarget = norm(str(existing.target)) === norm(str(candidate.target));
   const sameMeaning = norm(str(existing.meaning)) === norm(str(candidate.meaning));
-  const decision = sameTarget && sameMeaning ? 'skip_exact_duplicate' : sameTarget ? 'merge' : 'new_item';
+  const decision =
+    sameTarget && sameMeaning ? 'skip_exact_duplicate' : sameTarget ? 'merge' : 'new_item';
   return JSON.stringify({
     decision,
     confidence: 0.6,

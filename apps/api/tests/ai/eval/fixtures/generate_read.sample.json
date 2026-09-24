@@ -34,9 +34,7 @@
             "meaning": "有道理；讲得通"
           }
         ],
-        "recent_read_types": [
-          "story"
-        ]
+        "recent_read_types": ["story"]
       },
       "expected_invariants": [
         "180 <= english_word_count(body) <= 400",

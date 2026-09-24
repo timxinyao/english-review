@@ -1,8 +1,9 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { LibraryItemDetail } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
-import { questions } from '../../src/db/schema.js';
+import { attempts, questions } from '../../src/db/schema.js';
 import { createTestApp, loginCookie, type TestApp } from '../helpers/test-app.js';
 import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
 
@@ -269,6 +270,120 @@ describe('GET /api/library/:id 详情', () => {
     expect(dims.get('understanding')!.stable).toBe(false);
     expect(dims.get('understanding')!.nextReviewAt).toBe(T.nextU);
     expect(dims.get('production')!.level).toBe(0);
+  });
+
+  it('productionHistory：该 item 的 production attempts 最新 10 条倒序；PATCH 后同样返回', async () => {
+    const { app, db, cookie } = await newApp();
+    const ids = await seedLibrary(db);
+    // wear down：1 道表达题 + 12 条历史 attempts（today 模式）
+    const qid = await seedQuestion(db, ids.wearDown, {
+      type: 'production',
+      promptText: '请使用 wear down 造句。',
+      payloadJson: JSON.stringify({
+        mustUse: 'wear down',
+        referenceAnswer: 'The stress wears me down.',
+        acceptanceNotes: '允许变化。',
+      }),
+    });
+    // 一道选择题（不应出现在 productionHistory）
+    await seedQuestion(db, ids.wearDown, {
+      type: 'understanding',
+      payloadJson: JSON.stringify({
+        options: [
+          { id: 'o1', text: '消耗' },
+          { id: 'o2', text: '支持' },
+        ],
+      }),
+      correctOptionId: 'o1',
+    });
+    for (let i = 0; i < 12; i++) {
+      const mode = i % 3 === 0 ? 'library_practice' : 'today';
+      await db
+        .insert(attempts)
+        .values({
+          id: `ph-a-${String(i).padStart(2, '0')}`,
+          reviewTaskId: null,
+          learningItemId: ids.wearDown,
+          questionId: i === 5 ? null : qid,
+          mode,
+          answerText: `Original ${i}`,
+          selectedOptionId: null,
+          result: i % 2 === 0 ? 'pass' : 'fail',
+          viewedSource: 0,
+          feedback: null,
+          correctionJson:
+            i % 2 === 0
+              ? JSON.stringify({
+                  segments: [{ text: `Original ${i}`, type: 'same' }],
+                  corrected: `Corrected ${i}`,
+                  better: i === 4 ? 'Better 4' : null,
+                })
+              : JSON.stringify({
+                  segments: [
+                    { text: `Original ${i}`, type: 'delete' },
+                    { text: `Corrected ${i}`, type: 'insert' },
+                  ],
+                  corrected: `Corrected ${i}`,
+                  better: null,
+                }),
+          explanation: '解释',
+          betterVersion: i === 4 ? 'Better 4' : null,
+          aiPromptKey: 'check_production',
+          aiPromptVersion: 1,
+          aiPromptHash: 'hash',
+          aiModel: 'mock',
+          preStateJson: null,
+          postStateJson: null,
+          createdAt: `2026-09-${String(10 + i).padStart(2, '0')}T00:00:00.000Z`,
+          voidedAt: null,
+        })
+        .run();
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/library/${ids.wearDown}`,
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = LibraryItemDetail.parse(res.json());
+    expect(body.productionHistory).toHaveLength(10); // 只保留最新 10 条
+    expect(body.productionHistory[0]!.id).toBe('ph-a-11');
+    expect(body.productionHistory.map((h) => h.id)).not.toContain('ph-a-00');
+    const first = body.productionHistory[0]!;
+    expect(first).toEqual({
+      id: 'ph-a-11',
+      createdAt: '2026-09-21T00:00:00.000Z',
+      originalText: 'Original 11',
+      correctedSentence: 'Corrected 11',
+      betterVersion: null,
+      result: 'fail',
+      mode: 'today',
+    });
+    const fourth = body.productionHistory.find((h) => h.id === 'ph-a-08')!;
+    expect(fourth.correctedSentence).toBe('Corrected 8');
+
+    // PATCH 响应同样携带 productionHistory
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/api/library/${ids.wearDown}`,
+      headers: { cookie },
+      payload: { notes: '更新' },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(LibraryItemDetail.parse(patched.json()).productionHistory).toHaveLength(10);
+  });
+
+  it('无造句历史 → productionHistory 为空数组', async () => {
+    const { app, db, cookie } = await newApp();
+    const ids = await seedLibrary(db);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/library/${ids.gravity}`,
+      headers: { cookie },
+    });
+    const body = LibraryItemDetail.parse(res.json());
+    expect(body.productionHistory).toEqual([]);
   });
 
   it('不存在返回 404', async () => {

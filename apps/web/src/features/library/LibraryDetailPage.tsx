@@ -23,6 +23,8 @@ import {
   resumeLibraryItem,
   updateLibraryItem,
 } from './api';
+import { PracticeView } from './PracticeView';
+import { ProductionHistoryList } from './ProductionHistoryList';
 
 const DIMENSION_LABELS = { understanding: '理解', production: '输出' } as const;
 
@@ -312,6 +314,7 @@ export function LibraryDetailPage() {
   const { id = '' } = useParams();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [practicing, setPracticing] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   const { data, isLoading, isError } = useQuery({
@@ -357,6 +360,11 @@ export function LibraryDetailPage() {
   }
   if (isError || !data) {
     return <p className="py-16 text-center text-sm text-destructive">读取失败，请刷新重试。</p>;
+  }
+
+  // “练一下”是详情内的临时练习视图（PRODUCT §4.4），退出后回到详情
+  if (practicing) {
+    return <PracticeView itemId={id} onExit={() => setPracticing(false)} />;
   }
 
   const { item } = data;
@@ -505,6 +513,8 @@ export function LibraryDetailPage() {
             </div>
           </section>
 
+          <ProductionHistoryList history={data.productionHistory} />
+
           <section className="space-y-2">
             <h2 className="text-sm font-medium">学习状态</h2>
             {data.reviewStates.length > 0 ? (
@@ -531,6 +541,9 @@ export function LibraryDetailPage() {
           <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               编辑
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setPracticing(true)}>
+              练一下
             </Button>
             {item.status === 'active' && (
               <Button

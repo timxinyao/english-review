@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnswerResponse, TodayProgress, TodayTaskView } from '@el/shared';
+import { CORRECT_AUTO_ADVANCE_MS } from '../../../lib/questions';
 import { cn } from '../../../lib/utils';
 import { TaskCard } from './TaskCard';
 
 /** 答对后的自动下一题延迟（PRODUCT §7.6：约 2 秒，点击任意处立即继续） */
-export const CORRECT_AUTO_ADVANCE_MS = 2000;
+export { CORRECT_AUTO_ADVANCE_MS };
+
+/** 手动下一题的题型（PRODUCT §7.6：填空与表达题）；learn/理解题（选择题）答对自动下一题 */
+const MANUAL_ADVANCE_TYPES: ReadonlySet<TodayTaskView['taskType']> = new Set([
+  'cloze',
+  'production',
+]);
 
 /** 冻结的作答反馈：任务 + 结果，advance 前一直展示（含最后一题答完会话已完成的情况） */
 export interface FrozenAnswer {
@@ -62,9 +69,10 @@ export function ActiveSession({
     [onAnswered],
   );
 
-  // 选择题答对：约 2 秒后自动下一题（填空题答对为手动下一题；confirm 弹窗期间 hold 暂停）
+  // 选择题答对：约 2 秒后自动下一题（填空/表达题手动下一题；confirm 弹窗期间 hold 暂停）
   useEffect(() => {
-    if (!frozen || !frozen.result.correct || frozen.task.taskType === 'cloze' || hold) return;
+    if (!frozen || !frozen.result.correct || MANUAL_ADVANCE_TYPES.has(frozen.task.taskType) || hold)
+      return;
     const timer = setTimeout(onAdvance, CORRECT_AUTO_ADVANCE_MS);
     return () => clearTimeout(timer);
   }, [frozen, hold, onAdvance]);

@@ -44,9 +44,7 @@ export const TodayTaskView = z.object({
   sourceExample: z.string().nullable(),
   /** 补充/个人例句（learn 卡最多展示 1 条） */
   supplementaryExamples: z.array(z.string()),
-  question: z
-    .union([ChoiceQuestionView, ClozeQuestionView, ProductionQuestionView])
-    .nullable(),
+  question: z.union([ChoiceQuestionView, ClozeQuestionView, ProductionQuestionView]).nullable(),
 });
 export type TodayTaskView = z.infer<typeof TodayTaskView>;
 

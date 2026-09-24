@@ -13,6 +13,15 @@ async function login(page: Page) {
   await page.waitForURL(/\/today$/);
 }
 
+/** 会话型 spec 共享同一 e2e.db，而一天只允许一个正式 session：开头重置回种子状态 */
+async function resetSeedData(page: Page) {
+  const res = await page.evaluate(async () => {
+    const r = await fetch('/api/__e2e/reset', { method: 'POST', credentials: 'include' });
+    return r.status;
+  });
+  if (res !== 200) throw new Error(`reset 失败：${res}`);
+}
+
 /** 答对后：点击任意处立即继续；若 2 秒自动下一题已先行触发则忽略 */
 async function continueAfterCorrect(page: Page) {
   const feedback = page.getByText('回答正确');
@@ -28,17 +37,19 @@ test.describe('Today 复习全流程', () => {
   test('idle → 开始 → Learn + 选择/填空/稍后/答错 → 完成摘要', async ({ page }) => {
     test.setTimeout(120_000);
     await login(page);
+    await resetSeedData(page);
+    await page.goto('/today');
 
-    // idle 主卡片：种子 4 个到期；new today 为剩余新学额度（种子库含 1 个 new queue 项）
+    // idle 主卡片：种子 5 个到期（Phase 4 新增 give up 的 P 任务）；new today 为剩余新学额度
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
-    await expect(page.getByText(/^4 items due · \d+ new today$/)).toBeVisible();
+    await expect(page.getByText(/^5 items due · \d+ new today$/)).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
     // active 态：细进度行
     await expect(page.getByText(/^\d+ \/ \d+$/)).toBeVisible();
 
     // 计划：gravity 学对；stable 答错一次看解释；wear down 稍后一次回来再答对；
-    // make sense 答对走自动下一题；raw 填空答对；未知补强卡兜底处理。
+    // make sense 答对走自动下一题；raw 填空答对；give up 表达题答对（Phase 4 种子）；未知补强卡兜底处理。
     let stableFailed = false;
     let wearDownDeferred = false;
     let completed = false;
@@ -47,6 +58,15 @@ test.describe('Today 复习全流程', () => {
       if (await page.getByRole('heading', { name: '今天完成了' }).isVisible()) {
         completed = true;
         break;
+      }
+
+      // 0) 表达卡（give up，Phase 4 种子）：提交包含目标词的句子，通过后手动下一题
+      if (await page.getByText('长期的压力让我想放弃。').isVisible()) {
+        await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+        await page.getByRole('button', { name: '提交' }).click();
+        await expect(page.getByText('通过', { exact: true })).toBeVisible();
+        await page.getByRole('button', { name: '下一题' }).click();
+        continue;
       }
 
       // 1) Learn 卡（gravity）：以 source example 识别，答对首道选择题

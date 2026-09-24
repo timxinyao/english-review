@@ -10,6 +10,7 @@ import {
   type AnswerRequest,
   type AnswerResponse,
   type BadQuestionResponse,
+  type CorrectionView,
   type LaterResponse,
   type TaskFeedbackResponse,
   type TodayActiveResponse,
@@ -31,15 +32,27 @@ import {
   reviewTasks,
   settings,
 } from '../../db/schema.js';
-import { appError } from '../../lib/errors.js';
-import type { DbExecutor, DbTx } from '../questions/service.js';
+import { AppError, appError } from '../../lib/errors.js';
+import {
+  productionQuestionTypeFor,
+  type DbExecutor,
+  type DbTx,
+  type ProductionEvaluation,
+  type QuestionPoolType,
+  type QuestionRow,
+} from '../questions/service.js';
+import {
+  maybeSavePersonalExample,
+  trimProductionHistory,
+  type PersonalExampleSaveResult,
+} from '../learning-items/service.js';
 
-export type QuestionRow = typeof questions.$inferSelect;
+export type { QuestionRow };
 type TaskRow = typeof reviewTasks.$inferSelect;
 type SessionRow = typeof reviewSessions.$inferSelect;
 type ReviewStateRow = typeof reviewStates.$inferSelect;
 type Dimension = 'understanding' | 'production';
-export type QuestionKind = 'understanding' | 'cloze';
+export type QuestionKind = QuestionPoolType;
 
 // ---------------------------------------------------------------------------
 // 依赖接口（review / questions 模块的适配层；默认绑定真实模块，测试可注入 fake）
@@ -65,9 +78,18 @@ export interface StateSnapshot {
   queueState: string;
   /** 仅 post：本次结算新增的补强任务 id */
   reinforcementTaskIds?: string[];
+  /** 仅 post：本次结算写入的 Personal Example id（坏题撤销时删除该例句的依据） */
+  personalExampleId?: string | null;
 }
 
 export type AdvanceKind = 'pass' | 'basic_pass' | 'fail';
+
+/** maybeSavePersonalExample 的"未沉淀"结果（非表达题路径共用） */
+const SKIP_PERSONAL: PersonalExampleSaveResult = {
+  saved: false,
+  replacedExampleId: null,
+  exampleId: null,
+};
 
 /** review.advanceReviewState 的 outcome 入参 */
 export interface ReviewOutcomeInput {
@@ -84,7 +106,8 @@ export interface EvaluateOutcome {
  * - advance（= review.advanceReviewState）：同步事务内调用，读行→计算→写回→mastered 判定
  * - initial*（= review.initialUnderstandingAfterLearn / initialProductionActivation）：纯函数
  * - acquire（= questions.acquireQuestion）：同步取题并置 active（事务外调用）
- * - generate（= questions.generateQuestionsForItem）/ evaluateCloze（含 AI 兜底）：仅事务外调用
+ * - generate（= questions.generateQuestionsForItem）/ evaluateCloze / evaluateProduction
+ *   （check_production 实时批改）：仅事务外调用
  */
 export interface TodayDeps {
   advance(
@@ -110,6 +133,12 @@ export interface TodayDeps {
     question: QuestionRow,
     answerText: string,
   ): Promise<EvaluateOutcome>;
+  /** 表达题批改（事务外）：失败抛错，由 answerTodayTask 归一化为 AI_PROVIDER_ERROR */
+  evaluateProduction(
+    db: AppDatabase,
+    question: QuestionRow,
+    answerText: string,
+  ): Promise<ProductionEvaluation>;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +187,7 @@ export async function loadRealTodayDeps(): Promise<TodayDeps> {
   const generateFn = requireFn(questionsMod, 'generateQuestionsForItem');
   const evaluateChoiceFn = requireFn(questionsMod, 'evaluateChoice');
   const evaluateClozeFn = requireFn(questionsMod, 'evaluateCloze');
+  const evaluateProductionFn = requireFn(questionsMod, 'evaluateProduction');
 
   return {
     advance: (tx, itemId, dimension, outcome, now) =>
@@ -182,6 +212,12 @@ export async function loadRealTodayDeps(): Promise<TodayDeps> {
       };
       return { correct: r.correct === true };
     },
+    evaluateProduction: async (db, question, answerText) =>
+      (await evaluateProductionFn(
+        { db, runtime: getAiRuntime() },
+        question,
+        answerText,
+      )) as ProductionEvaluation,
   };
 }
 
@@ -356,6 +392,8 @@ function restoreSnapshot(
 interface StatsDelta {
   formal?: number;
   newItems?: number;
+  productionAttempts?: number;
+  productionPass?: number;
 }
 
 function bumpDailyStats(exec: DbExecutor, date: string, delta: StatsDelta, nowIso: string): void {
@@ -363,6 +401,11 @@ function bumpDailyStats(exec: DbExecutor, date: string, delta: StatsDelta, nowIs
   const next = {
     formalTasksCompleted: Math.max(0, (row?.formalTasksCompleted ?? 0) + (delta.formal ?? 0)),
     newItemsStarted: Math.max(0, (row?.newItemsStarted ?? 0) + (delta.newItems ?? 0)),
+    productionAttempts: Math.max(
+      0,
+      (row?.productionAttempts ?? 0) + (delta.productionAttempts ?? 0),
+    ),
+    productionPass: Math.max(0, (row?.productionPass ?? 0) + (delta.productionPass ?? 0)),
   };
   if (row) {
     exec
@@ -373,14 +416,7 @@ function bumpDailyStats(exec: DbExecutor, date: string, delta: StatsDelta, nowIs
   } else {
     exec
       .insert(dailyStats)
-      .values({
-        date,
-        formalTasksCompleted: next.formalTasksCompleted,
-        newItemsStarted: next.newItemsStarted,
-        productionAttempts: 0,
-        productionPass: 0,
-        updatedAt: nowIso,
-      })
+      .values({ date, ...next, updatedAt: nowIso })
       .run();
   }
 }
@@ -429,6 +465,7 @@ interface QuestionPayload {
   options?: Array<{ id: string; text: string }>;
   acceptedAnswers?: string[];
   explanation?: string;
+  mustUse?: string;
 }
 
 function safePayload(question: QuestionRow): QuestionPayload {
@@ -515,11 +552,21 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
       questionId: question.id,
       textWithBlank: question.promptText ?? question.contextText ?? '',
     };
+  } else if (question && question.type === 'production') {
+    // 表达题视图：只暴露中文题干与 must_use；reference_answer 绝不下发（AI_RULES §9）
+    const payload = safePayload(question);
+    if (typeof payload.mustUse === 'string' && payload.mustUse) {
+      questionView = {
+        questionId: question.id,
+        zhPrompt: question.promptText ?? '',
+        mustUse: payload.mustUse,
+      };
+    }
   }
 
   return {
     taskId: task.id,
-    taskType: task.taskType as 'learn' | 'understanding' | 'cloze',
+    taskType: task.taskType as 'learn' | 'understanding' | 'cloze' | 'production',
     dimension: task.dimension as Dimension,
     origin: task.origin as TodayTaskView['origin'],
     deferCount: task.deferCount,
@@ -541,11 +588,11 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
 // ---------------------------------------------------------------------------
 
 const MAX_CONSECUTIVE_SAME_TYPE = 3;
-const TYPE_ORDER: Record<string, number> = { learn: 0, understanding: 1, cloze: 2 };
+const TYPE_ORDER: Record<string, number> = { learn: 0, understanding: 1, cloze: 2, production: 3 };
 
 export interface InterleavableTask {
   itemId: string;
-  taskType: 'learn' | 'understanding' | 'cloze';
+  taskType: 'learn' | 'understanding' | 'cloze' | 'production';
 }
 
 export function interleaveTasks<T extends InterleavableTask>(tasks: T[]): T[] {
@@ -726,7 +773,7 @@ export function getTodayStatus(db: AppDatabase, timezone: string, now: Date): To
 interface PlanTask {
   itemId: string;
   dimension: Dimension;
-  taskType: 'learn' | 'understanding' | 'cloze';
+  taskType: 'learn' | 'understanding' | 'cloze' | 'production';
   questionId: string | null;
 }
 
@@ -807,7 +854,11 @@ export async function startTodaySession(
   const plans: PlanTask[] = [];
   for (const row of dueRows) {
     const dimension = row.state.dimension as Dimension;
-    const taskType: QuestionKind = dimension === 'understanding' ? 'understanding' : 'cloze';
+    // P 维度按阶段取题（PRODUCT §6.3）：L1-2 填空；L3 哈希奇偶混合；L4+ 表达题
+    const taskType: 'understanding' | 'cloze' | 'production' =
+      dimension === 'understanding'
+        ? 'understanding'
+        : productionQuestionTypeFor(row.item.id, row.state.level);
     const q = await acquireWithGenerate(db, deps, row.item.id, taskType, now);
     if (!q) {
       console.warn(
@@ -947,6 +998,26 @@ function reinforcementSortKey(exec: DbExecutor, current: TaskRow): number {
   return Math.max(base, boundary ?? base) + 0.5;
 }
 
+/** 表达题 attempt.correction_json → CorrectionView（幂等回放用） */
+function parseCorrectionView(json: string | null): CorrectionView | null {
+  if (!json) return null;
+  try {
+    const c = JSON.parse(json) as {
+      segments?: CorrectionView['segments'];
+      corrected?: string;
+      better?: string | null;
+    };
+    if (!Array.isArray(c.segments) || typeof c.corrected !== 'string') return null;
+    return {
+      segments: c.segments,
+      correctedSentence: c.corrected,
+      betterVersion: typeof c.better === 'string' ? c.better : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** 幂等回放：已结算任务返回首次结算结果摘要 */
 function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
   const attempt = exec
@@ -964,18 +1035,24 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
     ? (exec.select().from(questions).where(eq(questions.id, task.questionId)).get() ?? null)
     : null;
   const isCloze = question?.type === 'cloze';
+  const isProduction = question?.type === 'production';
   const stored = attempt?.result;
   const result: AnswerResponse['result'] =
     stored === 'pass' || stored === 'basic_pass' ? stored : 'fail';
   const reveal = question && isCloze ? clozeReveal(question) : null;
+  // 表达题：回放首次批改 correction 与首次 personalExampleSaved（post 快照 exampleId）
+  const correction = isProduction ? parseCorrectionView(attempt?.correctionJson ?? null) : null;
+  const post = parseSnapshot(attempt?.postStateJson ?? null);
   return {
     result,
     correct: result !== 'fail',
     alreadyCompleted: true,
     explanation: attempt?.explanation ?? null,
-    correctOptionId: question && !isCloze ? question.correctOptionId : null,
+    correctOptionId: question && !isCloze && !isProduction ? question.correctOptionId : null,
     completeSentence: reveal?.completeSentence ?? null,
     acceptedAnswer: reveal?.acceptedAnswer ?? null,
+    correction,
+    personalExampleSaved: isProduction ? Boolean(post?.personalExampleId) : false,
     reinforcementAdded: false,
     progress: session ? progressOf(exec, session.id) : { completed: 0, total: 0 },
     completed: session && session.completedAt !== null ? buildSummary(exec, session) : null,
@@ -1011,29 +1088,53 @@ export async function answerTodayTask(
   if (!question) throw appError('CONFLICT', '该任务没有可用题目');
 
   const isCloze = question.type === 'cloze';
+  const isProduction = question.type === 'production';
   if (isCloze && !body.answerText) {
     throw appError('VALIDATION_ERROR', '填空题必须提交 answerText');
   }
-  if (!isCloze && !body.selectedOptionId) {
+  if (isProduction && !body.answerText) {
+    throw appError('VALIDATION_ERROR', '表达题必须提交 answerText');
+  }
+  if (!isCloze && !isProduction && !body.selectedOptionId) {
     throw appError('VALIDATION_ERROR', '选择题必须提交 selectedOptionId');
   }
 
-  // ---- 事务外：评估（evaluateCloze 含 AI 兜底）----
-  const outcome = isCloze
-    ? await deps.evaluateCloze(db, question, body.answerText!)
-    : deps.evaluateChoice(question, body.selectedOptionId!);
+  // ---- 事务外：评估（表达题走 check_production 实时批改）----
+  let production: ProductionEvaluation | null = null;
+  let outcome: EvaluateOutcome;
+  if (isProduction) {
+    try {
+      production = await deps.evaluateProduction(db, question, body.answerText!);
+    } catch (err) {
+      // 批改失败：不写任何数据，保留用户输入由前端重试（AI_RULES §14）
+      if (err instanceof AppError && err.code !== 'AI_PROVIDER_ERROR') throw err;
+      throw appError('AI_PROVIDER_ERROR', '批改失败，请重试');
+    }
+    outcome = { correct: production.result !== 'fail' };
+  } else if (isCloze) {
+    outcome = await deps.evaluateCloze(db, question, body.answerText!);
+  } else {
+    outcome = deps.evaluateChoice(question, body.selectedOptionId!);
+  }
   const correct = outcome.correct === true;
   const viewedSource = body.viewedSource === true;
-  const result: AnswerResponse['result'] = correct
-    ? viewedSource
-      ? 'basic_pass'
-      : 'pass'
-    : 'fail';
+  // 表达题三档判定由批改器决定（pass/basic_pass/fail）；查看原句只影响选择题/填空题
+  const result: AnswerResponse['result'] = isProduction
+    ? production!.result
+    : correct
+      ? viewedSource
+        ? 'basic_pass'
+        : 'pass'
+      : 'fail';
 
-  // ---- 事务外：补强题预取（fail 且配额未满；排除刚作答的题避免立刻重复）----
+  // ---- 事务外：补强题预取（仅选择题/填空题；表达题不强制当天重做，PRODUCT §7.6）----
   const reinforceType: QuestionKind = task.taskType === 'cloze' ? 'cloze' : 'understanding';
   let reinforcementQuestion: QuestionRow | null = null;
-  if (result === 'fail' && reinforcementQuotaLeft(db, task.sessionId, task.learningItemId) > 0) {
+  if (
+    !isProduction &&
+    result === 'fail' &&
+    reinforcementQuotaLeft(db, task.sessionId, task.learningItemId) > 0
+  ) {
     reinforcementQuestion = await acquireWithGenerate(
       db,
       deps,
@@ -1082,7 +1183,17 @@ export async function answerTodayTask(
     } else {
       // 普通复习：review.advanceReviewState 推进该维度（含 streak 写回与 mastered 判定）
       deps.advance(tx, itemId, task.dimension as Dimension, { kind: result }, now);
-      bumpDailyStats(tx, session.sessionDate, { formal: 1 }, nowIso);
+      bumpDailyStats(
+        tx,
+        session.sessionDate,
+        {
+          formal: 1,
+          // 表达题计数（仅 today 正式模式；practice 不走此路径）
+          productionAttempts: isProduction ? 1 : 0,
+          productionPass: isProduction && result === 'pass' ? 1 : 0,
+        },
+        nowIso,
+      );
     }
 
     // 补强任务插入（fail；题目已事务外预取；配额事务内复核）
@@ -1115,7 +1226,30 @@ export async function answerTodayTask(
     const post = snapshotOf(tx, task.learningItemId);
     post.reinforcementTaskIds = reinforcementIds;
 
+    // 表达题：优质 corrected 句沉淀 Personal Example（PRODUCT §3.2/§7.5），
+    // post 快照记录本次写入的 exampleId（坏题撤销依据）
+    let personalSaved: PersonalExampleSaveResult = SKIP_PERSONAL;
+    if (isProduction && production) {
+      personalSaved = maybeSavePersonalExample(
+        tx,
+        task.learningItemId,
+        {
+          result: production.result,
+          eligible: production.candidate.eligible,
+          qualityScore: production.candidate.qualityScore,
+          correctedSentence: production.correctedSentence,
+          originalText: body.answerText!,
+          betterVersion: production.betterVersion,
+        },
+        now,
+      );
+      if (personalSaved.exampleId) post.personalExampleId = personalSaved.exampleId;
+    }
+
     const reveal = isCloze ? clozeReveal(question) : null;
+    const explanation = isProduction
+      ? production!.explanation
+      : revealExplanation(question, correct);
     tx.insert(attempts)
       .values({
         id: randomUUID(),
@@ -1128,21 +1262,30 @@ export async function answerTodayTask(
         result,
         viewedSource: viewedSource ? 1 : 0,
         feedback: null,
-        correctionJson: null,
-        explanation: revealExplanation(question, correct),
-        betterVersion: null,
-        // AI 实时判定的 Prompt 追溯（check_cloze 兜底）由 questions 模块内部记录；
-        // 当前 evaluateCloze 契约不返回 prompt 元数据，置空
-        aiPromptKey: null,
-        aiPromptVersion: null,
-        aiPromptHash: null,
-        aiModel: null,
+        correctionJson: production
+          ? JSON.stringify({
+              segments: production.segments,
+              corrected: production.correctedSentence,
+              better: production.betterVersion,
+            })
+          : null,
+        explanation,
+        betterVersion: production?.betterVersion ?? null,
+        // 表达题记录 check_production 实际 Prompt 元数据（PRODUCT 可追溯实体要求）；
+        // 选择/填空题的 AI 兜底由 questions 模块内部处理，此处置空
+        aiPromptKey: production?.promptMeta.key ?? null,
+        aiPromptVersion: production?.promptMeta.version ?? null,
+        aiPromptHash: production?.promptMeta.hash ?? null,
+        aiModel: production?.promptMeta.model ?? null,
         preStateJson: JSON.stringify(pre),
         postStateJson: JSON.stringify(post),
         createdAt: nowIso,
         voidedAt: null,
       })
       .run();
+
+    // 造句历史裁剪：保留该 item 最近 10 条 production attempts（PRODUCT §7.5）
+    if (isProduction) trimProductionHistory(tx, task.learningItemId);
 
     tx.update(reviewTasks).set({ completedAt: nowIso }).where(eq(reviewTasks.id, task.id)).run();
 
@@ -1170,10 +1313,18 @@ export async function answerTodayTask(
     return {
       result,
       correct,
-      explanation: revealExplanation(question, correct),
-      correctOptionId: !isCloze ? question.correctOptionId : null,
+      explanation,
+      correctOptionId: !isCloze && !isProduction ? question.correctOptionId : null,
       completeSentence: reveal?.completeSentence ?? null,
       acceptedAnswer: reveal?.acceptedAnswer ?? null,
+      correction: production
+        ? {
+            segments: production.segments,
+            correctedSentence: production.correctedSentence,
+            betterVersion: production.betterVersion,
+          }
+        : null,
+      personalExampleSaved: personalSaved.saved,
       reinforcementAdded,
       progress: progressOf(tx, session.id),
       completed: completedSummary,
@@ -1286,6 +1437,18 @@ export function reportBadQuestion(db: AppDatabase, taskId: string, now: Date): B
         .run();
     }
 
+    // 3A) 撤销本次结算写入的 Personal Example（已被用户 pinned 的除外，PRODUCT §3.2）
+    if (post?.personalExampleId) {
+      const example = tx
+        .select()
+        .from(learningExamples)
+        .where(eq(learningExamples.id, post.personalExampleId))
+        .get();
+      if (example && example.pinned === 0) {
+        tx.delete(learningExamples).where(eq(learningExamples.id, example.id)).run();
+      }
+    }
+
     // 4) daily_stats 回减 + learn 会话计数回滚
     const delta: StatsDelta = { formal: -1 };
     if (task.taskType === 'learn') delta.newItems = -1;
@@ -1325,6 +1488,10 @@ export function submitTaskFeedback(
   return db.transaction((tx) => {
     const task = requireTask(tx, taskId);
     if (task.taskType === 'learn') throw appError('CONFLICT', 'Learn 任务不支持反馈');
+    // 蒙的/太简单只适用于选择题/填空题（PRODUCT §7.6：表达题不支持该反馈）
+    if (task.taskType === 'production') {
+      throw appError('VALIDATION_ERROR', '表达题不支持该反馈');
+    }
     const attempt = tx
       .select()
       .from(attempts)

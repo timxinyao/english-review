@@ -8,10 +8,14 @@ import type {
   LibraryItemDetail,
   LibraryListQuery,
   LibraryListResponse,
+  PracticeAnswerRequest,
+  PracticeAnswerResponse,
+  PracticeStartResponse,
   SuggestionSource,
   UpdateLearningItemRequest,
   UpdateLearningItemResponse,
 } from '@el/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
 // ---------- 常量与 query keys ----------
@@ -156,5 +160,39 @@ export function commitLibraryImport(req: ImportCommitRequest): Promise<ImportCom
   return api<ImportCommitResponse>('/api/import/commit', {
     method: 'POST',
     body: JSON.stringify(req),
+  });
+}
+
+// ---------- 练一下（PRODUCT §4.4：不改 Stage/next_review_at、不造补强、不计 Today 进度）----------
+
+export function startPractice(itemId: string): Promise<PracticeStartResponse> {
+  return api<PracticeStartResponse>(`/api/library/${itemId}/practice`, { method: 'POST' });
+}
+
+export function answerPracticeQuestion(
+  itemId: string,
+  questionId: string,
+  body: PracticeAnswerRequest,
+): Promise<PracticeAnswerResponse> {
+  return api<PracticeAnswerResponse>(`/api/library/${itemId}/practice/${questionId}/answer`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** 开始练习：临时生成与当前阶段匹配的题（表达题优质句仍可入 Personal Example） */
+export function usePractice(itemId: string) {
+  return useMutation({ mutationFn: () => startPractice(itemId) });
+}
+
+/** 练习作答成功后刷新详情（造句历史/个人例句可能更新） */
+export function usePracticeAnswer(itemId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ questionId, body }: { questionId: string; body: PracticeAnswerRequest }) =>
+      answerPracticeQuestion(itemId, questionId, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: libraryKeys.all });
+    },
   });
 }

@@ -3,12 +3,16 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { INTERVALS_DAYS } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
 import { learningItems, questions, reviewStates } from '../../src/db/schema.js';
-import type { DbExecutor, DbTx } from '../../src/modules/questions/service.js';
+import type {
+  DbExecutor,
+  DbTx,
+  ProductionEvaluation,
+  QuestionRow,
+} from '../../src/modules/questions/service.js';
 import type {
   DimSnapshot,
   EvaluateOutcome,
   QuestionKind,
-  QuestionRow,
   ReviewOutcomeInput,
   TodayDeps,
 } from '../../src/modules/today/service.js';
@@ -105,6 +109,28 @@ function rowToDim(row: typeof reviewStates.$inferSelect): DimSnapshot {
 export interface FakeDepsOptions {
   /** `${itemId}:${type}` 命中时 AI 生成抛错 */
   generateFailFor?: Set<string>;
+  /** 表达题批改直接抛错（模拟 AI 失败路径） */
+  productionFail?: boolean;
+  /** 自定义批改结果（默认：mustUse 归一化包含于答案 → pass，否则 fail） */
+  productionEval?: (question: QuestionRow, answerText: string) => ProductionEvaluation;
+}
+
+const FAKE_PROMPT_META = { key: 'check_production', version: 1, hash: 'fake-hash', model: 'fake' };
+
+/** 解析表达题 payload（mustUse / referenceAnswer；失败回退 target） */
+function productionPayloadOf(
+  question: QuestionRow,
+  fallbackTarget: string,
+): { mustUse: string; referenceAnswer: string } {
+  try {
+    const p = JSON.parse(question.payloadJson) as { mustUse?: string; referenceAnswer?: string };
+    return {
+      mustUse: p.mustUse || fallbackTarget,
+      referenceAnswer: p.referenceAnswer || `They ${fallbackTarget} naturally.`,
+    };
+  } catch {
+    return { mustUse: fallbackTarget, referenceAnswer: `They ${fallbackTarget} naturally.` };
+  }
 }
 
 /**
@@ -112,6 +138,7 @@ export interface FakeDepsOptions {
  * - advance = advanceReviewState：读行→计算→写回→两维 stable 置 mastered
  * - acquire 按 lastUsedAt 最旧优先（支持测试用排除列表）
  * - generate 插入一道确定题（cloze 遵循 promptText 存 text_with_blank 的约定）
+ * - evaluateProduction：mustUse 归一化包含于答案 → pass（eligible，0.9）；否则 fail
  */
 export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
   return {
@@ -179,7 +206,7 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
       exec.update(questions).set(patch).where(eq(questions.id, candidate.id)).run();
       return { ...candidate, ...patch } as QuestionRow;
     },
-    async generate(db: AppDatabase, itemId, type) {
+    async generate(db: AppDatabase, itemId, type: QuestionKind) {
       if (opts.generateFailFor?.has(`${itemId}:${type}`)) {
         throw new Error('AI 生成失败（fake）');
       }
@@ -198,6 +225,35 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
             payloadJson: JSON.stringify({ acceptedAnswers: ['fake'] }),
             correctOptionId: null,
             promptKey: 'generate_cloze',
+            promptVersion: 1,
+            promptHash: 'fake-hash',
+            model: 'fake',
+            useCount: 0,
+            correctCount: 0,
+            lastUsedAt: null,
+            retiredAt: null,
+            createdAt: nowIso,
+          })
+          .run();
+      } else if (type === 'production') {
+        const item = db.select().from(learningItems).where(eq(learningItems.id, itemId)).get();
+        const target = item?.target ?? 'target';
+        db.insert(questions)
+          .values({
+            id,
+            learningItemId: itemId,
+            type,
+            status: 'fresh',
+            meaningSnapshot: 'fake',
+            promptText: `请使用（${target}）完成表达。`,
+            contextText: null,
+            payloadJson: JSON.stringify({
+              mustUse: target,
+              referenceAnswer: `They ${target} naturally.`,
+              acceptanceNotes: '允许变化。',
+            }),
+            correctOptionId: null,
+            promptKey: 'generate_production_prompt',
             promptVersion: 1,
             promptHash: 'fake-hash',
             model: 'fake',
@@ -252,6 +308,41 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
       }
       const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
       return { correct: accepted.some((a) => norm(a) === norm(answerText)) };
+    },
+    async evaluateProduction(db: AppDatabase, question: QuestionRow, answerText: string) {
+      if (opts.productionFail) throw new Error('模拟批改失败（fake）');
+      if (opts.productionEval) return opts.productionEval(question, answerText);
+      const item = db
+        .select()
+        .from(learningItems)
+        .where(eq(learningItems.id, question.learningItemId))
+        .get();
+      const { mustUse, referenceAnswer } = productionPayloadOf(question, item?.target ?? 'target');
+      const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+      const used = norm(answerText).includes(norm(mustUse));
+      if (used) {
+        return {
+          result: 'pass',
+          correctedSentence: answerText,
+          segments: [{ text: answerText, type: 'same' }],
+          explanation: 'fake：目标使用正确。',
+          betterVersion: null,
+          candidate: { eligible: true, qualityScore: 0.9, reason: 'fake' },
+          promptMeta: FAKE_PROMPT_META,
+        };
+      }
+      return {
+        result: 'fail',
+        correctedSentence: referenceAnswer,
+        segments: [
+          { text: answerText, type: 'delete' },
+          { text: referenceAnswer, type: 'insert' },
+        ],
+        explanation: 'fake：未使用目标表达。',
+        betterVersion: null,
+        candidate: { eligible: false, qualityScore: 0, reason: 'fake' },
+        promptMeta: FAKE_PROMPT_META,
+      };
     },
   };
 }

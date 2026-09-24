@@ -5,8 +5,12 @@ import {
   ClozePayload,
   CONTENT_LEVELS,
   DEFAULT_CONTENT_LEVEL,
+  productionStageOf,
   type CheckClozeResult,
+  type CheckProductionResult,
+  type CorrectionSegment,
   type GenerateClozeQuestionsResult,
+  type GenerateProductionPromptResult,
   type GenerateUnderstandingQuestionsResult,
   type ReviewDimension,
 } from '@el/shared';
@@ -26,8 +30,8 @@ export type DbExecutor = AppDatabase | DbTx;
 /** questions 表行类型 */
 export type QuestionRow = typeof questions.$inferSelect;
 
-/** 练习池题型（production 题 Phase 4 另行处理） */
-export type QuestionPoolType = 'understanding' | 'cloze';
+/** 练习池题型（含 Phase 4 表达题） */
+export type QuestionPoolType = 'understanding' | 'cloze' | 'production';
 
 /** AI runtime（getAiRuntime() 的返回类型 AiRuntime | null；测试可注入 mock） */
 export type QuestionRuntime = AiRuntime | null;
@@ -144,6 +148,21 @@ function recentQuestionSummaries(
     .map((r) => [r.contextText, r.promptText].filter((t): t is string => Boolean(t)).join(' | '));
 }
 
+/** 该 item 最近 limit 道表达题的中文题干（generate_production_prompt 的 recent_prompts 变量） */
+function recentProductionPrompts(db: AppDatabase, itemId: string, limit: number): string[] {
+  const rows = db
+    .select({ promptText: questions.promptText })
+    .from(questions)
+    .where(and(eq(questions.learningItemId, itemId), eq(questions.type, 'production')))
+    .orderBy(desc(questions.createdAt), desc(questions.id))
+    .limit(limit)
+    .all();
+  return rows
+    .reverse()
+    .map((r) => r.promptText)
+    .filter((t): t is string => Boolean(t));
+}
+
 /**
  * 为 item 生成 count 道题并入库（AI_RULES §6/§7）：
  * 读 item+例句 → 组装变量（content_level 取 settings）→ completeStructured（Schema + 不变式 + 重试）
@@ -196,7 +215,53 @@ export async function generateQuestionsForItem(
   const nowIso = new Date().toISOString();
   let rows: QuestionRow[];
 
-  if (type === 'understanding') {
+  if (type === 'production') {
+    // generate_production_prompt 为单题结构（AI_RULES §9）：count 道题 = count 次调用，
+    // 每次把本批已生成的 zh_prompt 并入 recent_prompts 避免重复
+    const model = getTaskConfig('generateProductionPrompt', runtime.config).model;
+    rows = [];
+    const recentPrompts = recentProductionPrompts(db, itemId, 5);
+    for (let i = 0; i < count; i += 1) {
+      const { data, meta } = await completeStructured<GenerateProductionPromptResult>(
+        aiDeps,
+        'generateProductionPrompt',
+        {
+          type: item.type,
+          target: item.target,
+          meaning: item.meaning,
+          content_level: readContentLevel(db),
+          source_example: sourceExample.text,
+          extra_examples: extraExamples,
+          recent_prompts: recentPrompts,
+        },
+      );
+      recentPrompts.push(data.zh_prompt);
+      rows.push({
+        id: randomUUID(),
+        learningItemId: itemId,
+        type: 'production',
+        status: 'fresh',
+        meaningSnapshot: item.meaning,
+        promptText: data.zh_prompt,
+        contextText: null,
+        payloadJson: JSON.stringify({
+          mustUse: data.must_use,
+          referenceAnswer: data.reference_answer,
+          acceptanceNotes: data.acceptance_notes,
+        }),
+        correctOptionId: null,
+        promptKey: meta.key,
+        promptVersion: meta.version,
+        promptHash: meta.hash,
+        model,
+        useCount: 0,
+        correctCount: 0,
+        lastUsedAt: null,
+        retiredAt: null,
+        createdAt: nowIso,
+      });
+    }
+  } else if (type === 'understanding') {
     const { data, meta } = await completeStructured<GenerateUnderstandingQuestionsResult>(
       aiDeps,
       'generateUnderstandingQuestions',
@@ -391,8 +456,172 @@ export async function evaluateCloze(
   }
 }
 
+// ---------- 表达题批改（check_production，AI_RULES §10）----------
+
+/** 表达题 payload_json 内部结构（mustUse / referenceAnswer / acceptanceNotes） */
+export interface ProductionQuestionPayload {
+  mustUse: string;
+  referenceAnswer: string;
+  acceptanceNotes: string;
+}
+
+function parseProductionPayload(question: QuestionRow): ProductionQuestionPayload {
+  if (question.type !== 'production' || !question.promptText) {
+    throw appError('INTERNAL', `题目 ${question.id} 不是合法的表达题`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(question.payloadJson);
+  } catch {
+    throw appError('INTERNAL', `题目 ${question.id} 的 payload 不是合法 JSON`);
+  }
+  const obj = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+  if (
+    typeof obj.mustUse !== 'string' ||
+    !obj.mustUse ||
+    typeof obj.referenceAnswer !== 'string' ||
+    !obj.referenceAnswer ||
+    typeof obj.acceptanceNotes !== 'string' ||
+    !obj.acceptanceNotes
+  ) {
+    throw appError('INTERNAL', `题目 ${question.id} 的 payload 不是合法的表达题数据`);
+  }
+  return {
+    mustUse: obj.mustUse,
+    referenceAnswer: obj.referenceAnswer,
+    acceptanceNotes: obj.acceptanceNotes,
+  };
+}
+
+/** 批改实际使用的 Prompt 元数据（写入 attempt 的 ai_prompt_* 追溯字段） */
+export interface ProductionPromptMeta {
+  key: string;
+  version: number;
+  hash: string;
+  model: string;
+}
+
+/** personal_example_candidate 投影（AI_RULES §10：eligible/quality_score，替换由后端决定） */
+export interface ProductionCandidate {
+  eligible: boolean;
+  qualityScore: number;
+  reason: string;
+}
+
+/** evaluateProduction 的返回（today / practice 共用） */
+export interface ProductionEvaluation {
+  result: 'pass' | 'basic_pass' | 'fail';
+  correctedSentence: string;
+  segments: CorrectionSegment[];
+  explanation: string;
+  betterVersion: string | null;
+  candidate: ProductionCandidate;
+  promptMeta: ProductionPromptMeta;
+}
+
+export interface EvaluateProductionDeps {
+  db: AppDatabase;
+  runtime: QuestionRuntime;
+}
+
+/**
+ * 表达题实时批改（事务外调用）：读题目 payload 与 item 例句 → 组装 check_production
+ * 变量 → completeStructured（Schema + segments 重建不变式 + 重试）。失败抛
+ * AiStructuredError，由调用方决定降级；不产生任何脏数据。
+ */
+export async function evaluateProduction(
+  deps: EvaluateProductionDeps,
+  question: QuestionRow,
+  userAnswer: string,
+): Promise<ProductionEvaluation> {
+  const { db, runtime } = deps;
+  if (!runtime) throw appError('AI_PROVIDER_ERROR', 'AI runtime 未初始化，无法批改');
+
+  const payload = parseProductionPayload(question);
+  const item = db
+    .select()
+    .from(learningItems)
+    .where(eq(learningItems.id, question.learningItemId))
+    .get();
+  if (!item) throw appError('NOT_FOUND', '学习项不存在');
+
+  const examples = db
+    .select()
+    .from(learningExamples)
+    .where(eq(learningExamples.learningItemId, item.id))
+    .all();
+  const sourceExample = examples.find((e) => e.kind === 'source');
+  if (!sourceExample) throw appError('INTERNAL', '学习项缺少 source 例句，无法批改');
+  const extraExamples = examples
+    .filter((e) => e.kind === 'extra')
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((e) => e.text);
+
+  // 变量名与 prompts/check_production.v1.md 一致；locked_meaning 用题目生成时锁定的
+  // meaning_snapshot（与 check_cloze 兜底一致；正常流下等于 item.meaning）
+  const { data, meta } = await completeStructured<CheckProductionResult>(
+    { provider: runtime.provider, config: runtime.config, registry: runtime.registry },
+    'checkProduction',
+    {
+      type: item.type,
+      target: item.target,
+      meaning: question.meaningSnapshot,
+      zh_prompt: question.promptText,
+      reference_answer: payload.referenceAnswer,
+      acceptance_notes: payload.acceptanceNotes,
+      source_example: sourceExample.text,
+      extra_examples: extraExamples,
+      user_answer: userAnswer,
+    },
+  );
+  const model = getTaskConfig('checkProduction', runtime.config).model;
+  return {
+    result: data.result,
+    correctedSentence: data.corrected_sentence,
+    segments: data.segments,
+    explanation: data.explanation,
+    betterVersion: data.better_version,
+    candidate: {
+      eligible: data.personal_example_candidate.eligible,
+      qualityScore: data.personal_example_candidate.quality_score,
+      reason: data.personal_example_candidate.reason,
+    },
+    promptMeta: { key: meta.key, version: meta.version, hash: meta.hash, model },
+  };
+}
+
 // ---------- 维度 → 题型映射（PRODUCT §6.3）----------
 
 export function questionTypeForDimension(dimension: ReviewDimension): QuestionPoolType {
   return dimension === 'understanding' ? 'understanding' : 'cloze';
+}
+
+/** 确定性字符串哈希（djb2），用于 L3 混合阶段的题型分配 */
+function hashString(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i += 1) {
+    h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  }
+  return h;
+}
+
+/**
+ * Production 维度取题类型（PRODUCT §6.3 题型映射）：
+ * early（P-L1~2）→ cloze；late（P-L4+）→ production；
+ * middle（P-L3）按 itemId 哈希奇偶确定性决定（同一 item 每次结果一致）。
+ */
+export function productionQuestionTypeFor(itemId: string, level: number): 'cloze' | 'production' {
+  const stage = productionStageOf(level);
+  if (stage === 'early') return 'cloze';
+  if (stage === 'late') return 'production';
+  return hashString(itemId) % 2 === 0 ? 'cloze' : 'production';
+}
+
+/**
+ * 到期维度需要补库存的题型列表（prefetch job 使用）：
+ * U → understanding；P-L1/2 → cloze；P-L3+ → cloze + production（表达题库存目标 2）。
+ */
+export function questionTypesForDue(dimension: ReviewDimension, level: number): QuestionPoolType[] {
+  if (dimension === 'understanding') return ['understanding'];
+  return productionStageOf(level) === 'early' ? ['cloze'] : ['cloze', 'production'];
 }

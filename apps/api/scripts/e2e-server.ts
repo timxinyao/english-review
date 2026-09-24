@@ -1,11 +1,15 @@
 /** Playwright E2E 专用 API 服务：独立临时数据库（每次运行前清空）；E2E_SEED=1 时播种确定性数据 */
 import { rmSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { sql } from 'drizzle-orm';
 import { loadConfig } from '../src/config.js';
 import { createDatabase, type AppDatabase } from '../src/db/client.js';
 import { runMigrations } from '../src/db/migrate.js';
 import { buildApp } from '../src/app.js';
 import { learningExamples, learningItems, questions, reviewStates } from '../src/db/schema.js';
+import { setTodayDepsForTests, loadRealTodayDeps } from '../src/modules/today/service.js';
+import { loadRealPracticeDeps, setPracticeDepsForTests } from '../src/modules/practice/service.js';
+import type { ProductionEvaluation, QuestionRow } from '../src/modules/questions/service.js';
 
 // ---------------------------------------------------------------------------
 // E2E 确定性播种（前端 Playwright 依赖这些内容，勿随意改动文案）
@@ -105,6 +109,116 @@ const SEED_QUESTIONS: SeedQuestionSpec[] = [
 ];
 
 /**
+ * Phase 4 表达题种子（前端 Playwright 依赖以下文案，勿随意改动）：
+ * word "give up"（放弃）——U=L7 stable（不到期）、P=L4 昨日到期（today 会出表达题），
+ * 附 1 道 production 种子题。幂等：已存在 target='give up' 即跳过。
+ */
+function seedGiveUp(db: AppDatabase, now: Date): boolean {
+  const existing = db
+    .select()
+    .from(learningItems)
+    .all()
+    .some((i) => i.target === 'give up');
+  if (existing) return false;
+
+  const nowIso = now.toISOString();
+  const yesterday = new Date(now.getTime() - DAY_MS).toISOString();
+  const fourDaysAgo = new Date(now.getTime() - 4 * DAY_MS).toISOString();
+  const createdAt = '2026-09-10T00:00:00.000Z';
+
+  db.insert(learningItems)
+    .values({
+      id: 'e2e-item-give-up',
+      type: 'word',
+      target: 'give up',
+      meaning: '放弃',
+      ipa: null,
+      source: null,
+      sourceUrl: null,
+      tagsJson: '[]',
+      notes: null,
+      status: 'active',
+      queueState: 'started',
+      needsReinforcement: 0,
+      createdAt,
+      updatedAt: createdAt,
+      archivedAt: null,
+    })
+    .run();
+  db.insert(learningExamples)
+    .values({
+      id: 'e2e-ex-e2e-item-give-up',
+      learningItemId: 'e2e-item-give-up',
+      kind: 'source',
+      text: 'After months of failure, he refused to give up.',
+      originalText: null,
+      betterText: null,
+      pinned: 0,
+      qualityScore: null,
+      sortOrder: 0,
+      createdAt,
+      updatedAt: createdAt,
+    })
+    .run();
+  // U=L7 stable=1 next=null（不到期）；P=L4 due yesterday
+  db.insert(reviewStates)
+    .values({
+      id: 'e2e-state-e2e-item-give-up-understanding',
+      learningItemId: 'e2e-item-give-up',
+      dimension: 'understanding',
+      level: 7,
+      stable: 1,
+      nextReviewAt: null,
+      lastReviewAt: fourDaysAgo,
+      correctStreak: 7,
+      wrongStreak: 0,
+      updatedAt: nowIso,
+    })
+    .run();
+  db.insert(reviewStates)
+    .values({
+      id: 'e2e-state-e2e-item-give-up-production',
+      learningItemId: 'e2e-item-give-up',
+      dimension: 'production',
+      level: 4,
+      stable: 0,
+      nextReviewAt: yesterday,
+      lastReviewAt: fourDaysAgo,
+      correctStreak: 4,
+      wrongStreak: 0,
+      updatedAt: nowIso,
+    })
+    .run();
+  db.insert(questions)
+    .values({
+      id: 'e2e-q-give-up',
+      learningItemId: 'e2e-item-give-up',
+      type: 'production',
+      status: 'fresh',
+      meaningSnapshot: '放弃',
+      promptText: '长期的压力让我想放弃。',
+      contextText: null,
+      payloadJson: JSON.stringify({
+        mustUse: 'give up',
+        referenceAnswer: 'The constant stress makes me want to give up.',
+        acceptanceNotes: '允许正常时态和人称变化。',
+      }),
+      correctOptionId: null,
+      promptKey: 'seed',
+      promptVersion: 1,
+      promptHash: 'seed',
+      model: 'seed',
+      useCount: 0,
+      correctCount: 0,
+      lastUsedAt: null,
+      retiredAt: null,
+      createdAt,
+    })
+    .run();
+  return true;
+}
+
+/**
  * 播种幂等：已存在 seed 标记（target='stable' 且 queue started 的项）则跳过。
  * 返回是否实际播种。
  */
@@ -114,7 +228,10 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
     .from(learningItems)
     .all()
     .find((i) => i.target === 'stable' && i.queueState === 'started');
-  if (marker) return false;
+  if (marker) {
+    seedGiveUp(db, now); // Phase 4 种子独立幂等
+    return false;
+  }
 
   const nowIso = now.toISOString();
   const yesterday = new Date(now.getTime() - DAY_MS).toISOString();
@@ -310,14 +427,95 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
       })
       .run();
   }
+  seedGiveUp(db, now);
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// E2E 确定性批改 fake（与 "give up" 种子配套；前端 Playwright 依赖判定文案，勿随意改动）
+// ---------------------------------------------------------------------------
+
+/** normalize：小写 + 压缩空白 */
+function e2eNorm(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+const SEED_PROMPT_META = { key: 'seed', version: 1, hash: 'seed', model: 'seed' } as const;
+
+/**
+ * E2E_SEED=1 时注入 today / practice 的 evaluateProduction：
+ * normalize(userAnswer) 包含 "give up" → pass（eligible 0.9）；否则 fail（corrected=reference）。
+ */
+export async function fakeEvaluateProduction(
+  _db: AppDatabase,
+  question: QuestionRow,
+  userAnswer: string,
+): Promise<ProductionEvaluation> {
+  let referenceAnswer = 'The constant stress makes me want to give up.';
+  try {
+    const payload = JSON.parse(question.payloadJson) as { referenceAnswer?: string };
+    if (typeof payload.referenceAnswer === 'string' && payload.referenceAnswer) {
+      referenceAnswer = payload.referenceAnswer;
+    }
+  } catch {
+    // 种子题 payload 固定合法；保底用默认 reference
+  }
+  if (e2eNorm(userAnswer).includes('give up')) {
+    return {
+      result: 'pass',
+      correctedSentence: userAnswer,
+      segments: [{ text: userAnswer, type: 'same' }],
+      explanation: '目标表达使用正确。',
+      betterVersion: null,
+      candidate: { eligible: true, qualityScore: 0.9, reason: 'seed' },
+      promptMeta: SEED_PROMPT_META,
+    };
+  }
+  return {
+    result: 'fail',
+    correctedSentence: referenceAnswer,
+    segments: [
+      { text: userAnswer, type: 'delete' },
+      { text: referenceAnswer, type: 'insert' },
+    ],
+    explanation: '未使用目标表达。',
+    betterVersion: null,
+    candidate: { eligible: false, qualityScore: 0, reason: 'seed' },
+    promptMeta: SEED_PROMPT_META,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// E2E 重置（测试专用端点，见 main()：多个"完整会话"spec 共享同一 e2e.db，
+// 而一天只允许一个正式 session，因此每个会话型 spec 开始时重置回种子状态）
+// ---------------------------------------------------------------------------
+
+const RESET_TABLES = [
+  'attempts',
+  'review_tasks',
+  'review_sessions',
+  'questions',
+  'read_article_items',
+  'read_articles',
+  'learning_examples',
+  'review_states',
+  'learning_items',
+  'daily_stats',
+];
+
+/** 清空业务数据并重新播种（settings 保留） */
+export function resetE2eData(db: AppDatabase): void {
+  for (const table of RESET_TABLES) {
+    db.run(sql.raw(`DELETE FROM ${table}`));
+  }
+  seedE2eData(db);
 }
 
 // ---------------------------------------------------------------------------
 // 服务入口
 // ---------------------------------------------------------------------------
 
-function main(): void {
+async function main(): Promise<void> {
   const config = loadConfig();
   const dbPath = config.databasePath.endsWith('e2e.db') ? config.databasePath : './data/e2e.db'; // 防误删：仅当路径以 e2e.db 结尾才清理
   for (const suffix of ['', '-wal', '-shm']) {
@@ -329,12 +527,24 @@ function main(): void {
   if (process.env.E2E_SEED === '1') {
     const seeded = seedE2eData(db);
     console.info(`[e2e] seed ${seeded ? 'created' : 'skipped (already present)'}`);
+    // fake 批改注入：today 与 practice 的表达题批改不依赖 GLM key（确定性输出）
+    const todayDeps = await loadRealTodayDeps();
+    setTodayDepsForTests({ ...todayDeps, evaluateProduction: fakeEvaluateProduction });
+    const practiceDeps = await loadRealPracticeDeps();
+    setPracticeDepsForTests({ ...practiceDeps, evaluateProduction: fakeEvaluateProduction });
+    console.info('[e2e] fake production evaluation injected (today + practice)');
   }
   const app = buildApp({ config, db, logger: false });
+  if (process.env.E2E_SEED === '1') {
+    // 测试专用：需登录会话（spec 登录后 page.evaluate 调用）
+    app.post('/api/__e2e/reset', async () => {
+      resetE2eData(db);
+      return { ok: true as const };
+    });
+  }
 
-  void app.listen({ port: config.port, host: config.host }).then(() => {
-    console.info(`[e2e] api listening on ${config.host}:${config.port} (db: ${dbPath})`);
-  });
+  await app.listen({ port: config.port, host: config.host });
+  console.info(`[e2e] api listening on ${config.host}:${config.port} (db: ${dbPath})`);
 }
 
 const isMain = (() => {
@@ -348,5 +558,8 @@ const isMain = (() => {
 })();
 
 if (isMain) {
-  main();
+  main().catch((err) => {
+    console.error('[e2e] 启动失败：', err);
+    process.exitCode = 1;
+  });
 }

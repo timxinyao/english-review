@@ -1,4 +1,7 @@
-/** Today feature 内部纯工具（无 UI、无依赖） */
+/** 题目渲染纯工具（Today 与 Library 练一下共用，无 UI、无请求） */
+
+/** 答对后的自动下一题延迟（PRODUCT §7.6：约 2 秒，点击任意处立即继续） */
+export const CORRECT_AUTO_ADVANCE_MS = 2000;
 
 function seedFrom(text: string): number {
   let h = 2166136261;

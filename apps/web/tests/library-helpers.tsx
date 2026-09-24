@@ -110,6 +110,23 @@ export function makeDetail(overrides: Partial<LibraryItemDetail['item']> = {}): 
       },
       { dimension: 'production', level: 2, stable: false, nextReviewAt: null, lastReviewAt: null },
     ],
+    productionHistory: [],
+  };
+}
+
+/** 造句历史条目（LibraryItemDetail.productionHistory 元素） */
+export function makeHistoryEntry(
+  overrides: Partial<LibraryItemDetail['productionHistory'][number]> = {},
+): LibraryItemDetail['productionHistory'][number] {
+  return {
+    id: 'ph-1',
+    createdAt: '2026-09-24T10:00:00.000Z',
+    originalText: 'The constant stress make me want to give up.',
+    correctedSentence: 'The constant stress makes me want to give up.',
+    betterVersion: null,
+    result: 'pass',
+    mode: 'today',
+    ...overrides,
   };
 }
 

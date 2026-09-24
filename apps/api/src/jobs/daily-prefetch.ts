@@ -1,14 +1,16 @@
 import { pathToFileURL } from 'node:url';
+import { and, eq } from 'drizzle-orm';
 import { QUESTION_TARGET_STOCK } from '@el/shared';
 import { loadConfig } from '../config.js';
 import { initAiRuntime } from '../ai/runtime.js';
 import { createDatabase, rawSqlite, type AppDatabase } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
+import { reviewStates } from '../db/schema.js';
 import type { AiRuntime } from '../ai/runtime.js';
 import {
   countQuestionStock,
   generateQuestionsForItem,
-  questionTypeForDimension,
+  questionTypesForDue,
 } from '../modules/questions/service.js';
 import { listUpcomingDue } from '../modules/review/service.js';
 
@@ -29,9 +31,10 @@ export interface PrefetchSummary {
 }
 
 /**
- * 题目预生成核心（TECHNICAL_DESIGN / phase-3）：
+ * 题目预生成核心（TECHNICAL_DESIGN / phase-3 + phase-4）：
  * 扫未来 horizon 天内将到期的（item active + started）item×维度 → 对应题型
- * （U→understanding、P→cloze）库存 < QUESTION_TARGET_STOCK 时补足。
+ * （U→understanding；P-L1/2→cloze；P-L3+→cloze + production，表达题目标 2）
+ * 库存 < QUESTION_TARGET_STOCK 时补足。
  * 单条目失败不中断，最后汇总；退出码处理由入口 main 负责。
  */
 export async function runPrefetch(
@@ -49,28 +52,47 @@ export async function runPrefetch(
   };
 
   for (const entry of due) {
-    const type = questionTypeForDimension(entry.dimension);
-    const target = QUESTION_TARGET_STOCK[type];
-    const stock = countQuestionStock(deps.db, entry.itemId, type);
-    if (stock >= target) {
-      summary.skipped++;
-      continue;
+    // P 维度题型组合依赖 level；listUpcomingDue 不带 level，这里只读 review_states
+    // （AGENTS §4 约束针对写路径；写库仍全部经 service）
+    let level = 0;
+    if (entry.dimension === 'production') {
+      const state = deps.db
+        .select()
+        .from(reviewStates)
+        .where(
+          and(
+            eq(reviewStates.learningItemId, entry.itemId),
+            eq(reviewStates.dimension, 'production'),
+          ),
+        )
+        .get();
+      level = state?.level ?? 0;
     }
-    try {
-      const rows = await generateQuestionsForItem(
-        { db: deps.db, runtime: deps.runtime },
-        entry.itemId,
-        type,
-        target - stock,
-      );
-      summary.generated += rows.length;
-      summary.processed++;
-    } catch (err) {
-      summary.failed++;
-      console.error(
-        `[daily-prefetch] item ${entry.itemId}（${entry.dimension}→${type}）生成失败：${(err as Error).message}`,
-      );
+    const types = questionTypesForDue(entry.dimension, level);
+
+    let needed = false;
+    for (const type of types) {
+      const target = QUESTION_TARGET_STOCK[type];
+      const stock = countQuestionStock(deps.db, entry.itemId, type);
+      if (stock >= target) continue;
+      needed = true;
+      try {
+        const rows = await generateQuestionsForItem(
+          { db: deps.db, runtime: deps.runtime },
+          entry.itemId,
+          type,
+          target - stock,
+        );
+        summary.generated += rows.length;
+        summary.processed++;
+      } catch (err) {
+        summary.failed++;
+        console.error(
+          `[daily-prefetch] item ${entry.itemId}（${entry.dimension}→${type}）生成失败：${(err as Error).message}`,
+        );
+      }
     }
+    if (!needed) summary.skipped++;
   }
   return summary;
 }

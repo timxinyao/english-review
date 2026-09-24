@@ -24,10 +24,11 @@ async function seedDueItem(
   dimension: 'understanding' | 'production',
   nextReviewAt: string | null,
   overrides: Partial<Parameters<typeof seedItem>[1]> = {},
+  level = 2,
 ): Promise<string> {
   const id = await seedItem(db, { target, status: 'active', queueState: 'started', ...overrides });
   await seedExample(db, id, 'source', `An example with ${target}.`);
-  await seedReviewState(db, id, dimension, { level: 2, nextReviewAt });
+  await seedReviewState(db, id, dimension, { level, nextReviewAt });
   return id;
 }
 
@@ -48,6 +49,42 @@ describe('runPrefetch（daily-prefetch job 核心）', () => {
     expect(summary).toMatchObject({ due: 1, processed: 1, failed: 0 });
     expect(countQuestionStock(db, itemId, 'cloze')).toBe(3);
     expect(countQuestionStock(db, itemId, 'understanding')).toBe(0);
+  });
+
+  it('P-L3 到期 → 补 cloze(3) + production(2) 两类库存', async () => {
+    const itemId = await seedDueItem('mix-3', 'production', inHours(10), {}, 3);
+    const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
+
+    expect(summary).toMatchObject({ due: 1, processed: 2, failed: 0, generated: 5 });
+    expect(countQuestionStock(db, itemId, 'cloze')).toBe(3);
+    expect(countQuestionStock(db, itemId, 'production')).toBe(2); // QUESTION_TARGET_STOCK.production
+  });
+
+  it('P-L5 到期 → 同样补 production 库存（目标 2）', async () => {
+    const itemId = await seedDueItem('late-5', 'production', inHours(20), {}, 5);
+    await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
+    expect(countQuestionStock(db, itemId, 'production')).toBe(2);
+  });
+
+  it('P-L3 production 库存已达标 → 只补差额，不重复生成', async () => {
+    const itemId = await seedDueItem('mix-stocked', 'production', inHours(10), {}, 3);
+    for (let i = 0; i < 2; i++) {
+      await seedQuestion(db, itemId, {
+        id: `p${i}`,
+        type: 'production',
+        status: 'fresh',
+        promptText: `题 ${i}`,
+        payloadJson: JSON.stringify({
+          mustUse: 'mix-stocked',
+          referenceAnswer: `Ref ${i}`,
+          acceptanceNotes: '允许变化。',
+        }),
+      });
+    }
+    const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
+    expect(countQuestionStock(db, itemId, 'production')).toBe(2);
+    expect(summary.processed).toBe(1); // 只剩 cloze 需要生成
+    expect(summary.skipped).toBe(0);
   });
 
   it('已过期（overdue）的维度也在补足范围内', async () => {

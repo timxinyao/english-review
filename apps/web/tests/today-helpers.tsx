@@ -117,6 +117,31 @@ export function makeClozeTask(overrides: Partial<TodayTaskView> = {}): TodayTask
   };
 }
 
+export function makeProductionTask(overrides: Partial<TodayTaskView> = {}): TodayTaskView {
+  return {
+    taskId: 'task-prod',
+    taskType: 'production',
+    dimension: 'production',
+    origin: 'base',
+    deferCount: 0,
+    item: {
+      id: 'item-give-up',
+      type: 'chunk',
+      target: 'give up',
+      meaning: '放弃',
+      ipa: null,
+    },
+    sourceExample: 'Never give up your dreams.',
+    supplementaryExamples: [],
+    question: {
+      questionId: 'q-prod',
+      zhPrompt: '长期的压力让我想放弃。',
+      mustUse: 'give up',
+    },
+    ...overrides,
+  };
+}
+
 export function makeLearnTask(overrides: Partial<TodayTaskView> = {}): TodayTaskView {
   return {
     taskId: 'task-learn',
@@ -198,6 +223,8 @@ export function makeCorrectAnswer(overrides: Partial<AnswerResponse> = {}): Answ
     correctOptionId: null,
     completeSentence: null,
     acceptedAnswer: null,
+    correction: null,
+    personalExampleSaved: false,
     reinforcementAdded: false,
     progress: { completed: 1, total: 3 },
     completed: null,
@@ -213,8 +240,32 @@ export function makeWrongAnswer(overrides: Partial<AnswerResponse> = {}): Answer
     correctOptionId: 'o1',
     completeSentence: null,
     acceptedAnswer: null,
+    correction: null,
+    personalExampleSaved: false,
     reinforcementAdded: true,
     progress: { completed: 1, total: 4 },
+    completed: null,
+    ...overrides,
+  };
+}
+
+/** 表达题批改结果（pass：corrected = 原句，diff 全 same） */
+export function makeProductionAnswer(overrides: Partial<AnswerResponse> = {}): AnswerResponse {
+  return {
+    result: 'pass',
+    correct: true,
+    explanation: '目标表达使用正确。',
+    correctOptionId: null,
+    completeSentence: null,
+    acceptedAnswer: null,
+    correction: {
+      segments: [{ text: 'The constant stress makes me want to give up.', type: 'same' }],
+      correctedSentence: 'The constant stress makes me want to give up.',
+      betterVersion: null,
+    },
+    personalExampleSaved: true,
+    reinforcementAdded: false,
+    progress: { completed: 1, total: 3 },
     completed: null,
     ...overrides,
   };

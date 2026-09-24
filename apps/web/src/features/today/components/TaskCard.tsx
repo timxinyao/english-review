@@ -6,6 +6,7 @@ import { useBadQuestion, useLater } from '../api';
 import { ChoiceQuestionView } from './ChoiceQuestionView';
 import { ClozeQuestionView } from './ClozeQuestionView';
 import { LearnContent } from './LearnContent';
+import { ProductionQuestionView } from './ProductionQuestionView';
 
 interface Props {
   task: TodayTaskView;
@@ -70,6 +71,14 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
         />
       ) : question && 'textWithBlank' in question ? (
         <ClozeQuestionView
+          task={task}
+          question={question}
+          result={result}
+          onAnswered={onAnswered}
+          onAdvance={onAdvance}
+        />
+      ) : question && 'zhPrompt' in question ? (
+        <ProductionQuestionView
           task={task}
           question={question}
           result={result}

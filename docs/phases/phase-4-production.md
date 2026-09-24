@@ -1,32 +1,53 @@
 # Phase 4 — 表达与个人例句（Production + Practice）
 
-**状态：planned**
+**状态：done · 2026-09-24 完成**（两并行子 agent：后端 / 前端；GLM-5.3-Flash。子 agent 会话中途被取消，但交付已完成，由协调者集成验证）
 
 ## 目标
 
-主动输出闭环：表达题生成（受控中文提示）、实时 AI 批改（三档判定 + 最小纠错 diff + 可选 better version）、Personal Example 沉淀（≤3、pinned 保护、自动替换）、Library“练一下”。
+主动输出闭环：表达题生成（受控中文提示）、实时 AI 批改（三档判定 + 最小纠错 diff + 可选 better version）、Personal Example 沉淀（≤3、pinned 保护、自动替换）、Library"练一下"。
 
-## 模块
+## 实际交付
 
-AI `generate_production_prompt / check_production`；today 的 Production 路径（P-L1/L2 填空在 Phase 3 已有，P-L3 混合、P-L4+ 表达题在本阶段）；`library practice`；前端批改 UI（红删绿增、better_version 折叠、pin 收藏、造句历史）。
+**后端**
+- `modules/questions`：generateQuestionsForItem 支持 production（单题结构 → prompt_text=zh_prompt、payload 含 referenceAnswer/acceptanceNotes）；`evaluateProduction`（check_production 实时调用，变量组装按 prompt 文件，返回含 promptMeta——补齐 Phase 3 遗留的批改追溯）；acquireQuestion/countQuestionStock 支持 production；prefetch 对 P-L3+ 补 production 库存。
+- `modules/today`：P 维度题型映射（L1-2 cloze / L3 哈希奇偶 mixed / L4+ production）；production answer 路径（批改事务外、失败零写入 502；fail 不插补强；correction/explanation/better/ai_prompt_* 落 attempt；幂等回放 correction；daily_stats.production_attempts/pass；造句历史裁剪至 10 条）；bad-question 撤销联动删除本次 personal example（pinned 例外）；feedback 拒绝 production 任务。
+- `modules/learning-items`：`maybeSavePersonalExample`（result≠fail 且 eligible；≤3；替换规则 新分 > 最差 unpinned +0.1；pinned 永不淘汰）；detail 增加 productionHistory（最新 10 条倒序）。
+- `modules/practice`（新建）：start（按当前阶段组 3 题、优先库存）+ answer（**零状态影响**：不改 review_states/next_review_at/status、不造补强、不写 daily_stats；attempt mode=library_practice；production 走批改 + personal 沉淀）。
+- `e2e-server`：give up（U stable + P-L4 due）production 种子、确定性 fake 批改注入（today + practice）、`POST /api/__e2e/reset` 测试重置端点。
 
-## API
+**前端**
+- `components/correction-diff.tsx`（全局：红删除线/绿新增，better_version 折叠）+ choice/cloze/production 题卡组件提升到 components/（Today 与练一下复用）。
+- Today production 卡：中文提示 + mustUse 高亮 + textarea + 批改中状态 + 三档判定 + diff + "已存入个人例句"提示 + 手动下一题 + 批改失败保留输入可重试。
+- Library 详情：造句历史区块（corrected 主体 + 原句对照 + result 标签 + better）、"练一下"视图（3 题、进度、完成后返回）。
 
-`POST /api/library/:id/practice`、`POST /api/library/:id/practice/:questionId/answer`、`POST /api/library/:id/master`、PATCH library 支持 personal examples 编辑与 pin/unpin。
+## 完成标准核验
 
-## 测试点
-
-- check_production：Schema 校验、segments 重建原句与 corrected_sentence（失败重试）、批改失败不推进 Stage 且保留输入。
-- personal_example_candidate：仅 result≠fail 且 eligible 才入库；corrected 版本；上限 3；替换规则（新分 > 最差 unpinned +0.1）；pinned 永不自动淘汰。
-- practice：不改 Stage/next_review_at、不造补强、不计 Today 进度与热力图；表达题优质句仍可入 Personal Example。
-- 造句历史每 Item 最近 10 次（含 library practice 的表达作答）。
-- E2E：答一道表达题看到 diff、收藏一条 personal example。
-
-## 完成标准
-
-- 表达题端到端可用，diff 渲染正确。
-- check_production 真实模型 Eval 通过率达标并出对比报告（需 GLM key）。
+- [x] check_production Schema 与 segments 重建校验（completeStructured 不变式 + 274 用例含矩阵）
+- [x] 批改失败不推进 Stage、保留输入（后端零写入 + 前端重试，均有测试）
+- [x] Personal Example：仅 result≠fail 且 eligible 入库、上限 3、替换规则、pinned 保护（单测覆盖全分支）
+- [x] practice 零状态影响断言 + 表达句仍可沉淀 personal
+- [x] 造句历史每项 10 条裁剪
+- [x] E2E：表达题提交 → 通过 + diff + 已存个人例句；详情历史与个人例句；练一下全流程 —— **12/12 全绿**（auth 4 + library 4 + production 3 + today 1）
+- [x] `pnpm lint && pnpm typecheck && pnpm test` 全绿（api 274 + web 64）
+- [ ] check_production 真实模型 Eval 达标报告：待 GLM_API_KEY（运维项）
 
 ## 决策记录
 
-（暂无）
+- P-L3 mixed 用 itemId 哈希奇偶决定 cloze/production（确定性、可测试）。
+- 表达题 fail **不插补强**（PRODUCT 7.6"不强制当天重做"）。
+- bad-question 撤销时删除该次写入的 personal example（pinned 例外）——个人例句虽是长期资产，但坏题撤销语义是"消除该题造成的学习影响"。
+- 造句历史裁剪在写入时执行（保留最新 10 条，不区分 voided；已入 personal example 的内容由 learning_examples 长期保留，attempt 行可删）。
+- practice 题目复用 questions 正常库存（合法可再生缓存），不足且 AI 可用才补生成。
+- 跨 feature 的题卡渲染组件提升至 `apps/web/src/components/`（choice/cloze/production-question-card + correction-diff + question-answer 工具），遵循 ARCHITECTURE 跨 feature 升级规则。
+- e2e 新增 `POST /api/__e2e/reset`（仅 E2E_SEED=1 注册、需登录会话）：多个"完整会话"spec 共享 e2e.db 而一天只允许一个正式 session，各 spec 开头重置回种子态，保证顺序无关。
+- fake 批改仅注入 e2e-server（测试进程），生产路径无任何 mock 语言判定。
+
+## 遗留问题（移交后续阶段）
+
+- GLM_API_KEY 配置后：跑 `pnpm ai:eval -- --all` 出真实基线；实测 check_production 实时批改质量（Phase 4 验收的运维项）。
+- evaluateCloze（AI 兜底路径）的 attempt ai_prompt_* 仍为 null（仅 check_production 已补）。
+- personal example 替换/淘汰的更细质量策略（如长期未使用的 unpinned 低分项）留待真实使用后评估。
+
+## 变更日志
+
+- 2026-09-24：双子 agent 并行交付（子 agent 会话被取消但工作树已完成）；协调者集成：清理残留进程、修复 today.spec 过时断言（4→5 due、补表达卡分支）、新增 e2e reset 端点解决 spec 间 session 冲突；全部门禁与 12 个 E2E 通过。

@@ -11,6 +11,7 @@ import { authRoutes } from './modules/auth/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
 import { importExportRoutes } from './modules/import-export/routes.js';
 import { learningItemsRoutes } from './modules/learning-items/routes.js';
+import { practiceRoutes } from './modules/practice/routes.js';
 import { settingsRoutes } from './modules/settings/routes.js';
 import { todayRoutes } from './modules/today/routes.js';
 
@@ -55,6 +56,7 @@ export function buildApp({ config, db, logger = true }: AppOptions): FastifyInst
   settingsRoutes(app, db);
   learningItemsRoutes(app, db);
   todayRoutes(app, db, config);
+  practiceRoutes(app, db);
   importExportRoutes(app, db, config);
 
   return app;

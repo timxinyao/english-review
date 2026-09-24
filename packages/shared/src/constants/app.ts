@@ -19,3 +19,14 @@ export const READ_FOCUS_MIN = 3;
 export const READ_FOCUS_MAX = 5;
 export const READ_OLD_MIN = 3;
 export const READ_OLD_MAX = 5;
+
+/** 时区内的本地日期 YYYY-MM-DD（session_date / daily_stats 归属用；无第三方依赖） */
+export function localDateString(date: Date, timeZone: string): string {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return fmt.format(date);
+}

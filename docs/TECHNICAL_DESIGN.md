@@ -190,6 +190,7 @@ POST /api/today/start
 POST /api/today/tasks/:id/answer
 POST /api/today/tasks/:id/later
 POST /api/today/tasks/:id/bad-question
+POST /api/today/tasks/:id/feedback
 
 GET  /api/library
 GET  /api/library/:id
@@ -227,6 +228,7 @@ GET  /api/health
 - `POST /api/library/:id/practice/:questionId/answer`：Library“练一下”的作答提交端点。表达题需要实时 AI 批改与 Personal Example 候选沉淀，仅生成不提交无法闭环。
 - `POST /api/library/:id/master`：PRODUCT_DESIGN 5.2 的“标记已掌握”显式操作（两维度置 stable + status=mastered）。
 - `GET /api/health`：未认证存活检查，供部署 smoke test 与 Playwright webServer 探活。
+- `POST /api/today/tasks/:id/feedback`：答题后的用户反馈（其实蒙的/太简单），对已结算结果做一次调整（guessed 按 fail 重算、too_easy 额外升 1 级）；仅非 learn 任务、仅最新一次 attempt、仅一次。
 - Personal example 的 pin/unpin 并入 `PATCH /api/library/:id`，不单开端点。
 
 API 名称是工程基线，可在不改变资源边界的前提下微调；禁止把 AI provider 的 endpoint 或 prompt 细节直接暴露给前端。

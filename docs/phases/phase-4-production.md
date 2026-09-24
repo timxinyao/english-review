@@ -29,7 +29,7 @@
 - [x] 造句历史每项 10 条裁剪
 - [x] E2E：表达题提交 → 通过 + diff + 已存个人例句；详情历史与个人例句；练一下全流程 —— **12/12 全绿**（auth 4 + library 4 + production 3 + today 1）
 - [x] `pnpm lint && pnpm typecheck && pnpm test` 全绿（api 274 + web 64）
-- [ ] check_production 真实模型 Eval 达标报告：待 GLM_API_KEY（运维项）
+- [x] check_production 真实模型 Eval：**2026-09-25 完成**——GLM 接入切换为 Anthropic 兼容端点后全量 7 任务 20/20 通过（glm-5.3 判定 / glm-5.3-flash 生成），真实基线已存 baselines/
 
 ## 决策记录
 
@@ -44,10 +44,11 @@
 
 ## 遗留问题（移交后续阶段）
 
-- GLM_API_KEY 配置后：跑 `pnpm ai:eval -- --all` 出真实基线；实测 check_production 实时批改质量（Phase 4 验收的运维项）。
+- ~~GLM_API_KEY 配置后：跑 `pnpm ai:eval -- --all` 出真实基线~~（2026-09-25 完成，见完成标准）
 - evaluateCloze（AI 兜底路径）的 attempt ai_prompt_* 仍为 null（仅 check_production 已补）。
 - personal example 替换/淘汰的更细质量策略（如长期未使用的 unpinned 低分项）留待真实使用后评估。
 
 ## 变更日志
 
 - 2026-09-24：双子 agent 并行交付（子 agent 会话被取消但工作树已完成）；协调者集成：清理残留进程、修复 today.spec 过时断言（4→5 due、补表达卡分支）、新增 e2e reset 端点解决 spec 间 session 冲突；全部门禁与 12 个 E2E 通过。
+- 2026-09-25：GLM 接入切换为 Anthropic Messages 兼容端点（`/api/anthropic/v1/messages`，x-api-key + anthropic-version，max_tokens 必填，无 response_format——JSON 靠 Prompt 约束 + extractJson 容错）；模型映射更新为 glm-5.3（判定/批改/Read）/ glm-5.3-flash（题目生成）；dotenv 在 index.ts 与 ai-eval.ts 加载（e2e-server 不加载，避免 e2e 触发真实生成）；修复 generate_production_prompt 不变式过严（允许词形变化：target 完整出现或任一组成词≥3字符出现）；真实模型全量 Eval 20/20 通过并保存基线。

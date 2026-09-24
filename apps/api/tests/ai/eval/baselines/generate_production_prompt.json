@@ -1,7 +1,7 @@
 {
   "promptVersion": 1,
   "cases": {
-    "gp01-chunk": "89bb47476db8e3bf",
-    "gp02-word-polysemy-lock": "32812f1d91467635"
+    "gp01-chunk": "230e3557a5f8f17a",
+    "gp02-word-polysemy-lock": "33070657fbeddfce"
   }
 }

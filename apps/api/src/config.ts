@@ -15,14 +15,11 @@ const ConfigSchema = z.object({
   APP_ORIGINS: z.string().default('http://localhost:5173,http://127.0.0.1:5173'),
   APP_TIMEZONE: z.string().default(DEFAULT_APP_TIMEZONE),
   GLM_API_KEY: z.string().optional(),
-  GLM_API_BASE: z.string().default('https://open.bigmodel.cn/api/paas/v4'),
-  GLM_MODEL_FLASH: z.string().default('glm-4-flash'),
-  GLM_MODEL_AIR: z.string().default('glm-4-air'),
-  GLM_MODEL_MAX: z.string().default('glm-4-plus'),
-  GLM_JSON_MODE: z
-    .string()
-    .default('true')
-    .transform((v) => v !== 'false'),
+  GLM_API_BASE: z.string().default('https://open.bigmodel.cn/api/anthropic'),
+  GLM_MODEL_FLASH: z.string().default('glm-5.3-flash'),
+  GLM_MODEL_AIR: z.string().default('glm-5.3'),
+  GLM_MODEL_MAX: z.string().default('glm-5.3'),
+  GLM_MAX_TOKENS: z.coerce.number().int().min(256).default(8192),
 });
 
 export interface AppConfig {
@@ -38,7 +35,7 @@ export interface AppConfig {
   glmApiKey?: string;
   glmApiBase: string;
   glmModels: { flash: string; air: string; max: string };
-  glmJsonMode: boolean;
+  glmMaxTokens: number;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -71,6 +68,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     glmApiKey: e.GLM_API_KEY,
     glmApiBase: e.GLM_API_BASE,
     glmModels: { flash: e.GLM_MODEL_FLASH, air: e.GLM_MODEL_AIR, max: e.GLM_MODEL_MAX },
-    glmJsonMode: e.GLM_JSON_MODE,
+    glmMaxTokens: e.GLM_MAX_TOKENS,
   };
 }

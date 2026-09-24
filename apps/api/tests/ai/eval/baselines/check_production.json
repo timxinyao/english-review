@@ -1,11 +1,11 @@
 {
   "promptVersion": 1,
   "cases": {
-    "cp01-natural-pass": "ac5814fb5d7d9389",
-    "cp02-small-grammar-basic": "17c2ae8627482a87",
-    "cp03-wrong-meaning-fail": "4415d06e45dc3f70",
-    "cp04-alternative-natural-pass": "aa6973e8e847fb88",
-    "cp05-missing-target-fail": "d201778e9f0491b5",
-    "cp06-punctuation-only-pass": "b2b6724c16a7da3d"
+    "cp01-natural-pass": "c33db2bf7c5d9309",
+    "cp02-small-grammar-basic": "db74fe9e014d6e56",
+    "cp03-wrong-meaning-fail": "9a5084a90ed656d0",
+    "cp04-alternative-natural-pass": "aabd0731c19f8ef3",
+    "cp05-missing-target-fail": "e0377f63d9693983",
+    "cp06-punctuation-only-pass": "949a3486fa910380"
   }
 }

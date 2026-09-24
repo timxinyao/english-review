@@ -1,9 +1,9 @@
 {
   "promptVersion": 1,
   "cases": {
-    "cc01-inflection-accept": "9c973862a713863f",
-    "cc02-target-inflection-accept": "284e9a7923ab9659",
-    "cc03-synonym-reject": "4a19e646d319569d",
-    "cc04-typo-reject": "4a19e646d319569d"
+    "cc01-inflection-accept": "83671c26cb700d9b",
+    "cc02-target-inflection-accept": "4628c79ed7dbd708",
+    "cc03-synonym-reject": "372ed78bfba50ef1",
+    "cc04-typo-reject": "fd9890af7bbb04d7"
   }
 }

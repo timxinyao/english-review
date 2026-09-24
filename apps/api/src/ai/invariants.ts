@@ -53,8 +53,13 @@ export function checkAiOutput(
       if (out.must_use !== target)
         violations.push(`must_use "${out.must_use}" ≠ target "${target}"`);
       const ref = out.reference_answer.toLowerCase();
-      const head = target.split(/\s+/)[0]?.toLowerCase() ?? '';
-      if (head && !ref.includes(head)) violations.push('reference_answer 未包含目标词');
+      const targetLower = target.toLowerCase();
+      // AI_RULES §9 允许正常词形变化（如 wear down → wore me down），
+      // 因此判定为：完整 target 出现，或任一组成词（≥3 字符）出现
+      const words = targetLower.split(/\s+/).filter((w) => w.length >= 3);
+      const used =
+        ref.includes(targetLower) || (words.length > 0 && words.some((w) => ref.includes(w)));
+      if (!used) violations.push('reference_answer 未包含目标词');
       break;
     }
     case 'checkProduction': {

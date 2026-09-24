@@ -7,6 +7,7 @@
  *   pnpm ai:eval -- --all --provider mock
  *   pnpm ai:eval -- --task check_production --save-baseline
  */
+import 'dotenv/config';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

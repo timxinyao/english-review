@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { createDatabase } from './db/client.js';

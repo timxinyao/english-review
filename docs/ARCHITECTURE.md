@@ -29,9 +29,11 @@ modules/<name>/
 - **routes**：只做 parse（Zod）→ 调 service → 序列化。禁止在 routes 写 SQL 或业务判断。
 - **service**：所有业务不变式（幂等、额度、补强上限、状态机、清题）在这里强制，必须事务化的写操作用 `db.transaction`。
 - **db/**：drizzle schema、migration、client 工厂（`createDatabase(path)` 便于测试用临时库）。
-- **ai/**：promptRegistry、taskConfig、provider（glm/mock）、completeStructured（JSON 提取 + Zod + 语义校验 + 重试）。
+- **ai/**：promptRegistry、taskConfig、provider（glm/mock）、completeStructured（JSON 提取 + Zod + 校验 + 重试）；`ai/runtime.ts` 提供进程级单例（registry + provider），业务模块经它使用 AI。
 - **jobs/**：定时任务入口，只调用 service，不写 SQL。
 - **lib/**：与业务无关的通用件（errors、session cookie、http helpers、logger）。
+
+> **重要约束（better-sqlite3 事务）**：`db.transaction(cb)` 的回调必须是**同步**的（禁止 async 回调、禁止返回 Promise），否则抛 `Transaction function cannot return a promise`。事务体内使用 drizzle 的同步执行方法（`.get() / .all() / .run()`）。AI 调用等异步操作放在事务之外先完成，事务内只做落库。
 
 ### 2.2 依赖方向
 

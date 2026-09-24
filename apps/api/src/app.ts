@@ -6,8 +6,11 @@ import type { AppDatabase } from './db/client.js';
 import { AppError } from './lib/errors.js';
 import { errorHandler } from './lib/http.js';
 import { verifySession } from './lib/session.js';
+import { initAiRuntime } from './ai/runtime.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
+import { importExportRoutes } from './modules/import-export/routes.js';
+import { learningItemsRoutes } from './modules/learning-items/routes.js';
 import { settingsRoutes } from './modules/settings/routes.js';
 
 const PUBLIC_ROUTES = new Set(['POST/api/auth/login', 'GET/api/health']);
@@ -43,9 +46,14 @@ export function buildApp({ config, db, logger = true }: AppOptions): FastifyInst
     }
   });
 
+  // AI 运行时单例：Registry 加载/校验失败则构建失败（fail fast，行为与 index.ts 启动校验一致）
+  initAiRuntime(config);
+
   healthRoutes(app);
   authRoutes(app, config);
   settingsRoutes(app, db);
+  learningItemsRoutes(app, db);
+  importExportRoutes(app, db, config);
 
   return app;
 }

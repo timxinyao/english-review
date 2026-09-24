@@ -73,3 +73,13 @@ export function productionStageOf(level: number): keyof typeof PRODUCTION_STAGE_
   if (level === 3) return 'middle';
   return 'late';
 }
+
+/** 列表展示用的自然语言阶段（PRODUCT_DESIGN §6.1） */
+export type ReviewStageLabel = '未开始' | '初学' | '练习中' | '稳定';
+
+export function reviewStageLabel(level: number, stable: boolean): ReviewStageLabel {
+  if (stable || level >= 7) return '稳定';
+  if (level >= 3) return '练习中';
+  if (level >= 1) return '初学';
+  return '未开始';
+}

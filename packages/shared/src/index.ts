@@ -25,6 +25,7 @@ export * from './schemas/api/library.js';
 export * from './schemas/api/import.js';
 export * from './schemas/api/today.js';
 export * from './schemas/api/practice.js';
+export * from './schemas/api/ai.js';
 
 // AI 任务 Schema 与目录
 export * from './schemas/ai/index.js';

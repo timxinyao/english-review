@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { FALLBACK_MODELS } from '../../src/ai/models.js';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { loadPromptRegistry } from '../../src/ai/promptRegistry.js';
@@ -59,7 +60,7 @@ describe('generateQuestionsForItem：understanding', () => {
       expect(row.promptKey).toBe('generate_understanding');
       expect(row.promptVersion).toBe(prompt.version);
       expect(row.promptHash).toBe(prompt.hash);
-      expect(row.model).toBe(runtime.config.glmModels.flash);
+      expect(row.model).toBe(FALLBACK_MODELS.flash); // 无 key 环境 → fallback 常量（自动发现不可用）
       expect(row.useCount).toBe(0);
       expect(row.correctCount).toBe(0);
       expect(row.lastUsedAt).toBeNull();

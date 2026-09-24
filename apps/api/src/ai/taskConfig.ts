@@ -1,5 +1,6 @@
 import type { AiTask } from '@el/shared';
 import type { AppConfig } from '../config.js';
+import { FALLBACK_MODELS } from './models.js';
 
 export type ModelAlias = 'flash' | 'air' | 'max';
 
@@ -30,10 +31,15 @@ export interface ResolvedTaskConfig {
   maxRetries: number;
 }
 
+/**
+ * 同步版：仅供展示/日志的快速回退（未做自动发现，直接用 env 或 fallback）。
+ * 实际调用请用 ai/models.ts 的 resolveModelForTask（自动发现 + 缓存）。
+ */
 export function getTaskConfig(task: AiTask, config: AppConfig): ResolvedTaskConfig {
   const policy = TASK_MODEL_POLICY[task];
+  const explicit = config.glmModels[policy.alias].trim();
   return {
-    model: config.glmModels[policy.alias],
+    model: explicit || FALLBACK_MODELS[policy.alias],
     temperature: policy.temperature,
     maxRetries: MAX_STRUCTURED_RETRIES,
   };

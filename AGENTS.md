@@ -115,7 +115,7 @@ AI 不得直接决定或返回要写入的 Stage、next_review_at、mastered、q
 
 - 所有输出必须 Schema 校验后才能入库。
 - AI 不能直接返回 HTML 用于 diff。
-- 不把模型调用细节暴露给前端。
+- 不把模型调用细节暴露给前端（模型名除外：经 `GET /api/ai/models` 在 Settings 只读展示；endpoint、密钥、Prompt 细节仍不暴露）。
 - Prompt Registry 负责模板加载、变量校验、version/hash。
 - Production、Question、Read 等可追溯实体必须记录实际 prompt metadata。
 

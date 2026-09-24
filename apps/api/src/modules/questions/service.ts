@@ -18,7 +18,6 @@ import type { AppDatabase } from '../../db/client.js';
 import { learningExamples, learningItems, questions, settings } from '../../db/schema.js';
 import { appError } from '../../lib/errors.js';
 import { completeStructured } from '../../ai/complete.js';
-import { getTaskConfig } from '../../ai/taskConfig.js';
 import type { AiRuntime } from '../../ai/runtime.js';
 
 /** drizzle 事务回调的 tx 参数类型（与 AppDatabase 同源的 BaseSQLiteDatabase） */
@@ -218,11 +217,15 @@ export async function generateQuestionsForItem(
   if (type === 'production') {
     // generate_production_prompt 为单题结构（AI_RULES §9）：count 道题 = count 次调用，
     // 每次把本批已生成的 zh_prompt 并入 recent_prompts 避免重复
-    const model = getTaskConfig('generateProductionPrompt', runtime.config).model;
     rows = [];
+    let model = '';
     const recentPrompts = recentProductionPrompts(db, itemId, 5);
     for (let i = 0; i < count; i += 1) {
-      const { data, meta } = await completeStructured<GenerateProductionPromptResult>(
+      const {
+        data,
+        meta,
+        model: usedModel,
+      } = await completeStructured<GenerateProductionPromptResult>(
         aiDeps,
         'generateProductionPrompt',
         {
@@ -236,6 +239,7 @@ export async function generateQuestionsForItem(
         },
       );
       recentPrompts.push(data.zh_prompt);
+      if (!model) model = usedModel;
       rows.push({
         id: randomUUID(),
         learningItemId: itemId,
@@ -262,12 +266,11 @@ export async function generateQuestionsForItem(
       });
     }
   } else if (type === 'understanding') {
-    const { data, meta } = await completeStructured<GenerateUnderstandingQuestionsResult>(
+    const { data, meta, model } = await completeStructured<GenerateUnderstandingQuestionsResult>(
       aiDeps,
       'generateUnderstandingQuestions',
       vars,
     );
-    const model = getTaskConfig('generateUnderstandingQuestions', runtime.config).model;
     rows = data.questions.map((q) => ({
       id: randomUUID(),
       learningItemId: itemId,
@@ -289,12 +292,11 @@ export async function generateQuestionsForItem(
       createdAt: nowIso,
     }));
   } else {
-    const { data, meta } = await completeStructured<GenerateClozeQuestionsResult>(
+    const { data, meta, model } = await completeStructured<GenerateClozeQuestionsResult>(
       aiDeps,
       'generateClozeQuestions',
       vars,
     );
-    const model = getTaskConfig('generateClozeQuestions', runtime.config).model;
     rows = data.questions.map((q) => {
       // 标准答案置于 acceptedAnswers 首位，作为规范形式（AI_RULES §7：answer ∈ accepted_answers）
       const acceptedAnswers = [q.answer, ...q.accepted_answers.filter((a) => a !== q.answer)];
@@ -559,7 +561,7 @@ export async function evaluateProduction(
 
   // 变量名与 prompts/check_production.v1.md 一致；locked_meaning 用题目生成时锁定的
   // meaning_snapshot（与 check_cloze 兜底一致；正常流下等于 item.meaning）
-  const { data, meta } = await completeStructured<CheckProductionResult>(
+  const { data, meta, model } = await completeStructured<CheckProductionResult>(
     { provider: runtime.provider, config: runtime.config, registry: runtime.registry },
     'checkProduction',
     {
@@ -574,7 +576,6 @@ export async function evaluateProduction(
       user_answer: userAnswer,
     },
   );
-  const model = getTaskConfig('checkProduction', runtime.config).model;
   return {
     result: data.result,
     correctedSentence: data.corrected_sentence,

@@ -16,9 +16,10 @@ const ConfigSchema = z.object({
   APP_TIMEZONE: z.string().default(DEFAULT_APP_TIMEZONE),
   GLM_API_KEY: z.string().optional(),
   GLM_API_BASE: z.string().default('https://open.bigmodel.cn/api/anthropic'),
-  GLM_MODEL_FLASH: z.string().default('glm-5.3-flash'),
-  GLM_MODEL_AIR: z.string().default('glm-5.3'),
-  GLM_MODEL_MAX: z.string().default('glm-5.3'),
+  // 留空 = 自动发现（/v1/models 选最新 flash / 主模型）；非空 = 固定使用该型号
+  GLM_MODEL_FLASH: z.string().default(''),
+  GLM_MODEL_AIR: z.string().default(''),
+  GLM_MODEL_MAX: z.string().default(''),
   GLM_MAX_TOKENS: z.coerce.number().int().min(256).default(8192),
 });
 

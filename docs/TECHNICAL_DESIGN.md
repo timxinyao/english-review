@@ -220,15 +220,17 @@ GET  /api/stats
 GET  /api/settings
 PATCH /api/settings
 
+GET  /api/ai/models
 GET  /api/health
 ```
 
 补充说明（工程补齐，2026-09-24）：
 
-- `POST /api/library/:id/practice/:questionId/answer`：Library“练一下”的作答提交端点。表达题需要实时 AI 批改与 Personal Example 候选沉淀，仅生成不提交无法闭环。
-- `POST /api/library/:id/master`：PRODUCT_DESIGN 5.2 的“标记已掌握”显式操作（两维度置 stable + status=mastered）。
+- `POST /api/library/:id/practice/:questionId/answer`：Library“练一下”的作答端点。
+- `POST /api/library/:id/master`：PRODUCT_DESIGN 5.2 的“标记已掌握”显式操作。
 - `GET /api/health`：未认证存活检查，供部署 smoke test 与 Playwright webServer 探活。
-- `POST /api/today/tasks/:id/feedback`：答题后的用户反馈（其实蒙的/太简单），对已结算结果做一次调整（guessed 按 fail 重算、too_easy 额外升 1 级）；仅非 learn 任务、仅最新一次 attempt、仅一次。
+- `POST /api/today/tasks/:id/feedback`：答题后的用户反馈（其实蒙的/太简单），对已结算结果做一次调整。
+- `GET /api/ai/models`：只读展示当前各用途（生成/判定）解析到的模型、来源（auto/config/fallback）、任务映射与可用模型清单（2026-09-25 新增，配套 §10.5 自动发现；不暴露 endpoint 与密钥）。
 - Personal example 的 pin/unpin 并入 `PATCH /api/library/:id`，不单开端点。
 
 API 名称是工程基线，可在不改变资源边界的前提下微调；禁止把 AI provider 的 endpoint 或 prompt 细节直接暴露给前端。
@@ -378,9 +380,21 @@ Prompt 升级时直接将当前文件从 `.vN.md` 改为 `.vN+1.md` 并更新 fr
 
 ## 10.5 Model / Task 配置
 
-模型别名与采样参数不塞进 Prompt 正文，也不存数据库，统一由 `taskConfig.ts` 按 task 管理并纳入 Git。例如哪个 task 使用 GLM Flash、是否需要较低随机性等，都在这里配置。Eval 结果必须同时记录实际 model。
+模型别名与采样参数不塞进 Prompt 正文，也不存数据库，统一由 `taskConfig.ts` 按 task 管理并纳入 Git。Eval 结果必须同时记录实际 model。
 
 Prompt 与 taskConfig 可以一起调整，但两者职责不同：Prompt 管语言行为，taskConfig 管模型与调用参数。
+
+### 模型自动发现与覆盖（2026-09-25）
+
+Coding Plan 的模型号会随版本演进（glm-5.3 → glm-5.4 …），因此别名解析规则为：
+
+1. 环境变量 `GLM_MODEL_FLASH / GLM_MODEL_AIR / GLM_MODEL_MAX` **非空** → 使用指定值（source=config；不在可用清单时记 warning 但仍使用）。
+2. 未指定（默认留空）→ 调用 `GET {GLM_API_BASE}/v1/models` 自动选择（source=auto）：
+   - `flash`（题目生成）：版本最高的 `glm-*flash*` 型号（同版本取名字更短的 `-flash`）；
+   - `air`/`max`（判定、批改、Read）：版本最高的**无后缀主模型**（`glm-X.Y`）。
+3. 无 key 或发现失败 → 内置 fallback 常量（source=fallback），不阻塞启动。
+
+解析结果进程内缓存（TTL 1 小时，失败 60 秒后重试）；版本比较按数字段（5.10 > 5.9 > 5.3）。前端在 Settings 只读展示（`GET /api/ai/models`）；endpoint 与密钥不暴露给前端。
 
 ## 10.6 Schema 校验与重试
 

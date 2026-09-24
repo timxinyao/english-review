@@ -30,3 +30,4 @@
 | 2026-09-24 | 文档缺口补齐：import JSON 增加 ipa、新增 daily_stats 表、practice 作答与 master 端点、generate_production_prompt fixture | 设计包审查确认 |
 | 2026-09-24 | TDD 强制、阶段留档、前后端架构文档、全局样式/组件约束写入 AGENTS.md 与 docs/ | 用户要求 |
 | 2026-09-24 | APP_TIMEZONE 默认 Asia/Shanghai；TTS voice 按设备存 localStorage；后端生产用 tsx 直跑 | 用户确认的工程决策 |
+| 2026-09-25 | GLM 接入切换 Anthropic Messages 兼容端点；模型自动发现（留空=按 /v1/models 选最新 flash/主模型，env 指定优先，失败回退内置常量）；`GET /api/ai/models` + Settings 只读展示 | 用户要求：模型号随 code plan 演进需自动适配、可配置覆盖、界面可见 |

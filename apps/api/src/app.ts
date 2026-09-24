@@ -7,6 +7,7 @@ import { AppError } from './lib/errors.js';
 import { errorHandler } from './lib/http.js';
 import { verifySession } from './lib/session.js';
 import { initAiRuntime } from './ai/runtime.js';
+import { buildAiModelsResponse } from './ai/models.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
 import { importExportRoutes } from './modules/import-export/routes.js';
@@ -58,6 +59,9 @@ export function buildApp({ config, db, logger = true }: AppOptions): FastifyInst
   todayRoutes(app, db, config);
   practiceRoutes(app, db);
   importExportRoutes(app, db, config);
+
+  // 模型自动发现状态（Settings 只读展示；不暴露 endpoint/密钥）
+  app.get('/api/ai/models', async () => buildAiModelsResponse(config));
 
   return app;
 }

@@ -2,14 +2,17 @@ import { AI_RESPONSE_SCHEMAS, AI_TASK_CATALOG, type AiTask } from '@el/shared';
 import type { AppConfig } from '../config.js';
 import { AppError } from '../lib/errors.js';
 import { checkAiOutput } from './invariants.js';
+import { resolveModelForTask } from './models.js';
 import type { LoadedPrompt, PromptMeta } from './promptRegistry.js';
 import { renderPrompt } from './promptRegistry.js';
-import { getTaskConfig } from './taskConfig.js';
+import { MAX_STRUCTURED_RETRIES, TASK_MODEL_POLICY } from './taskConfig.js';
 import type { AiProvider } from './provider/index.js';
 
 export interface CompleteSuccess<T> {
   data: T;
   meta: PromptMeta;
+  /** 本次实际使用的模型（自动发现/配置指定后的解析结果） */
+  model: string;
   attempts: number;
 }
 
@@ -57,15 +60,16 @@ export async function completeStructured<T>(
   if (!schema) throw new AiStructuredError(`未知 response_schema：${spec.responseSchemaName}`);
 
   const rendered = renderPrompt(deps.registry, spec.promptKey, vars);
-  const taskConf = getTaskConfig(task, deps.config);
+  const policy = TASK_MODEL_POLICY[task];
+  const model = await resolveModelForTask(deps.config, task);
 
   let lastError: unknown;
-  for (let attempt = 1; attempt <= taskConf.maxRetries + 1; attempt++) {
+  for (let attempt = 1; attempt <= MAX_STRUCTURED_RETRIES + 1; attempt++) {
     try {
       const raw = await deps.provider.complete({
         task,
-        model: taskConf.model,
-        temperature: taskConf.temperature,
+        model,
+        temperature: policy.temperature,
         prompt: rendered.text,
         vars,
       });
@@ -82,12 +86,12 @@ export async function completeStructured<T>(
       if (violations.length > 0) {
         throw new AiStructuredError(`输出违反不变式：${violations.join('；')}`);
       }
-      return { data: parsed.data as T, meta: rendered.meta, attempts: attempt };
+      return { data: parsed.data as T, meta: rendered.meta, model, attempts: attempt };
     } catch (err) {
       lastError = err;
     }
   }
   throw new AiStructuredError(
-    `AI 结构化调用失败（已重试 ${taskConf.maxRetries} 次）：${(lastError as Error).message}`,
+    `AI 结构化调用失败（已重试 ${MAX_STRUCTURED_RETRIES} 次）：${(lastError as Error).message}`,
   );
 }

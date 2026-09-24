@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { FALLBACK_MODELS } from '../../src/ai/models.js';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { loadPromptRegistry } from '../../src/ai/promptRegistry.js';
@@ -55,7 +56,7 @@ describe('generateQuestionsForItem：production（单题结构）', () => {
     expect(row.promptKey).toBe('generate_production_prompt');
     expect(row.promptVersion).toBe(prompt.version);
     expect(row.promptHash).toBe(prompt.hash);
-    expect(row.model).toBe(runtime.config.glmModels.flash);
+    expect(row.model).toBe(FALLBACK_MODELS.flash); // 无 key 环境 → fallback 常量（自动发现不可用）
     expect(row.promptText).toBeTruthy(); // zh_prompt
     const payload = JSON.parse(row.payloadJson) as {
       mustUse: string;
@@ -176,7 +177,7 @@ describe('evaluateProduction（check_production 批改）', () => {
       key: 'check_production',
       version: 1,
       hash: loadPromptRegistry(join(process.cwd(), 'prompts')).get('check_production')!.hash,
-      model: runtime.config.glmModels.air,
+      model: FALLBACK_MODELS.air, // 无 key 环境 → fallback
     });
   });
 

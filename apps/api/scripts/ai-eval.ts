@@ -21,7 +21,7 @@ import {
 } from '@el/shared';
 import { completeStructured } from '../src/ai/complete.js';
 import { loadPromptRegistry, validateRegistry } from '../src/ai/promptRegistry.js';
-import { getTaskConfig } from '../src/ai/taskConfig.js';
+import { resolveModelForTask } from '../src/ai/models.js';
 import { resolveProvider, type AiProvider } from '../src/ai/provider/index.js';
 import { loadConfig, type AppConfig } from '../src/config.js';
 
@@ -176,9 +176,9 @@ async function runTask(
   const meta = { promptVersion: registry.get(spec.promptKey)?.version };
   console.log(`\n=== ${task}（${spec.promptKey}）===`);
   const prompt = registry.get(spec.promptKey)!;
-  const taskConf = getTaskConfig(task, config);
+  const model = await resolveModelForTask(config, task);
   console.log(
-    `prompt v${prompt.version} hash=${prompt.hash.slice(0, 12)} model=${provider.name === 'mock' ? `mock(${taskConf.model})` : taskConf.model} provider=${provider.name}`,
+    `prompt v${prompt.version} hash=${prompt.hash.slice(0, 12)} model=${provider.name === 'mock' ? `mock(${model})` : model} provider=${provider.name}`,
   );
   if (skipExpected)
     console.log('（mock 模式：跳过语言判定类 expected 对比，仅验证 Schema/不变式）');

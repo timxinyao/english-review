@@ -1,0 +1,40 @@
+{
+  "task": "generate_production_prompt",
+  "cases": [
+    {
+      "id": "gp01-chunk",
+      "input": {
+        "type": "chunk",
+        "target": "wear down",
+        "meaning": "逐渐使……疲惫；消耗",
+        "content_level": "B1",
+        "source_example": "It wears you down.",
+        "extra_examples": [],
+        "recent_prompts": []
+      },
+      "expected_invariants": [
+        "zh_prompt is non-empty and unambiguous",
+        "must_use equals target",
+        "reference_answer uses target with locked meaning",
+        "zh_prompt does not leak the English answer"
+      ]
+    },
+    {
+      "id": "gp02-word-polysemy-lock",
+      "input": {
+        "type": "word",
+        "target": "raw",
+        "meaning": "未经处理的；原始的",
+        "content_level": "B1",
+        "source_example": "We need the raw data.",
+        "extra_examples": [],
+        "recent_prompts": []
+      },
+      "expected_invariants": [
+        "prompt targets only the locked meaning (unprocessed/original)",
+        "must_use equals target",
+        "reference_answer is natural and not a word-for-word mapping"
+      ]
+    }
+  ]
+}

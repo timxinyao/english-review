@@ -1,0 +1,107 @@
+{
+  "task": "check_production",
+  "cases": [
+    {
+      "id": "cp01-natural-pass",
+      "input": {
+        "type": "chunk",
+        "target": "wear down",
+        "meaning": "逐渐使……疲惫；消耗",
+        "zh_prompt": "长期的压力让我越来越疲惫。",
+        "reference_answer": "The constant stress is wearing me down.",
+        "acceptance_notes": "允许正常时态和人称变化。",
+        "source_example": "It wears you down.",
+        "extra_examples": [],
+        "user_answer": "The constant stress is wearing me down."
+      },
+      "expected": {
+        "result": "pass"
+      }
+    },
+    {
+      "id": "cp02-small-grammar-basic",
+      "input": {
+        "type": "chunk",
+        "target": "wear down",
+        "meaning": "逐渐使……疲惫；消耗",
+        "zh_prompt": "长期的压力让我越来越疲惫。",
+        "reference_answer": "The constant stress is wearing me down.",
+        "acceptance_notes": "允许正常时态和人称变化。",
+        "source_example": "It wears you down.",
+        "extra_examples": [],
+        "user_answer": "The constant stress wear me down every day."
+      },
+      "expected": {
+        "result": "basic_pass"
+      }
+    },
+    {
+      "id": "cp03-wrong-meaning-fail",
+      "input": {
+        "type": "word",
+        "target": "raw",
+        "meaning": "未经处理的；原始的",
+        "zh_prompt": "这些是还没有处理的原始数据。",
+        "reference_answer": "These are the raw data before processing.",
+        "acceptance_notes": "raw 必须表示未经处理/原始。",
+        "source_example": "We need the raw data.",
+        "extra_examples": [],
+        "user_answer": "These data are raw because they are very angry."
+      },
+      "expected": {
+        "result": "fail"
+      }
+    },
+    {
+      "id": "cp04-alternative-natural-pass",
+      "input": {
+        "type": "word",
+        "target": "stable",
+        "meaning": "稳定的；不易变化的",
+        "zh_prompt": "系统现在已经很稳定了。",
+        "reference_answer": "The system is stable now.",
+        "acceptance_notes": "允许不同自然语序。",
+        "source_example": "The connection is stable.",
+        "extra_examples": [],
+        "user_answer": "The system has been pretty stable lately."
+      },
+      "expected": {
+        "result": "pass"
+      }
+    },
+    {
+      "id": "cp05-missing-target-fail",
+      "input": {
+        "type": "chunk",
+        "target": "make sense",
+        "meaning": "有道理；讲得通",
+        "zh_prompt": "你的解释很有道理。",
+        "reference_answer": "Your explanation makes sense.",
+        "acceptance_notes": "必须使用 make sense 的合理变形。",
+        "source_example": "That makes sense.",
+        "extra_examples": [],
+        "user_answer": "Your explanation is very reasonable."
+      },
+      "expected": {
+        "result": "fail"
+      }
+    },
+    {
+      "id": "cp06-punctuation-only-pass",
+      "input": {
+        "type": "chunk",
+        "target": "make sense",
+        "meaning": "有道理；讲得通",
+        "zh_prompt": "现在这样就讲得通了。",
+        "reference_answer": "Now it makes sense.",
+        "acceptance_notes": "允许正常人称/时态变化。",
+        "source_example": "That makes sense.",
+        "extra_examples": [],
+        "user_answer": "now it makes sense"
+      },
+      "expected": {
+        "result": "pass"
+      }
+    }
+  ]
+}

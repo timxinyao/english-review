@@ -1,0 +1,40 @@
+{
+  "task": "generate_cloze",
+  "cases": [
+    {
+      "id": "gc01-inflection",
+      "input": {
+        "type": "word",
+        "target": "stable",
+        "meaning": "稳定的；不易变化的",
+        "content_level": "B1",
+        "source_example": "The connection is stable.",
+        "extra_examples": [],
+        "count": 3,
+        "recent_question_summaries": []
+      },
+      "expected_invariants": [
+        "questions.length == 3",
+        "one blank per question",
+        "answer restores grammatical sentence"
+      ]
+    },
+    {
+      "id": "gc02-chunk",
+      "input": {
+        "type": "chunk",
+        "target": "wear down",
+        "meaning": "逐渐使……疲惫；消耗",
+        "content_level": "B1",
+        "source_example": "It wears you down.",
+        "extra_examples": [],
+        "count": 3,
+        "recent_question_summaries": []
+      },
+      "expected_invariants": [
+        "chunk/inflected form can fill blank",
+        "avoid obvious multiple-answer sentences"
+      ]
+    }
+  ]
+}

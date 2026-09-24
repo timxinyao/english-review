@@ -1,0 +1,73 @@
+{
+  "task": "check_cloze",
+  "cases": [
+    {
+      "id": "cc01-inflection-accept",
+      "input": {
+        "type": "chunk",
+        "target": "wear down",
+        "meaning": "逐渐使……疲惫；消耗",
+        "text_with_blank": "The long commute ____ every day.",
+        "answer": "wears me down",
+        "accepted_answers": [
+          "wears me down"
+        ],
+        "user_answer": "wears me down"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "cc02-target-inflection-accept",
+      "input": {
+        "type": "chunk",
+        "target": "wear down",
+        "meaning": "逐渐使……疲惫；消耗",
+        "text_with_blank": "Months of stress have ____.",
+        "answer": "worn her down",
+        "accepted_answers": [
+          "worn her down"
+        ],
+        "user_answer": "worn her down"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "cc03-synonym-reject",
+      "input": {
+        "type": "word",
+        "target": "stable",
+        "meaning": "稳定的；不易变化的",
+        "text_with_blank": "The connection is finally ____.",
+        "answer": "stable",
+        "accepted_answers": [
+          "stable"
+        ],
+        "user_answer": "reliable"
+      },
+      "expected": {
+        "accepted": false
+      }
+    },
+    {
+      "id": "cc04-typo-reject",
+      "input": {
+        "type": "word",
+        "target": "stable",
+        "meaning": "稳定的；不易变化的",
+        "text_with_blank": "The connection is finally ____.",
+        "answer": "stable",
+        "accepted_answers": [
+          "stable"
+        ],
+        "user_answer": "stabel"
+      },
+      "expected": {
+        "accepted": false
+      }
+    }
+  ]
+}

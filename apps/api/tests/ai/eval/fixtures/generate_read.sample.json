@@ -1,0 +1,49 @@
+{
+  "task": "generate_read",
+  "cases": [
+    {
+      "id": "gr01-mixed-items",
+      "input": {
+        "content_level": "B1",
+        "focus_items": [
+          {
+            "id": "i1",
+            "target": "wear down",
+            "meaning": "逐渐使……疲惫；消耗"
+          },
+          {
+            "id": "i2",
+            "target": "stable",
+            "meaning": "稳定的；不易变化的"
+          },
+          {
+            "id": "i3",
+            "target": "raw",
+            "meaning": "未经处理的；原始的"
+          }
+        ],
+        "old_items": [
+          {
+            "id": "o1",
+            "target": "gravity",
+            "meaning": "重力"
+          },
+          {
+            "id": "o2",
+            "target": "make sense",
+            "meaning": "有道理；讲得通"
+          }
+        ],
+        "recent_read_types": [
+          "story"
+        ]
+      },
+      "expected_invariants": [
+        "180 <= english_word_count(body) <= 400",
+        "all focus items covered naturally",
+        "1 <= checks.length <= 2",
+        "overall language near B1"
+      ]
+    }
+  ]
+}

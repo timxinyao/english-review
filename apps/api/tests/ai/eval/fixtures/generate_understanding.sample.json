@@ -1,0 +1,41 @@
+{
+  "task": "generate_understanding",
+  "cases": [
+    {
+      "id": "gu01-chunk",
+      "input": {
+        "type": "chunk",
+        "target": "wear down",
+        "meaning": "逐渐使……疲惫；消耗",
+        "content_level": "B1",
+        "source_example": "It wears you down.",
+        "extra_examples": [],
+        "count": 3,
+        "recent_question_summaries": []
+      },
+      "expected_invariants": [
+        "questions.length == 3",
+        "each question has 4 unique options",
+        "only locked meaning is correct",
+        "at least one new-context question"
+      ]
+    },
+    {
+      "id": "gu02-polysemy-lock",
+      "input": {
+        "type": "word",
+        "target": "raw",
+        "meaning": "未经处理的；原始的",
+        "content_level": "B1",
+        "source_example": "We looked at the raw data.",
+        "extra_examples": [],
+        "count": 3,
+        "recent_question_summaries": []
+      },
+      "expected_invariants": [
+        "must not test raw=疼痛/粗糙等其他义项",
+        "new contexts are natural"
+      ]
+    }
+  ]
+}

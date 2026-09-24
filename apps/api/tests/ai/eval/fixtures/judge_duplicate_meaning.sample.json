@@ -1,0 +1,59 @@
+{
+  "task": "judge_duplicate_meaning",
+  "cases": [
+    {
+      "id": "jd01-merge-same-meaning",
+      "input": {
+        "existing_item": {
+          "target": "wear down",
+          "meaning": "逐渐使……疲惫；消耗",
+          "source_example": "It wears you down."
+        },
+        "candidate_item": {
+          "target": "wear down",
+          "meaning": "慢慢消耗某人的精力",
+          "source_example": "The long commute is wearing me down."
+        }
+      },
+      "expected": {
+        "decision": "merge"
+      }
+    },
+    {
+      "id": "jd02-new-polysemy",
+      "input": {
+        "existing_item": {
+          "target": "class",
+          "meaning": "课程；课",
+          "source_example": "I have a class at nine."
+        },
+        "candidate_item": {
+          "target": "class",
+          "meaning": "编程中的类",
+          "source_example": "This class implements the interface."
+        }
+      },
+      "expected": {
+        "decision": "new_item"
+      }
+    },
+    {
+      "id": "jd03-exact-duplicate",
+      "input": {
+        "existing_item": {
+          "target": "gravity",
+          "meaning": "重力",
+          "source_example": "I laugh at gravity all the time."
+        },
+        "candidate_item": {
+          "target": "gravity",
+          "meaning": "重力",
+          "source_example": "I laugh at gravity all the time."
+        }
+      },
+      "expected": {
+        "decision": "skip_exact_duplicate"
+      }
+    }
+  ]
+}

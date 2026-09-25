@@ -6,7 +6,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/opt/english-learning/app/apps/api
-ExecStart=/opt/english-learning/app/node_modules/.bin/tsx src/index.ts
+ExecStart=/opt/english-learning/app/apps/api/node_modules/.bin/tsx src/index.ts
 EnvironmentFile=/etc/english-learning/env
 Restart=always
 RestartSec=3

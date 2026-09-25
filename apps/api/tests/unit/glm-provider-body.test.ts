@@ -17,6 +17,7 @@ function config(): AppConfig {
     glmModels: { flash: '', air: '', max: '' },
     glmMaxTokens: 8192,
     glmThinking: null,
+    cookieSecure: false,
   };
 }
 

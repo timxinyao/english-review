@@ -10,7 +10,7 @@
 #   2. pnpm --filter @el/web run build（生成 apps/web/dist）
 #   3. rsync 仓库 → TARGET_DIR（排除 node_modules / data / .git / 测试产物）
 #   4. TARGET_DIR 内 pnpm install（tsx 运行时依赖），并在根 node_modules/.bin
-#      建立 tsx 软链（systemd unit 的 ExecStart 统一指向 <TARGET>/node_modules/.bin/tsx）
+#      校验 apps/api/node_modules/.bin/tsx 就绪（systemd unit 的 ExecStart 指向它）
 #   5. systemctl daemon-reload + enable/restart english-learning-api
 #   6. 打印后续手动步骤（timers / nginx，见 deploy/README.md）
 #
@@ -67,13 +67,11 @@ $SUDO rsync -a --delete \
 log "4/5 pnpm install（目标：$TARGET_DIR）"
 $SUDO env "PATH=$PATH" pnpm --dir "$TARGET_DIR" install --frozen-lockfile
 
-# systemd unit 的 ExecStart 固定使用 <TARGET>/node_modules/.bin/tsx；
-# pnpm 将 tsx 装在 apps/api 的依赖里，这里在根 .bin 建立软链（幂等）。
-log "4/5 确保 tsx 可执行入口存在（node_modules/.bin/tsx）"
-$SUDO mkdir -p "$TARGET_DIR/node_modules/.bin"
-$SUDO ln -sfn ../apps/api/node_modules/.bin/tsx "$TARGET_DIR/node_modules/.bin/tsx"
-if [[ ! -x "$TARGET_DIR/node_modules/.bin/tsx" ]]; then
-  echo "错误：$TARGET_DIR/node_modules/.bin/tsx 不可用" >&2
+# systemd unit 的 ExecStart 使用 apps/api 自己的 .bin/tsx（pnpm 的 shim 按 realpath 解析，
+# 根级软链会导致模块解析到错误目录）。
+log "4/5 确认 tsx 可执行入口存在（apps/api/node_modules/.bin/tsx）"
+if [[ ! -x "$TARGET_DIR/apps/api/node_modules/.bin/tsx" ]]; then
+  echo "错误：$TARGET_DIR/apps/api/node_modules/.bin/tsx 不可用" >&2
   exit 1
 fi
 

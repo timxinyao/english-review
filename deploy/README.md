@@ -18,6 +18,17 @@
 | daily-backup | 每日 05:00 | SQLite 一致性快照 → S3（保留 30 天，本地临时文件上传后即删） |
 | monthly-maintenance | 每月 1 日 02:00 | 表膨胀检查（只告警）+ 月度长期快照（保留 12 个月） |
 
+
+## 快速模式：IP + 端口直访（无域名无证书，本机已实施）
+
+适合自用/测试：`http://<服务器IP>:8080`，浏览器直接访问。
+
+- 生产 env 关键项：`NODE_ENV=production`、**`COOKIE_SECURE=false`**（HTTP 必须，否则登录 Cookie 不回传）、`APP_ORIGINS=http://<IP>:8080`
+- nginx：`deploy/nginx/` 的 80 段改 `listen 8080`、`server_name _`，root 指向 web dist
+- **注意本服务器 nginx 用 `conf.d/` 而非 `sites-enabled/`**：站点文件放 `/etc/nginx/conf.d/english-review.conf`
+- 代价：明文 HTTP（密码可被同网络嗅探，家用网络可接受）；**PWA 的 Service Worker/安装到主屏不可用**（浏览器仅信任 HTTPS 的 SW），网页功能不受影响
+- 日后想上 HTTPS/PWA：免费域名或 `1-2-3-4.nip.io`（解析到 IP）+ certbot，切到 443 或其他端口
+
 ## 服务器目录约定（TECHNICAL_DESIGN §17）
 
 ```text

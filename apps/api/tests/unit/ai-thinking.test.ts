@@ -21,6 +21,7 @@ function configWithThinking(thinking: AppConfig['glmThinking']): AppConfig {
     glmModels: { flash: '', air: '', max: '' },
     glmMaxTokens: 8192,
     glmThinking: thinking,
+    cookieSecure: false,
   };
 }
 

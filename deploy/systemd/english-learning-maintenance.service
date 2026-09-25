@@ -6,4 +6,4 @@ Description=English Learning monthly maintenance job
 Type=oneshot
 WorkingDirectory=/opt/english-learning/app/apps/api
 EnvironmentFile=/etc/english-learning/env
-ExecStart=/opt/english-learning/app/node_modules/.bin/tsx src/jobs/monthly-maintenance.ts
+ExecStart=/opt/english-learning/app/apps/api/node_modules/.bin/tsx src/jobs/monthly-maintenance.ts

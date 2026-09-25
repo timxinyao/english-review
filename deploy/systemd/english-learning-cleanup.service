@@ -6,4 +6,4 @@ Description=English Learning weekly cleanup job
 Type=oneshot
 WorkingDirectory=/opt/english-learning/app/apps/api
 EnvironmentFile=/etc/english-learning/env
-ExecStart=/opt/english-learning/app/node_modules/.bin/tsx src/jobs/weekly-cleanup.ts
+ExecStart=/opt/english-learning/app/apps/api/node_modules/.bin/tsx src/jobs/weekly-cleanup.ts

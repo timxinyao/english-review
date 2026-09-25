@@ -6,4 +6,4 @@ Description=English Learning daily backup job (SQLite snapshot to S3)
 Type=oneshot
 WorkingDirectory=/opt/english-learning/app/apps/api
 EnvironmentFile=/etc/english-learning/env
-ExecStart=/opt/english-learning/app/node_modules/.bin/tsx src/jobs/daily-backup.ts
+ExecStart=/opt/english-learning/app/apps/api/node_modules/.bin/tsx src/jobs/daily-backup.ts

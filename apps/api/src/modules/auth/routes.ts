@@ -17,7 +17,7 @@ export function authRoutes(app: FastifyInstance, config: AppConfig): void {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
-      secure: config.nodeEnv === 'production',
+      secure: config.cookieSecure,
       maxAge: SESSION_TTL_DAYS * 24 * 3600,
     });
     return { ok: true as const };
@@ -28,7 +28,7 @@ export function authRoutes(app: FastifyInstance, config: AppConfig): void {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
-      secure: config.nodeEnv === 'production',
+      secure: config.cookieSecure,
       maxAge: 0,
     });
     return { ok: true as const };

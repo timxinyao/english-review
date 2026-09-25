@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- English Review 图标：accent 暖橙底 + 几何白色 E 与句点（"E."），quiet 风格 -->
+  <rect width="512" height="512" fill="#a8541f"/>
+  <g fill="#faf9f6">
+    <!-- E：左竖 + 上/中/下三横（中横稍短，几何构成） -->
+    <rect x="104" y="136" width="40" height="240" rx="14"/>
+    <rect x="104" y="136" width="256" height="40" rx="14"/>
+    <rect x="104" y="236" width="196" height="40" rx="14"/>
+    <rect x="104" y="336" width="256" height="40" rx="14"/>
+  </g>
+  <circle cx="400" cy="356" r="26" fill="#faf9f6"/>
+</svg>

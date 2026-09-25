@@ -102,7 +102,7 @@ function ReadHome({
 
   return (
     <section className="space-y-8">
-      <h1 className="text-lg font-semibold">Read</h1>
+      <h1 className="hidden text-lg font-semibold md:block">Read</h1>
 
       <div className="rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-sm text-muted-foreground">让近期学过的词在新的上下文里再次出现</p>

@@ -137,7 +137,7 @@ export function SettingsPage() {
   return (
     <section className="space-y-8">
       <div className="space-y-4">
-        <h1 className="text-lg font-semibold">Settings</h1>
+        <h1 className="hidden text-lg font-semibold md:block">Settings</h1>
         {isLoading && <p className="text-sm text-muted-foreground">加载中…</p>}
         {isError && <p className="text-sm text-destructive">读取失败，请刷新重试。</p>}
         {data && (

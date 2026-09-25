@@ -21,7 +21,7 @@ export function TodayPage() {
 
   return (
     <section className="space-y-4">
-      <h1 className="text-lg font-semibold">Today</h1>
+      <h1 className="hidden text-lg font-semibold md:block">Today</h1>
       {isLoading && <p className="py-8 text-center text-sm text-muted-foreground">加载中…</p>}
       {isError && (
         <div className="space-y-2 py-8 text-center">

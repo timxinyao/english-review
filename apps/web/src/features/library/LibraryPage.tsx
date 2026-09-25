@@ -44,7 +44,7 @@ export function LibraryPage() {
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">Library</h1>
+        <h1 className="hidden text-lg font-semibold md:block">Library</h1>
         {/* 导入只在 PC（PRODUCT §4.1） */}
         <Button
           variant="outline"

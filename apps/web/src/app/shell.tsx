@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Library, RotateCw, Settings, Sun } from 'lucide-react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { useLogout } from '../features/auth/api';
 import { Button } from '../components/ui/button';
@@ -25,10 +25,20 @@ function bottomLinkClass({ isActive }: { isActive: boolean }): string {
   );
 }
 
+/** 顶栏标题随路由切换：logo + Today/Library/Read/Settings/Stats */
+function headerTitle(pathname: string): string {
+  if (pathname.startsWith('/library')) return 'Library';
+  if (pathname.startsWith('/read')) return 'Read';
+  if (pathname.startsWith('/settings')) return 'Settings';
+  if (pathname.startsWith('/stats')) return 'Stats';
+  return 'Today'; // / 与 /today
+}
+
 export function AppShell() {
   const logout = useLogout();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { pathname } = useLocation();
 
   function onLogout() {
     logout.mutate(undefined, {
@@ -65,7 +75,10 @@ export function AppShell() {
       <div className="flex min-h-dvh flex-col">
         {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
         <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
-          <p className="text-base font-semibold text-foreground">English Review</p>
+          <div className="flex items-center gap-2.5">
+            <img src="/icon.svg" alt="English Review" className="h-6 w-6 rounded-md" />
+            <span className="text-base font-semibold text-foreground">{headerTitle(pathname)}</span>
+          </div>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"

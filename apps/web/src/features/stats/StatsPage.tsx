@@ -18,7 +18,7 @@ export function StatsPage() {
   if (isLoading) {
     return (
       <section className="space-y-2">
-        <h1 className="text-lg font-semibold">Stats</h1>
+        <h1 className="hidden text-lg font-semibold md:block">Stats</h1>
         <p className="text-sm text-muted-foreground">加载中…</p>
       </section>
     );
@@ -26,7 +26,7 @@ export function StatsPage() {
   if (isError || !data) {
     return (
       <section className="space-y-2">
-        <h1 className="text-lg font-semibold">Stats</h1>
+        <h1 className="hidden text-lg font-semibold md:block">Stats</h1>
         <p className="text-sm text-muted-foreground">读取失败，请刷新重试。</p>
       </section>
     );
@@ -38,7 +38,7 @@ export function StatsPage() {
 
   return (
     <section className="space-y-8">
-      <h1 className="text-lg font-semibold">Stats</h1>
+      <h1 className="hidden text-lg font-semibold md:block">Stats</h1>
 
       <dl className="space-y-3 text-sm">
         <Row label="总学习项">

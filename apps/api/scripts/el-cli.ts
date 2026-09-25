@@ -23,7 +23,6 @@ import type {
   ImportPreviewResponse,
   LibraryItemDetail,
   LibraryListResponse,
-  Settings,
   StatsResponse,
   UpdateLearningItemResponse,
 } from '@el/shared';

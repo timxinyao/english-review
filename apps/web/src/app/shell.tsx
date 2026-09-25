@@ -87,7 +87,7 @@ export function AppShell() {
         </header>
 
         {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12）；移动端底部大留白（iOS 惯例）+ 覆盖导航与指示条 */}
-        <main className="mx-auto w-full max-w-[900px] flex-1 px-5 pb-40 pt-6 md:px-8 md:pb-10">
+        <main className="mx-auto w-full max-w-[900px] flex-1 px-5 pb-40 pt-3 md:px-8 md:pb-10 md:pt-6">
           <Outlet />
         </main>
 

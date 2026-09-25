@@ -19,6 +19,22 @@
 | monthly-maintenance | 每月 1 日 02:00 | 表膨胀检查（只告警）+ 月度长期快照（保留 12 个月） |
 
 
+
+## HTTPS + 完整 PWA（已实施：nip.io 免费域名 + Let's Encrypt）
+
+不想买域名时，`<IP 按段用连字符>.nip.io` 免费解析到本机公网 IP，可直接签发正式证书：
+
+```bash
+apt-get install -y certbot python3-certbot-nginx
+# nginx 先建 80 端口 server_name <ip>.nip.io 的引导块（完整应用配置）
+certbot --nginx -d <ip>.nip.io --non-interactive --agree-tos --register-unsafely-without-email
+```
+
+- certbot 自动生成 443 段与 80→443 重定向；续期由 snap/apt 的 certbot.timer 自动处理
+- `APP_ORIGINS` 需含 `https://<ip>.nip.io`
+- Cookie Secure 已是 **auto 模式**：按 X-Forwarded-Proto 自适应，HTTPS 与 IP:8080 HTTP 双入口并存各自正确
+- HTTPS 解锁：Service Worker 离线静态缓存、iOS「添加到主屏幕」完整体验、密码加密传输
+
 ## 快速模式：IP + 端口直访（无域名无证书，本机已实施）
 
 适合自用/测试：`http://<服务器IP>:8080`，浏览器直接访问。

@@ -26,8 +26,8 @@ const ConfigSchema = z.object({
     .enum(['', 'off', 'low', 'high', 'max'])
     .default('')
     .transform((v) => (v === '' ? null : (v as 'off' | 'low' | 'high' | 'max'))),
-  // Cookie Secure 标志：留空=按 NODE_ENV 推断（production=true）；
-  // HTTP/IP 直访部署必须显式设 false，否则浏览器不回传会话 Cookie
+  // Cookie Secure 标志：留空=auto（按 X-Forwarded-Proto 自适应，HTTPS/HTTP 双入口并存）；
+  // 显式 true/false 强制覆盖
   COOKIE_SECURE: z
     .enum(['', 'true', 'false'])
     .default('')
@@ -50,8 +50,8 @@ export interface AppConfig {
   glmMaxTokens: number;
   /** GLM_THINKING 全局强制（null=按任务策略） */
   glmThinking: 'off' | 'low' | 'high' | 'max' | null;
-  /** 会话 Cookie 的 Secure 标志（默认按 NODE_ENV 推断；HTTP 部署显式 false） */
-  cookieSecure: boolean;
+  /** 会话 Cookie 的 Secure 标志（null=按请求协议自适应，默认；true/false 显式覆盖） */
+  cookieSecure: boolean | null;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -86,6 +86,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     glmModels: { flash: e.GLM_MODEL_FLASH, air: e.GLM_MODEL_AIR, max: e.GLM_MODEL_MAX },
     glmMaxTokens: e.GLM_MAX_TOKENS,
     glmThinking: e.GLM_THINKING,
-    cookieSecure: e.COOKIE_SECURE ?? e.NODE_ENV === 'production',
+    cookieSecure: e.COOKIE_SECURE,
   };
 }

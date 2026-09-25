@@ -73,13 +73,14 @@ export function AppShell() {
           </NavLink>
         </header>
 
-        {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12） */}
-        <main className="mx-auto w-full max-w-[900px] flex-1 px-4 pb-24 pt-6 md:px-8 md:pb-10">
+        {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12）；移动端底部留出导航 + iOS 安全区高度 */}
+        <main className="mx-auto w-full max-w-[900px] flex-1 px-4 pb-28 pt-6 md:px-8 md:pb-10">
           <Outlet />
         </main>
 
         {/* 手机底部导航 */}
-        <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-border bg-background md:hidden">
+        {/* 手机底部导航：pb-safe 避开 iOS home 指示条（globals.css 定义的工具类） */}
+        <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-border bg-background pb-safe md:hidden">
           {MAIN_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={bottomLinkClass}>
               <Icon className="h-5 w-5" aria-hidden />

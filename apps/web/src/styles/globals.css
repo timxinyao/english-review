@@ -55,4 +55,10 @@ body {
     'PingFang SC',
     'Noto Sans SC',
     sans-serif;
+  -webkit-tap-highlight-color: transparent; /* iOS 去除点击灰块 */
+}
+
+/* iOS 全面屏安全区（home 指示条）：底部导航等贴底元素使用 */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
 }

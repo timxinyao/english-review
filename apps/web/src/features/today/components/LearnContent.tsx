@@ -1,5 +1,6 @@
+import { useState, type ReactNode } from 'react';
 import type { TodayTaskView } from '@el/shared';
-import { Volume2 } from 'lucide-react';
+import { Eye, Volume2 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { speak } from '../../../lib/tts';
 
@@ -31,39 +32,72 @@ export function SpeakButton({
   );
 }
 
-/** Learn 卡内容：target（word 附 IPA）+ 发音 + meaning + 原句 + 最多 1 条补充例句 */
-export function LearnContent({ task }: { task: TodayTaskView }) {
+/**
+ * Learn 卡内容（两阶段，生成效应优先）：
+ * 阶段 1：词 + 例句 + 发音，释义模糊——鼓励从上下文先猜
+ * 阶段 2（点击后）：释义展开，题目才出现
+ */
+export function LearnContent({
+  task,
+  children,
+}: {
+  task: TodayTaskView;
+  /** 题目内容（只在释义展开后渲染） */
+  children?: ReactNode;
+}) {
   const { item } = task;
   const supplementary = task.supplementaryExamples.slice(0, 1);
+  const [revealed, setRevealed] = useState(false);
 
   return (
-    <div className="mb-6 space-y-3">
-      {/* 词行：pr-12 给右上角浮动按钮让位 */}
-      <div className="flex items-center gap-2 pr-12">
-        <h2 className="text-2xl font-semibold text-foreground">{item.target}</h2>
-        {item.type === 'word' && item.ipa && (
-          <span className="text-sm text-muted-foreground">{item.ipa}</span>
-        )}
-        <SpeakButton text={item.target} className="translate-y-0.5" />
-      </div>
-      <p className="text-base text-foreground">{item.meaning}</p>
+    <div>
+      <div className="mb-6 space-y-3">
+        {/* 词行：pr-12 给右上角浮动按钮让位 */}
+        <div className="flex items-center gap-2 pr-12">
+          <h2 className="text-2xl font-semibold text-foreground">{item.target}</h2>
+          {item.type === 'word' && item.ipa && (
+            <span className="text-sm text-muted-foreground">{item.ipa}</span>
+          )}
+          <SpeakButton text={item.target} className="translate-y-0.5" />
+        </div>
 
-      {/* 例句分区：左侧竖线 + 标签区分原句/补充 */}
-      {task.sourceExample && (
-        <div className="border-l-2 border-border pl-3">
-          <p className="mb-0.5 text-xs text-muted-foreground">原句</p>
-          <div className="flex items-start gap-1">
-            <p className="text-base leading-relaxed text-foreground">{task.sourceExample}</p>
-            <SpeakButton text={task.sourceExample} className="-mt-1" />
+        {/* 释义：阶段 1 模糊 → 点击展开（generation effect） */}
+        {revealed ? (
+          <p className="text-base text-foreground">{item.meaning}</p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setRevealed(true)}
+            className="flex w-full items-center gap-2 rounded-lg bg-muted px-3 py-2 text-left transition-colors hover:bg-accent/10"
+            aria-label="点击显示释义"
+          >
+            <Eye className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="select-none text-base text-muted-foreground blur-sm">
+              {item.meaning}
+            </span>
+          </button>
+        )}
+
+        {/* 例句分区 */}
+        {task.sourceExample && (
+          <div className="border-l-2 border-border pl-3">
+            <p className="mb-0.5 text-xs text-muted-foreground">原句</p>
+            <div className="flex items-start gap-1">
+              <p className="text-base leading-relaxed text-foreground">{task.sourceExample}</p>
+              <SpeakButton text={task.sourceExample} className="-mt-1" />
+            </div>
           </div>
-        </div>
-      )}
-      {supplementary.map((example) => (
-        <div key={example} className="border-l-2 border-accent/30 pl-3">
-          <p className="mb-0.5 text-xs text-muted-foreground">补充例句</p>
-          <p className="text-base leading-relaxed text-foreground">{example}</p>
-        </div>
-      ))}
+        )}
+        {supplementary.map((example) => (
+          <div key={example} className="border-l-2 border-accent/30 pl-3">
+            <p className="mb-0.5 text-xs text-muted-foreground">补充例句</p>
+            <p className="text-base leading-relaxed text-foreground">{example}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* 题目只在释义展开后出现——防止先看题再回来对答案 */}
+      {revealed && children}
     </div>
   );
 }

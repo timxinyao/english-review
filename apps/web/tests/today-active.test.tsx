@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api';
 import {
@@ -35,20 +36,24 @@ describe('Today 任务卡：learn 卡 / 稍后再做 / 坏题', () => {
 
     expect(await screen.findByRole('heading', { name: 'gravity' })).toBeVisible();
     expect(screen.getByText('/ˈɡrævəti/')).toBeVisible();
-    // meaning 与选项同名时用段落精确匹配
-    expect(
-      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '重力'),
-    ).toBeVisible();
+    // 阶段 1：释义模糊（点击展开前不可见为 <p>）
+    expect(screen.getByRole('button', { name: '点击显示释义' })).toBeVisible();
     expect(screen.getByText('I laugh at gravity all the time.')).toBeVisible();
-    // 只展示第 1 条补充例句并带“例句”标注
     expect(screen.getByText('Gravity is a fundamental force.')).toBeVisible();
     expect(screen.queryByText('Gravity keeps us grounded.')).not.toBeInTheDocument();
     expect(screen.getByText('补充例句')).toBeVisible();
-    // 词与例句的发音按钮（TTS）
     expect(screen.getByRole('button', { name: '朗读 gravity' })).toBeVisible();
-    // learn 卡下方即首道选择题
-    expect(screen.getByText('"gravity" 的意思是？')).toBeVisible();
-    expect(screen.getByRole('button', { name: '重力' })).toBeVisible();
+    // 阶段 1：题目未出现
+    expect(screen.queryByText('”gravity” 的意思是？')).not.toBeInTheDocument();
+
+    // 阶段 2：点击展开释义 → 释义可见 + 题目出现
+    fireEvent.click(screen.getByRole('button', { name: '点击显示释义' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '重力' })).toBeVisible();
+    });
+    expect(
+      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '重力'),
+    ).toBeVisible();
   });
 
   it('稍后再做：POST later 并 invalidate/refetch today', async () => {

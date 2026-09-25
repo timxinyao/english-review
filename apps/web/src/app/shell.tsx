@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Library, RotateCw, Settings, Sun } from 'lucide-react';
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { useLogout } from '../features/auth/api';
@@ -39,6 +40,13 @@ export function AppShell() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
+  const [refreshed, setRefreshed] = useState(false);
+
+  function onRefresh() {
+    void queryClient.invalidateQueries();
+    setRefreshed(true);
+    setTimeout(() => setRefreshed(false), 1200);
+  }
 
   function onLogout() {
     logout.mutate(undefined, {
@@ -90,9 +98,12 @@ export function AppShell() {
               size="icon"
               className="h-9 w-9 text-muted-foreground"
               aria-label="刷新"
-              onClick={() => void queryClient.invalidateQueries()}
+              onClick={onRefresh}
             >
-              <RotateCw className="h-4 w-4" aria-hidden />
+              <RotateCw
+                className={refreshed ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
+                aria-hidden
+              />
             </Button>
             <NavLink
               to="/settings"

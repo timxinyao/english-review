@@ -28,6 +28,7 @@ export function speak(text: string): void {
     voices.find((v) => v.lang === 'en-US') ?? voices.find((v) => v.lang.startsWith('en'));
   if (voice) utterance.voice = voice;
 
-  synth.cancel();
-  setTimeout(() => synth.speak(utterance), 50);
+  // iOS：speak 必须在手势同步调用栈内执行，setTimeout 会丢失手势上下文导致静音
+  if (synth.speaking || synth.pending) synth.cancel();
+  synth.speak(utterance);
 }

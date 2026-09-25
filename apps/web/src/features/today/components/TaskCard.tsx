@@ -63,33 +63,48 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
         )}
       </div>
 
-      {task.taskType === 'learn' && <LearnContent task={task} />}
-
-      {question && 'options' in question ? (
-        <ChoiceQuestionView
-          task={task}
-          question={question}
-          result={result}
-          onAnswered={onAnswered}
-          onAdvance={onAdvance}
-        />
-      ) : question && 'textWithBlank' in question ? (
-        <ClozeQuestionView
-          task={task}
-          question={question}
-          result={result}
-          onAnswered={onAnswered}
-          onAdvance={onAdvance}
-        />
-      ) : question && 'zhPrompt' in question ? (
-        <ProductionQuestionView
-          task={task}
-          question={question}
-          result={result}
-          onAnswered={onAnswered}
-          onAdvance={onAdvance}
-        />
-      ) : null}
+      {/* Learn 卡：两阶段交互——释义模糊 → 点击展开 → 题目出现 */}
+      {task.taskType === 'learn' ? (
+        <LearnContent task={task}>
+          {question && 'options' in question ? (
+            <ChoiceQuestionView
+              task={task}
+              question={question}
+              result={result}
+              onAnswered={onAnswered}
+              onAdvance={onAdvance}
+            />
+          ) : null}
+        </LearnContent>
+      ) : (
+        <>
+          {question && 'options' in question ? (
+            <ChoiceQuestionView
+              task={task}
+              question={question}
+              result={result}
+              onAnswered={onAnswered}
+              onAdvance={onAdvance}
+            />
+          ) : question && 'textWithBlank' in question ? (
+            <ClozeQuestionView
+              task={task}
+              question={question}
+              result={result}
+              onAnswered={onAnswered}
+              onAdvance={onAdvance}
+            />
+          ) : question && 'zhPrompt' in question ? (
+            <ProductionQuestionView
+              task={task}
+              question={question}
+              result={result}
+              onAnswered={onAnswered}
+              onAdvance={onAdvance}
+            />
+          ) : null}
+        </>
+      )}
 
       {confirmBad && (
         <div

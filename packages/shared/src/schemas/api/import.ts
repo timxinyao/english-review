@@ -42,10 +42,8 @@ export type ImportPreviewResponse = z.infer<typeof ImportPreviewResponse>;
 
 export const ImportCommitRequest = z.object({
   previewToken: z.string().min(1),
-  /** 每条候选的最终决定（前端把用户调整后的动作全量带回） */
-  decisions: z
-    .array(z.object({ index: z.number().int().min(0), action: DuplicateDecision }))
-    .min(1),
+  /** 每条候选的最终决定；空数组 = 全部沿用系统建议（CLI/脚本路径） */
+  decisions: z.array(z.object({ index: z.number().int().min(0), action: DuplicateDecision })),
 });
 export type ImportCommitRequest = z.infer<typeof ImportCommitRequest>;
 

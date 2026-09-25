@@ -411,7 +411,8 @@ describe('POST /api/import/commit', () => {
       ],
       [],
     );
-    expect(emptyDecisions.statusCode).toBe(400);
+    // 契约（2026-09-25 修正）：空 decisions = 全部沿用系统建议（CLI/脚本路径）
+    expect(emptyDecisions.statusCode).toBe(200);
 
     const ok = await previewAndCommit(
       ctx,
@@ -590,7 +591,8 @@ describe('POST /api/import/commit', () => {
       headers: { cookie: ctx.cookie },
       payload: { previewToken: preview.json().previewToken, decisions: [] },
     });
-    expect(empty.statusCode).toBe(400);
+    // 空 decisions 合法：全部沿用系统建议完成导入
+    expect(empty.statusCode).toBe(200);
   });
 });
 

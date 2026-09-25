@@ -1,15 +1,30 @@
 import type { TodayTaskView } from '@el/shared';
 import { Volume2 } from 'lucide-react';
+import { cn } from '../../../lib/utils';
 import { speak } from '../../../lib/tts';
 
-/** 发音按钮：词/词块与例句共用（PRODUCT §12.1，优先 en-US voice） */
-export function SpeakButton({ text, label }: { text: string; label?: string }) {
+/**
+ * 发音按钮：词/词块与例句共用（PRODUCT §12.1，优先 en-US voice）。
+ * className 用于行内光学对齐：按钮 32px 高于小号文字行时按所在行的行高微调。
+ */
+export function SpeakButton({
+  text,
+  label,
+  className,
+}: {
+  text: string;
+  label?: string;
+  className?: string;
+}) {
   return (
     <button
       type="button"
       aria-label={label ?? `朗读 ${text}`}
       onClick={() => speak(text)}
-      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
+      className={cn(
+        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted',
+        className,
+      )}
     >
       <Volume2 className="h-4 w-4" aria-hidden />
     </button>
@@ -29,13 +44,15 @@ export function LearnContent({ task }: { task: TodayTaskView }) {
         {item.type === 'word' && item.ipa && (
           <span className="text-sm text-muted-foreground">{item.ipa}</span>
         )}
-        <SpeakButton text={item.target} />
+        {/* 大号词的墨迹中心低于行框中心，图标下移 2px 做光学对齐 */}
+        <SpeakButton text={item.target} className="translate-y-0.5" />
       </div>
       <p className="text-base text-foreground">{item.meaning}</p>
       {task.sourceExample && (
         <p className="flex items-start gap-1 text-sm text-muted-foreground">
           {task.sourceExample}
-          <SpeakButton text={task.sourceExample} />
+          {/* text-sm 行高 20px，按钮 32px：上移 6px 使图标中心对齐首行文字中心 */}
+          <SpeakButton text={task.sourceExample} className="-mt-1.5" />
         </p>
       )}
       {supplementary.map((example) => (

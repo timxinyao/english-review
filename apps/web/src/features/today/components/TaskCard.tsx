@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AnswerResponse, TodayTaskView } from '@el/shared';
-import { ThumbsDown } from 'lucide-react';
+import { Clock, ThumbsDown } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { useBadQuestion, useLater } from '../api';
 import { ChoiceQuestionView } from './ChoiceQuestionView';
@@ -37,11 +37,14 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
         {!result && (
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground"
+            aria-label="稍后再做"
+            title="稍后再做"
             disabled={later.isPending}
             onClick={() => later.mutate(task.taskId)}
           >
-            稍后再做
+            <Clock className="h-4 w-4" aria-hidden />
           </Button>
         )}
         {result && (

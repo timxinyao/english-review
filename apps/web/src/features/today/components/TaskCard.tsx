@@ -32,8 +32,9 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
   }
 
   return (
-    <article className="rounded-xl border border-border bg-card p-6">
-      <div className="mb-2 flex min-h-8 items-center justify-end gap-2">
+    <article className="relative rounded-xl border border-border bg-card p-5 pt-4">
+      {/* 右上角操作：绝对定位，与词行同高（LearnContent 词行 pr-12 让位） */}
+      <div className="absolute right-3 top-3 z-10">
         {!result && (
           <Button
             variant="ghost"

@@ -43,7 +43,7 @@ describe('Today 任务卡：learn 卡 / 稍后再做 / 坏题', () => {
     // 只展示第 1 条补充例句并带“例句”标注
     expect(screen.getByText('Gravity is a fundamental force.')).toBeVisible();
     expect(screen.queryByText('Gravity keeps us grounded.')).not.toBeInTheDocument();
-    expect(screen.getByText('例句')).toBeVisible();
+    expect(screen.getByText('补充例句')).toBeVisible();
     // 词与例句的发音按钮（TTS）
     expect(screen.getByRole('button', { name: '朗读 gravity' })).toBeVisible();
     // learn 卡下方即首道选择题

@@ -38,30 +38,31 @@ export function LearnContent({ task }: { task: TodayTaskView }) {
 
   return (
     <div className="mb-6 space-y-3">
-      <div className="flex items-center gap-2">
+      {/* 词行：pr-12 给右上角浮动按钮让位 */}
+      <div className="flex items-center gap-2 pr-12">
         <h2 className="text-2xl font-semibold text-foreground">{item.target}</h2>
-        {/* Word 显示 IPA；Chunk 不显示（AGENTS §10） */}
         {item.type === 'word' && item.ipa && (
           <span className="text-sm text-muted-foreground">{item.ipa}</span>
         )}
-        {/* 大号词的墨迹中心低于行框中心，图标下移 2px 做光学对齐 */}
         <SpeakButton text={item.target} className="translate-y-0.5" />
       </div>
       <p className="text-base text-foreground">{item.meaning}</p>
+
+      {/* 例句分区：左侧竖线 + 标签区分原句/补充 */}
       {task.sourceExample && (
-        <p className="flex items-start gap-1 text-sm text-muted-foreground">
-          {task.sourceExample}
-          {/* text-sm 行高 20px，按钮 32px：上移 6px 使图标中心对齐首行文字中心 */}
-          <SpeakButton text={task.sourceExample} className="-mt-1.5" />
-        </p>
+        <div className="border-l-2 border-border pl-3">
+          <p className="mb-0.5 text-xs text-muted-foreground">原句</p>
+          <div className="flex items-start gap-1">
+            <p className="text-base leading-relaxed text-foreground">{task.sourceExample}</p>
+            <SpeakButton text={task.sourceExample} className="-mt-1" />
+          </div>
+        </div>
       )}
       {supplementary.map((example) => (
-        <p key={example} className="flex items-start gap-2 text-sm text-muted-foreground">
-          <span className="mt-0.5 shrink-0 rounded border border-border px-1.5 py-0.5 text-xs">
-            例句
-          </span>
-          {example}
-        </p>
+        <div key={example} className="border-l-2 border-accent/30 pl-3">
+          <p className="mb-0.5 text-xs text-muted-foreground">补充例句</p>
+          <p className="text-base leading-relaxed text-foreground">{example}</p>
+        </div>
       ))}
     </div>
   );

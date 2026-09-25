@@ -72,9 +72,9 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="flex min-h-dvh flex-col">
+      <div className="flex min-h-dvh flex-col pt-header-space md:pt-0">
         {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
+        <header className="fixed inset-x-0 top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
           <div className="flex items-center gap-2.5">
             <img src="/icon.svg" alt="English Review" className="h-6 w-6 rounded-md" />
             <span className="text-base font-semibold text-foreground">{headerTitle(pathname)}</span>

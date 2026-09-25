@@ -75,6 +75,11 @@ body {
   padding-top: calc(env(safe-area-inset-top) + 0.875rem);
 }
 
+/* fixed 顶栏让位：内容区顶部留出顶栏总高（safe + 14pt + ~36 内容 + ~12pb，与 shell 顶栏保持同步） */
+@utility pt-header-space {
+  padding-top: calc(env(safe-area-inset-top) + 4rem);
+}
+
 /* 收紧版底避让：比指示条实际需要再多留 10px 即可（用户偏好菜单更贴底） */
 @utility pb-safe-tight {
   padding-bottom: max(0.5rem, calc(env(safe-area-inset-bottom) - 0.75rem));

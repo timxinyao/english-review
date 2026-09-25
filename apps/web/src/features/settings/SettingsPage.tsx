@@ -22,10 +22,41 @@ const THINKING_LABEL: Record<AiModelsResponse['models']['flash']['thinking'], st
   max: '思考 最大',
 };
 
-const ALIAS_LABEL: Array<{ alias: 'flash' | 'air'; label: string }> = [
-  { alias: 'flash', label: '题目生成' },
-  { alias: 'air', label: '判定与批改' },
-];
+const TASK_LABEL: Record<string, string> = {
+  generateUnderstandingQuestions: '理解题生成',
+  generateClozeQuestions: '填空题生成',
+  generateProductionPrompt: '表达题生成',
+  generateRead: 'Read 生成',
+  checkProduction: '表达批改',
+  checkCloze: '填空兜底判定',
+  judgeDuplicateMeaning: '导入重复判定',
+};
+
+interface ModelRow {
+  key: string;
+  usage: string;
+  model: string;
+  source: AiModelsResponse['models']['flash']['source'];
+  thinking: AiModelsResponse['models']['flash']['thinking'];
+}
+
+/** 按实际任务矩阵动态分组：模型+思考相同的任务合并一行（跟随 taskConfig，不写死用途） */
+function groupTaskMapping(data: AiModelsResponse): ModelRow[] {
+  const groups = new Map<string, { usage: string[]; alias: string; model: string; thinking: string }>();
+  for (const t of data.taskMapping) {
+    const key = `${t.alias}|${t.model}|${t.thinking}`;
+    const g = groups.get(key) ?? { usage: [], alias: t.alias, model: t.model, thinking: t.thinking };
+    g.usage.push(TASK_LABEL[t.task] ?? t.task);
+    groups.set(key, g);
+  }
+  return [...groups.entries()].map(([key, g]) => ({
+    key,
+    usage: g.usage.join(' · '),
+    model: g.model,
+    source: data.models[g.alias as 'flash' | 'air' | 'max']?.source ?? 'auto',
+    thinking: g.thinking as ModelRow['thinking'],
+  }));
+}
 
 function AiModelsSection() {
   const { data, isLoading, isError } = useQuery({
@@ -37,30 +68,25 @@ function AiModelsSection() {
   if (isLoading) return <p className="text-sm text-muted-foreground">AI 模型：加载中…</p>;
   if (isError || !data) return <p className="text-sm text-muted-foreground">AI 模型：暂不可用</p>;
 
+  const rows = groupTaskMapping(data);
   return (
     <div className="space-y-3">
       <h2 className="text-sm font-semibold">AI 模型</h2>
       <dl className="space-y-3 text-sm">
-        {ALIAS_LABEL.map(({ alias, label }) => {
-          const info = data.models[alias];
-          return (
-            <div
-              key={alias}
-              className="flex items-center justify-between border-b border-border pb-3"
-            >
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="flex items-center gap-2">
-                <span className="font-mono text-xs">{info.model}</span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {SOURCE_LABEL[info.source]}
-                </span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {THINKING_LABEL[info.thinking]}
-                </span>
-              </dd>
-            </div>
-          );
-        })}
+        {rows.map((row) => (
+          <div key={row.key} className="flex items-center justify-between gap-3 border-b border-border pb-3">
+            <dt className="text-muted-foreground">{row.usage}</dt>
+            <dd className="flex shrink-0 items-center gap-2">
+              <span className="font-mono text-xs">{row.model}</span>
+              <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                {SOURCE_LABEL[row.source]}
+              </span>
+              <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                {THINKING_LABEL[row.thinking]}
+              </span>
+            </dd>
+          </div>
+        ))}
       </dl>
       <p className="text-xs text-muted-foreground">
         {data.availableModels.length > 0

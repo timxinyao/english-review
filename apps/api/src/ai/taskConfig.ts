@@ -26,18 +26,19 @@ export const THINKING_BUDGET_TOKENS: Record<Exclude<ThinkingLevel, 'off'>, numbe
 export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
   generateUnderstandingQuestions: { alias: 'flash', temperature: 0.7, thinking: 'off' },
   generateClozeQuestions: { alias: 'flash', temperature: 0.7, thinking: 'off' },
-  checkCloze: { alias: 'air', temperature: 0.1, thinking: 'low' },
+  checkCloze: { alias: 'flash', temperature: 0.1, thinking: 'off' },
   generateProductionPrompt: { alias: 'flash', temperature: 0.8, thinking: 'off' },
-  checkProduction: { alias: 'air', temperature: 0.2, thinking: 'low' },
-  generateRead: { alias: 'air', temperature: 0.8, thinking: 'off' },
-  judgeDuplicateMeaning: { alias: 'air', temperature: 0.2, thinking: 'low' },
+  // 批改是唯一 main+思考组合：基准实测 main+medium=100%·14s，flash 各档最高 89% 且更慢，
+  // off 档两模型均 67%（scripts/bench/2026-09-25-summary.md）
+  checkProduction: { alias: 'max', temperature: 0.2, thinking: 'medium' },
+  generateRead: { alias: 'flash', temperature: 0.8, thinking: 'off' },
+  judgeDuplicateMeaning: { alias: 'flash', temperature: 0.2, thinking: 'low' },
 };
 
 /** 解析任务最终思考档位：GLM_THINKING 强制值 > 任务策略 */
 export function resolveThinking(task: AiTask, config: AppConfig): ThinkingLevel {
   return config.glmThinking ?? TASK_MODEL_POLICY[task].thinking;
 }
-
 
 export const MAX_STRUCTURED_RETRIES = 2;
 

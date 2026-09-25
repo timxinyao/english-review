@@ -9,12 +9,7 @@
 import 'dotenv/config';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-  AI_RESPONSE_SCHEMAS,
-  AI_TASK_CATALOG,
-  type AiTask,
-  type ThinkingLevel,
-} from '@el/shared';
+import { AI_RESPONSE_SCHEMAS, AI_TASK_CATALOG, type AiTask, type ThinkingLevel } from '@el/shared';
 import { loadConfig } from '../src/config.js';
 import { loadPromptRegistry, renderPrompt, validateRegistry } from '../src/ai/promptRegistry.js';
 import { createGlmProvider } from '../src/ai/provider/glm.js';
@@ -65,6 +60,14 @@ async function main() {
   const maxMinIdx = args.indexOf('--max-minutes');
   const maxMinutes = maxMinIdx === -1 ? 90 : Number(args[maxMinIdx + 1] ?? 90);
   const deadline = Date.now() + maxMinutes * 60_000;
+  // --only <task|promptKey,...>：只跑指定任务（补跑用）
+  const onlyIdx = args.indexOf('--only');
+  const only = onlyIdx === -1 ? null : new Set((args[onlyIdx + 1] ?? '').split(','));
+  const wantTask = (t: AiTask) =>
+    !only ||
+    only.has(t) ||
+    only.has(AI_TASK_CATALOG[t].promptKey) ||
+    only.has(AI_TASK_CATALOG[t].task);
 
   const baseConfig = loadConfig({
     ...(process.env as Record<string, string | undefined>),
@@ -76,7 +79,7 @@ async function main() {
   const provider = createGlmProvider(baseConfig);
 
   mkdirSync(OUT_DIR, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16) + (only ? '-only' : '');
   const jsonlPath = `${OUT_DIR}/results-${stamp}.jsonl`;
   console.log(`bench 开始 → ${jsonlPath}（预算 ${maxMinutes} 分钟）`);
 
@@ -84,6 +87,7 @@ async function main() {
   let skipped = 0;
 
   for (const task of Object.keys(AI_TASK_CATALOG) as AiTask[]) {
+    if (!wantTask(task)) continue;
     const spec = AI_TASK_CATALOG[task];
     const fixture = JSON.parse(
       readFileSync(`${FIXTURES_DIR}/${spec.promptKey}.sample.json`, 'utf-8'),
@@ -155,9 +159,7 @@ async function main() {
             await sleep(GAP_MS);
           }
         }
-        row.avgMs = times.length
-          ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
-          : 0;
+        row.avgMs = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
         if (row.total > 0) {
           rows.push(row);
           console.log(

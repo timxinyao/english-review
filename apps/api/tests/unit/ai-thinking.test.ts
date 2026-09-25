@@ -26,12 +26,17 @@ function configWithThinking(thinking: AppConfig['glmThinking']): AppConfig {
 }
 
 describe('resolveThinking', () => {
-  it('未设置全局 → 按任务策略（判定/批改 low，生成 off）', () => {
+  it('未设置全局 → 按任务策略（2026-09-25 基准矩阵）', () => {
     const config = configWithThinking(null);
-    expect(resolveThinking('checkProduction', config)).toBe('low');
+    // 批改：唯一 main+思考的组合（100% 首过 · 14s）
+    expect(resolveThinking('checkProduction', config)).toBe('medium');
+    // 简单判定：cloze off（100%·2.3s）；judge low（89%→100%）
+    expect(resolveThinking('checkCloze', config)).toBe('off');
     expect(resolveThinking('judgeDuplicateMeaning', config)).toBe('low');
-    expect(resolveThinking('checkCloze', config)).toBe('low');
+    // 生成类全部 off（思考档超时劣化）
     expect(resolveThinking('generateUnderstandingQuestions', config)).toBe('off');
+    expect(resolveThinking('generateClozeQuestions', config)).toBe('off');
+    expect(resolveThinking('generateProductionPrompt', config)).toBe('off');
     expect(resolveThinking('generateRead', config)).toBe('off');
   });
 
@@ -48,7 +53,7 @@ describe('resolveThinking', () => {
 
   it('任务策略完整：7 个任务都有 thinking 档位', () => {
     for (const task of Object.keys(TASK_MODEL_POLICY) as AiTask[]) {
-      expect(['off', 'low', 'high', 'max']).toContain(TASK_MODEL_POLICY[task].thinking);
+      expect(['off', 'low', 'medium', 'high', 'max']).toContain(TASK_MODEL_POLICY[task].thinking);
     }
   });
 });

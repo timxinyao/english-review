@@ -1,0 +1,176 @@
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":3218}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":4061}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":1,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":7359}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":4269}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":1,"caseId":"cp05-missing-target-fail","ok":false,"error":"GLM HTTP 500: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"code\":\"1234\",\"message\":\"[1234][网络错误，错误id：2026092517310270c8c4","ms":7042}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":1,"caseId":"cp06-punctuation-only-pass","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":3679}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":2995}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":4627}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":2,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"invariant: segments 无法重建 user_answer","ms":7195}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":3853}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":2,"caseId":"cp05-missing-target-fail","ok":true,"ms":4532}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":2,"caseId":"cp06-punctuation-only-pass","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":2364}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":2707}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":22576}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":3,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":6125}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":3366}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":3,"caseId":"cp05-missing-target-fail","ok":true,"ms":4895}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"off","run":3,"caseId":"cp06-punctuation-only-pass","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":3312}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":6239}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":18931}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":1,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"expected 不符","ms":67113}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":12874}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":16465}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":1,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":69380}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":6803}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":24463}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":2,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":43955}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":11500}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":2,"caseId":"cp05-missing-target-fail","ok":true,"ms":20177}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":2,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":25075}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":12122}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":17349}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":3,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":49242}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":22406}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":3,"caseId":"cp05-missing-target-fail","ok":true,"ms":32713}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"low","run":3,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":44509}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":14433}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":12101}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":1,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":54221}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":1,"caseId":"cp04-alternative-natural-pass","ok":false,"error":"模型输出 JSON 解析失败","ms":16756}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":43366}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":1,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":14116}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":7705}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":21113}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":2,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"expected 不符","ms":80412}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":15339}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":2,"caseId":"cp05-missing-target-fail","ok":true,"ms":17819}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":2,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":16538}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":8658}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":11148}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":3,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"expected 不符","ms":70501}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":18726}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":3,"caseId":"cp05-missing-target-fail","ok":true,"ms":18780}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"medium","run":3,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":19796}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":8179}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":11841}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":1,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"invariant: segments 无法重建 user_answer","ms":48518}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":24690}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":25901}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":1,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":23488}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":7034}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":13089}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":2,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":83967}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":12204}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":2,"caseId":"cp05-missing-target-fail","ok":false,"error":"invariant: segments 无法重建 user_answer","ms":18396}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":2,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":34057}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":10105}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":17347}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":3,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":51717}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":15001}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":3,"caseId":"cp05-missing-target-fail","ok":true,"ms":24152}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"high","run":3,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":26766}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":8087}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":16298}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":1,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"expected 不符","ms":54423}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":29623}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":16175}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":1,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":26307}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":6248}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":15824}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":2,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":76097}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":15868}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":2,"caseId":"cp05-missing-target-fail","ok":false,"error":"invariant: segments 无法重建 user_answer","ms":17134}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":2,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":37870}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":11246}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":23892}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":3,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":48652}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":16523}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":3,"caseId":"cp05-missing-target-fail","ok":false,"error":"invariant: segments 无法重建 user_answer","ms":20181}
+{"task":"checkProduction","model":"glm-5.3-flash","thinking":"max","run":3,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":32258}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":2294}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":2609}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":1,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":3950}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":3183}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":2388}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":1,"caseId":"cp06-punctuation-only-pass","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":2696}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":2438}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":2936}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":2,"caseId":"cp03-wrong-meaning-fail","ok":false,"error":"schema: Expected string, received null","ms":2998}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":3299}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":2,"caseId":"cp05-missing-target-fail","ok":false,"error":"schema: Expected string, received null","ms":2413}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":2,"caseId":"cp06-punctuation-only-pass","ok":false,"error":"invariant: segments 无法重建 corrected_sentence","ms":3420}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":2700}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":3415}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":3,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":3814}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":2988}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":3,"caseId":"cp05-missing-target-fail","ok":true,"ms":4870}
+{"task":"checkProduction","model":"glm-5.3","thinking":"off","run":3,"caseId":"cp06-punctuation-only-pass","ok":false,"error":"invariant: segments 无法重建 user_answer","ms":2601}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":8593}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":17006}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":1,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":56980}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":9668}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":16243}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":1,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":7880}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":7068}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":15340}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":2,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":23041}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":13682}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":2,"caseId":"cp05-missing-target-fail","ok":true,"ms":12072}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":2,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":12205}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":6279}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":18373}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":3,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":26251}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":11974}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":3,"caseId":"cp05-missing-target-fail","ok":true,"ms":14903}
+{"task":"checkProduction","model":"glm-5.3","thinking":"low","run":3,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":12761}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":7546}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":15279}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":1,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":29737}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":16618}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":11173}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":1,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":12661}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":6108}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":16096}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":2,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":17929}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":12118}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":2,"caseId":"cp05-missing-target-fail","ok":true,"ms":19759}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":2,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":10396}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":7648}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":16664}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":3,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":15794}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":12235}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":3,"caseId":"cp05-missing-target-fail","ok":true,"ms":9544}
+{"task":"checkProduction","model":"glm-5.3","thinking":"medium","run":3,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":15221}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":6958}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":10362}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":1,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":17525}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":9218}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":14082}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":1,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":11233}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":7179}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":10887}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":2,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":30597}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":2,"caseId":"cp04-alternative-natural-pass","ok":false,"error":"模型输出 JSON 解析失败","ms":11937}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":2,"caseId":"cp05-missing-target-fail","ok":true,"ms":9826}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":2,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":10509}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":8979}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":11777}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":3,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":41574}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":3,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":10235}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":3,"caseId":"cp05-missing-target-fail","ok":true,"ms":17576}
+{"task":"checkProduction","model":"glm-5.3","thinking":"high","run":3,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":13281}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":1,"caseId":"cp01-natural-pass","ok":true,"ms":8707}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":1,"caseId":"cp02-small-grammar-basic","ok":true,"ms":13423}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":1,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":26192}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":1,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":12464}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":1,"caseId":"cp05-missing-target-fail","ok":true,"ms":19944}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":1,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":11368}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":2,"caseId":"cp01-natural-pass","ok":true,"ms":6751}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":2,"caseId":"cp02-small-grammar-basic","ok":true,"ms":8965}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":2,"caseId":"cp03-wrong-meaning-fail","ok":true,"ms":32585}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":2,"caseId":"cp04-alternative-natural-pass","ok":true,"ms":10920}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":2,"caseId":"cp05-missing-target-fail","ok":true,"ms":11882}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":2,"caseId":"cp06-punctuation-only-pass","ok":true,"ms":8528}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":3,"caseId":"cp01-natural-pass","ok":true,"ms":11232}
+{"task":"checkProduction","model":"glm-5.3","thinking":"max","run":3,"caseId":"cp02-small-grammar-basic","ok":true,"ms":13417}

@@ -26,13 +26,4 @@ export type LibraryImport = z.infer<typeof LibraryImport>;
 export const DuplicateDecision = z.enum(['merge', 'new_item', 'skip_exact_duplicate']);
 export type DuplicateDecision = z.infer<typeof DuplicateDecision>;
 
-/** 完整备份 JSON 的顶层结构（Phase 6 实现，先冻结契约） */
-export const BackupExport = z.object({
-  version: z.literal('1.2'),
-  exportedAt: z.string().min(1),
-  items: z.array(z.unknown()),
-  reviewStates: z.array(z.unknown()),
-  dailyStats: z.array(z.unknown()),
-  settings: z.unknown(),
-});
-export type BackupExport = z.infer<typeof BackupExport>;
+// 完整备份 JSON 契约见 schemas/api/backup.ts（Phase 6 冻结为精确类型）

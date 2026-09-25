@@ -50,9 +50,10 @@ export function AppShell() {
     <div className="min-h-dvh md:grid md:grid-cols-[220px_1fr]">
       {/* PC 侧边导航：菜单项贴近顶部（用户偏好），标题与菜单间距收紧 */}
       <aside className="hidden md:flex md:flex-col md:border-r md:border-border md:px-3 md:pt-4 md:pb-6 md:sticky md:top-0 md:h-dvh md:overflow-y-auto">
-        <p className="px-3 pb-2 text-sm font-semibold tracking-wide text-foreground">
-          English&nbsp;Review
-        </p>
+        <div className="flex items-center gap-2 px-3 pb-2">
+          <img src="/icon.svg" alt="Foxi" className="h-5 w-5 rounded" />
+          <p className="text-sm font-semibold tracking-wide text-foreground">Foxi</p>
+        </div>
         <nav className="space-y-1">
           {MAIN_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={navLinkClass}>
@@ -74,11 +75,15 @@ export function AppShell() {
 
       <div className="flex min-h-dvh flex-col pt-header-space md:pt-0">
         {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
-        <header className="fixed inset-x-0 top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
-          <div className="flex items-center gap-2.5">
-            <img src="/icon.svg" alt="English Review" className="h-6 w-6 rounded-md" />
-            <span className="text-base font-semibold text-foreground">{headerTitle(pathname)}</span>
+        <header className="fixed inset-x-0 top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden relative">
+          <div className="flex min-w-0 items-center gap-2">
+            <img src="/icon.svg" alt="Foxi" className="h-6 w-6 rounded-md" />
+            <span className="text-sm font-semibold tracking-wide text-foreground">Foxi</span>
           </div>
+          {/* 页名绝对居中（不受左右两段宽度差影响） */}
+          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-base font-semibold text-foreground">
+            {headerTitle(pathname)}
+          </span>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"

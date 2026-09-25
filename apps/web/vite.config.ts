@@ -13,8 +13,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png'],
       manifest: {
-        name: 'English Review',
-        short_name: 'Review',
+        name: 'Foxi',
+        short_name: 'Foxi',
         start_url: '/',
         display: 'standalone',
         background_color: '#faf9f6',

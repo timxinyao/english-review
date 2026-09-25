@@ -1,12 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- English Review 图标：accent 暖橙底 + 几何白色 E 与句点（"E."），quiet 风格 -->
+  <!-- Foxi 图标：暖橙底 + 几何白狐（佛系眯眯眼） -->
   <rect width="512" height="512" fill="#a8541f"/>
-  <g fill="#faf9f6">
-    <!-- E：左竖 + 上/中/下三横（中横稍短，几何构成） -->
-    <rect x="104" y="136" width="40" height="240" rx="14"/>
-    <rect x="104" y="136" width="256" height="40" rx="14"/>
-    <rect x="104" y="236" width="196" height="40" rx="14"/>
-    <rect x="104" y="336" width="256" height="40" rx="14"/>
-  </g>
-  <circle cx="400" cy="356" r="26" fill="#faf9f6"/>
+  <!-- 狐首剪影：双耳 + 尖下巴 -->
+  <path
+    d="M150 92 L240 170 L256 162 L272 170 L362 92 L408 236 Q410 342 256 428 Q102 342 104 236 Z"
+    fill="#faf9f6"
+  />
+  <!-- 内耳（负形） -->
+  <path d="M168 130 L218 166 L184 186 Z" fill="#a8541f" />
+  <path d="M344 130 L294 166 L328 186 Z" fill="#a8541f" />
+  <!-- 佛系眯眯眼（下弯弧线） -->
+  <path d="M182 272 Q198 258 214 272" fill="none" stroke="#a8541f" stroke-width="16" stroke-linecap="round" />
+  <path d="M298 272 Q314 258 330 272" fill="none" stroke="#a8541f" stroke-width="16" stroke-linecap="round" />
+  <!-- 鼻尖 -->
+  <path d="M238 348 Q256 338 274 348 Q272 372 256 380 Q240 372 238 348 Z" fill="#a8541f" />
 </svg>

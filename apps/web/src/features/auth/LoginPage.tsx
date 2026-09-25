@@ -20,7 +20,10 @@ export function LoginPage() {
   return (
     <div className="flex min-h-dvh items-center justify-center px-4">
       <form onSubmit={onSubmit} className="w-full max-w-xs space-y-4" noValidate>
-        <h1 className="text-lg font-semibold text-foreground">English Review</h1>
+        <h1 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+          <img src="/icon.svg" alt="" className="h-6 w-6 rounded-md" />
+          Foxi
+        </h1>
         <div className="space-y-2">
           <Label htmlFor="password">访问密码</Label>
           <Input

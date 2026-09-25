@@ -43,9 +43,8 @@ export function AppShell() {
   const [refreshed, setRefreshed] = useState(false);
 
   function onRefresh() {
-    void queryClient.invalidateQueries();
     setRefreshed(true);
-    setTimeout(() => setRefreshed(false), 1200);
+    setTimeout(() => window.location.reload(), 300);
   }
 
   function onLogout() {

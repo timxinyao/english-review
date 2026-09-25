@@ -44,9 +44,13 @@ describe('AppShell iOS 兼容', () => {
     expect(nav?.className).toContain('pb-safe-tight');
   });
 
-  it('顶栏有刷新按钮，点击刷新全部查询数据（不打断当前会话）', async () => {
+  it('顶栏有刷新按钮，点击整页刷新（location.reload）', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const spy = vi.spyOn(client, 'invalidateQueries');
+    const reloadSpy = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, reload: reloadSpy },
+      writable: true,
+    });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>
         <MemoryRouter>{children}</MemoryRouter>
@@ -54,6 +58,7 @@ describe('AppShell iOS 兼容', () => {
     );
     render(<AppShell />, { wrapper });
     await userEvent.click(screen.getByRole('button', { name: '刷新' }));
-    expect(spy).toHaveBeenCalledOnce();
+    await new Promise((r) => setTimeout(r, 400)); // onRefresh 内 300ms 延迟后 reload
+    expect(reloadSpy).toHaveBeenCalledOnce();
   });
 });

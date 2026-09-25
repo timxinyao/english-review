@@ -96,8 +96,8 @@ export function LearnContent({
         ))}
       </div>
 
-      {/* 题目只在释义展开后出现——防止先看题再回来对答案 */}
-      {revealed && children}
+      {/* 题目始终渲染；释义模糊只影响释义本身 */}
+      {children}
     </div>
   );
 }

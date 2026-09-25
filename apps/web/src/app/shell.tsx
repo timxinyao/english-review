@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Library, RotateCw, Settings, Sun } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -38,7 +37,6 @@ function headerTitle(pathname: string): string {
 export function AppShell() {
   const logout = useLogout();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { pathname } = useLocation();
   const [refreshed, setRefreshed] = useState(false);
 
@@ -99,10 +97,7 @@ export function AppShell() {
               aria-label="刷新"
               onClick={onRefresh}
             >
-              <RotateCw
-                className={refreshed ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
-                aria-hidden
-              />
+              <RotateCw className={refreshed ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} aria-hidden />
             </Button>
             <NavLink
               to="/settings"

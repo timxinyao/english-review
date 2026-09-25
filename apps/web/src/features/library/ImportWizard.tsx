@@ -197,7 +197,7 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
           </div>
 
           <ul className="border-t border-border">
-            {preview.items.map(({ index, candidate, suggestion, match }) => {
+            {preview.items.map(({ index, candidate, suggestion, match, warnings }) => {
               const decision = decisions[index] ?? suggestion.action;
               return (
                 <li key={index} className="space-y-1.5 border-b border-border py-3">
@@ -214,6 +214,11 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
                   </div>
                   <p className="text-sm text-muted-foreground">{candidate.meaning}</p>
                   <p className="text-xs text-muted-foreground">{candidate.source_example}</p>
+                  {warnings && warnings.length > 0 && (
+                    <p className="text-xs text-accent">
+                      {warnings.map((w) => `⚠ ${w}`).join('  ')}
+                    </p>
+                  )}
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs text-muted-foreground">
                       建议：{IMPORT_DECISION_LABELS[suggestion.action]} ·{' '}

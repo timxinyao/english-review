@@ -165,6 +165,7 @@ export function makePreview(): ImportPreviewResponse {
           existingTarget: 'wear down',
           existingMeaning: '逐渐使疲惫',
         },
+        warnings: [],
       },
       {
         index: 1,
@@ -183,6 +184,7 @@ export function makePreview(): ImportPreviewResponse {
           source: 'rule_fallback',
         },
         match: null,
+        warnings: [],
       },
       {
         index: 2,
@@ -205,6 +207,7 @@ export function makePreview(): ImportPreviewResponse {
           existingTarget: 'raw',
           existingMeaning: '未加工的',
         },
+        warnings: [],
       },
     ],
   };

@@ -125,6 +125,7 @@ function cmdPreview(apiBase: string, cookie: string, file?: string): Promise<voi
           `    建议: ${DECISION_LABEL[it.suggestion.action] ?? it.suggestion.action} · 来源 ${it.suggestion.source} · 置信 ${it.suggestion.confidence.toFixed(2)}`,
         );
         console.log(`    理由: ${it.suggestion.reason}`);
+        if (it.warnings.length > 0) console.log(`    ⚠ ${it.warnings.join('；')}`);
         if (it.match)
           console.log(`    匹配已有: ${it.match.existingTarget}（${it.match.existingMeaning}）`);
       }

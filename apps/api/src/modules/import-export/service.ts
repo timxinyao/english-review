@@ -207,6 +207,12 @@ export async function previewImport(
   const items: ImportPreviewItem[] = [];
 
   for (const [index, candidate] of payload.items.entries()) {
+    // 字段完整性提示（不阻断，仅提示）
+    const warnings: string[] = [];
+    if (candidate.type === 'word' && !candidate.ipa) {
+      warnings.push('word 缺音标（ipa），建议后续补上');
+    }
+
     const match = findMatch(rows, candidate);
 
     if (!match) {
@@ -220,6 +226,7 @@ export async function previewImport(
           source: 'rule_fallback',
         },
         match: null,
+        warnings,
       });
       continue;
     }
@@ -241,6 +248,7 @@ export async function previewImport(
           source: 'rule_exact',
         },
         match: matchDto,
+        warnings,
       });
       continue;
     }
@@ -275,6 +283,7 @@ export async function previewImport(
           confidence: ai.confidence,
           source: 'ai',
         },
+        warnings,
         match: matchDto,
       });
     } else {
@@ -288,6 +297,7 @@ export async function previewImport(
           source: 'rule_fallback',
         },
         match: matchDto,
+        warnings,
       });
     }
   }

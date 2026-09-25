@@ -13,6 +13,13 @@ const SOURCE_LABEL: Record<AiModelsResponse['models']['flash']['source'], string
   fallback: '内置默认',
 };
 
+const THINKING_LABEL: Record<AiModelsResponse['models']['flash']['thinking'], string> = {
+  off: '思考 关',
+  low: '思考 低',
+  high: '思考 高',
+  max: '思考 最大',
+};
+
 const ALIAS_LABEL: Array<{ alias: 'flash' | 'air'; label: string }> = [
   { alias: 'flash', label: '题目生成' },
   { alias: 'air', label: '判定与批改' },
@@ -44,6 +51,9 @@ function AiModelsSection() {
                 <span className="font-mono text-xs">{info.model}</span>
                 <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                   {SOURCE_LABEL[info.source]}
+                </span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  {THINKING_LABEL[info.thinking]}
                 </span>
               </dd>
             </div>

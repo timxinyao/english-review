@@ -1,4 +1,5 @@
 import type { AppConfig } from '../../config.js';
+import { THINKING_BUDGET_TOKENS } from '../taskConfig.js';
 import type { AiProvider, ProviderRequest } from './index.js';
 
 const TIMEOUT_MS = 120_000;
@@ -21,19 +22,26 @@ interface MessagesResponse {
 
 /**
  * GLM provider —— Anthropic Messages 兼容协议。
- * 端点：{GLM_API_BASE}/v1/messages（默认 https://open.bigmodel.cn/api/anthropic）。
- * JSON 输出靠 Prompt 约束 + completeStructured 的 extractJson 容错（Anthropic 协议无 response_format）。
+ * 端点：{GLM_API_BASE}/v1/messages。JSON 输出靠 Prompt 约束 + completeStructured 的
+ * extractJson 容错；thinking 启用时响应含 thinking 块，此处只拼接 text 块。
  */
-export function createGlmProvider(config: AppConfig): AiProvider {
+export function createGlmProvider(config: AppConfig, fetcher: typeof fetch = fetch): AiProvider {
   const baseUrl = config.glmApiBase.replace(/\/$/, '');
 
   return {
     name: 'glm',
     async complete(req: ProviderRequest): Promise<string> {
+      const thinkingBudget = req.thinking === 'off' ? null : THINKING_BUDGET_TOKENS[req.thinking];
+      // 思考开启时保证正文输出空间：max_tokens 至少为 预算 + 正文额度
+      const maxTokens =
+        thinkingBudget === null
+          ? config.glmMaxTokens
+          : Math.max(config.glmMaxTokens, thinkingBudget + config.glmMaxTokens);
+
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
       try {
-        const res = await fetch(`${baseUrl}/v1/messages`, {
+        const res = await fetcher(`${baseUrl}/v1/messages`, {
           method: 'POST',
           signal: controller.signal,
           headers: {
@@ -43,8 +51,11 @@ export function createGlmProvider(config: AppConfig): AiProvider {
           },
           body: JSON.stringify({
             model: req.model,
-            max_tokens: config.glmMaxTokens,
+            max_tokens: maxTokens,
             temperature: req.temperature,
+            ...(thinkingBudget !== null
+              ? { thinking: { type: 'enabled', budget_tokens: thinkingBudget } }
+              : {}),
             messages: [{ role: 'user', content: req.prompt }],
           }),
         });

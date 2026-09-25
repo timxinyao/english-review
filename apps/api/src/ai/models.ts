@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AI_TASKS, type AiModelsResponse, type AiTask } from '@el/shared';
 import type { AppConfig } from '../config.js';
-import { TASK_MODEL_POLICY, type ModelAlias } from './taskConfig.js';
+import { TASK_MODEL_POLICY, resolveThinking, type ModelAlias } from './taskConfig.js';
 
 /**
  * 模型自动发现与覆盖（TECHNICAL_DESIGN §10.5）：
@@ -183,13 +183,30 @@ export async function resolveModelForTask(config: AppConfig, task: AiTask): Prom
 /** GET /api/ai/models 响应构建（不含 endpoint/密钥） */
 export async function buildAiModelsResponse(config: AppConfig): Promise<AiModelsResponse> {
   const resolved = await getResolvedModels(config);
+  const aliasThinking = (alias: ModelAlias): 'off' | 'low' | 'high' | 'max' => {
+    const task = (Object.keys(TASK_MODEL_POLICY) as AiTask[]).find(
+      (t) => TASK_MODEL_POLICY[t].alias === alias,
+    );
+    // 无任务使用该别名（如 max）时：仅显示全局强制值，否则 off
+    return task ? resolveThinking(task, config) : (config.glmThinking ?? 'off');
+  };
+  const withThinking = (alias: ModelAlias) => ({
+    ...resolved.models[alias],
+    thinking: aliasThinking(alias),
+  });
   return {
     provider: config.glmApiKey ? 'glm' : 'glm(unconfigured)',
-    models: resolved.models,
+    models: {
+      flash: withThinking('flash'),
+      air: withThinking('air'),
+      max: withThinking('max'),
+    },
+    thinkingOverride: config.glmThinking,
     taskMapping: AI_TASKS.map((task) => ({
       task,
       alias: TASK_MODEL_POLICY[task].alias,
       model: resolved.models[TASK_MODEL_POLICY[task].alias].model,
+      thinking: resolveThinking(task, config),
     })),
     availableModels: resolved.availableModels,
     checkedAt: resolved.checkedAt,

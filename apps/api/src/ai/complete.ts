@@ -5,7 +5,7 @@ import { checkAiOutput } from './invariants.js';
 import { resolveModelForTask } from './models.js';
 import type { LoadedPrompt, PromptMeta } from './promptRegistry.js';
 import { renderPrompt } from './promptRegistry.js';
-import { MAX_STRUCTURED_RETRIES, TASK_MODEL_POLICY } from './taskConfig.js';
+import { MAX_STRUCTURED_RETRIES, TASK_MODEL_POLICY, resolveThinking } from './taskConfig.js';
 import type { AiProvider } from './provider/index.js';
 
 export interface CompleteSuccess<T> {
@@ -70,6 +70,7 @@ export async function completeStructured<T>(
         task,
         model,
         temperature: policy.temperature,
+        thinking: resolveThinking(task, deps.config),
         prompt: rendered.text,
         vars,
       });

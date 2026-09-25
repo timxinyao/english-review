@@ -396,6 +396,15 @@ Coding Plan 的模型号会随版本演进（glm-5.3 → glm-5.4 …），因此
 
 解析结果进程内缓存（TTL 1 小时，失败 60 秒后重试）；版本比较按数字段（5.10 > 5.9 > 5.3）。前端在 Settings 只读展示（`GET /api/ai/models`）；endpoint 与密钥不暴露给前端。
 
+### 思考强度（2026-09-25）
+
+GLM Anthropic 端点支持 `thinking: {type: 'enabled', budget_tokens}`（与 temperature 可同用；响应含 thinking 块，provider 只取 text 块）。档位与预算映射：`low=2048 / high=6144 / max=16384`。
+
+- **任务级默认策略**（taskConfig）：判定/批改类（check_cloze、check_production、judge_duplicate_meaning）= low（质量优先，实测延迟可接受）；生成类 = off（速度优先）。
+- **全局强制**：`GLM_THINKING=off|low|high|max` 覆盖任务策略；留空按策略。
+- thinking 开启时 max_tokens 自动抬升为"预算 + 正文额度"，保证正文输出空间。
+- Settings 的 AI 模型区块同时展示各用途当前思考档位；`GET /api/ai/models` 含 thinkingOverride 与逐任务 thinking。
+
 ## 10.6 Schema 校验与重试
 
 - 模型输出先 JSON parse，再 Zod 校验，再执行语义检查。

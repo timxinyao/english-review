@@ -21,6 +21,11 @@ const ConfigSchema = z.object({
   GLM_MODEL_AIR: z.string().default(''),
   GLM_MODEL_MAX: z.string().default(''),
   GLM_MAX_TOKENS: z.coerce.number().int().min(256).default(8192),
+  // 思考强度全局强制：off/low/high/max；留空=按任务策略（判定批改 low、生成 off）
+  GLM_THINKING: z
+    .enum(['', 'off', 'low', 'high', 'max'])
+    .default('')
+    .transform((v) => (v === '' ? null : (v as 'off' | 'low' | 'high' | 'max'))),
 });
 
 export interface AppConfig {
@@ -37,6 +42,8 @@ export interface AppConfig {
   glmApiBase: string;
   glmModels: { flash: string; air: string; max: string };
   glmMaxTokens: number;
+  /** GLM_THINKING 全局强制（null=按任务策略） */
+  glmThinking: 'off' | 'low' | 'high' | 'max' | null;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -70,5 +77,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     glmApiBase: e.GLM_API_BASE,
     glmModels: { flash: e.GLM_MODEL_FLASH, air: e.GLM_MODEL_AIR, max: e.GLM_MODEL_MAX },
     glmMaxTokens: e.GLM_MAX_TOKENS,
+    glmThinking: e.GLM_THINKING,
   };
 }

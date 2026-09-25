@@ -19,10 +19,11 @@ vi.mock('../src/lib/api', () => ({
       return {
         provider: 'glm',
         models: {
-          flash: { model: 'glm-5.3-flash', source: 'auto', inList: true },
-          air: { model: 'glm-5.3', source: 'config', inList: true },
-          max: { model: 'glm-5.3', source: 'auto', inList: true },
+          flash: { model: 'glm-5.3-flash', source: 'auto', inList: true, thinking: 'off' },
+          air: { model: 'glm-5.3', source: 'config', inList: true, thinking: 'low' },
+          max: { model: 'glm-5.3', source: 'auto', inList: true, thinking: 'off' },
         },
+        thinkingOverride: null,
         taskMapping: [],
         availableModels: ['glm-5.3', 'glm-5.3-flash'],
         checkedAt: '2026-09-25T00:00:00.000Z',
@@ -53,6 +54,12 @@ describe('Settings 页 AI 模型区块', () => {
     expect(screen.getByText('配置指定')).toBeVisible();
     expect(screen.getByText('题目生成')).toBeVisible();
     expect(screen.getByText('判定与批改')).toBeVisible();
+  });
+
+  it('展示思考强度徽标', async () => {
+    renderPage();
+    expect(await screen.findByText('思考 关')).toBeVisible();
+    expect(screen.getByText('思考 低')).toBeVisible();
   });
 
   it('有可用清单时展示自动选择说明', async () => {

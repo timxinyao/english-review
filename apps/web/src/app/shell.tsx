@@ -38,9 +38,9 @@ export function AppShell() {
 
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[220px_1fr]">
-      {/* PC 侧边导航 */}
-      <aside className="hidden md:flex md:flex-col md:border-r md:border-border md:px-3 md:py-6">
-        <p className="px-3 pb-6 text-sm font-semibold tracking-wide text-foreground">
+      {/* PC 侧边导航：菜单项贴近顶部（用户偏好），标题与菜单间距收紧 */}
+      <aside className="hidden md:flex md:flex-col md:border-r md:border-border md:px-3 md:pt-4 md:pb-6">
+        <p className="px-3 pb-2 text-sm font-semibold tracking-wide text-foreground">
           English&nbsp;Review
         </p>
         <nav className="space-y-1">
@@ -63,8 +63,8 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-h-dvh flex-col">
-        {/* 手机顶栏：iOS 惯例——安全区之上再加呼吸留白；右侧动作图标（刷新/设置） */}
-        <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe md:hidden">
+        {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
+        <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
           <p className="text-base font-semibold text-foreground">English Review</p>
           <div className="flex items-center gap-1">
             <Button

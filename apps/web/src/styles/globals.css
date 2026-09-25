@@ -70,6 +70,11 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
+/* 顶栏适度呼吸：安全区 + 8px（用户校准值：0 太贴、14px 太松） */
+@utility pt-safe-lg {
+  padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+}
+
 /* 收紧版底避让：比指示条实际需要再多留 10px 即可（用户偏好菜单更贴底） */
 @utility pb-safe-tight {
   padding-bottom: max(0.5rem, calc(env(safe-area-inset-bottom) - 0.75rem));

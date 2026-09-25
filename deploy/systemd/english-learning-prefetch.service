@@ -1,0 +1,9 @@
+# English Learning Tool — 每日题目预生成 job（oneshot，由 timer 触发）
+[Unit]
+Description=English Learning daily prefetch job
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/english-learning/app/apps/api
+EnvironmentFile=/etc/english-learning/env
+ExecStart=/opt/english-learning/app/node_modules/.bin/tsx src/jobs/daily-prefetch.ts

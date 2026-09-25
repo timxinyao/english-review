@@ -1,0 +1,11 @@
+# English Learning Tool — cleanup 定时器：每周日 03:00
+[Unit]
+Description=Run english-learning-cleanup on Sunday 03:00
+
+[Timer]
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=true
+Unit=english-learning-cleanup.service
+
+[Install]
+WantedBy=timers.target

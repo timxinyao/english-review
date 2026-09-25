@@ -1,0 +1,9 @@
+# English Learning Tool — 每日 S3 备份 job（oneshot，由 timer 触发）
+[Unit]
+Description=English Learning daily backup job (SQLite snapshot to S3)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/english-learning/app/apps/api
+EnvironmentFile=/etc/english-learning/env
+ExecStart=/opt/english-learning/app/node_modules/.bin/tsx src/jobs/daily-backup.ts

@@ -15,6 +15,7 @@ import { learningItemsRoutes } from './modules/learning-items/routes.js';
 import { practiceRoutes } from './modules/practice/routes.js';
 import { readRoutes } from './modules/read/routes.js';
 import { settingsRoutes } from './modules/settings/routes.js';
+import { statsRoutes } from './modules/stats/routes.js';
 import { todayRoutes } from './modules/today/routes.js';
 
 const PUBLIC_ROUTES = new Set(['POST/api/auth/login', 'GET/api/health']);
@@ -61,6 +62,7 @@ export function buildApp({ config, db, logger = true }: AppOptions): FastifyInst
   practiceRoutes(app, db);
   readRoutes(app, db);
   importExportRoutes(app, db, config);
+  statsRoutes(app, db, config);
 
   // 模型自动发现状态（Settings 只读展示；不暴露 endpoint/密钥）
   app.get('/api/ai/models', async () => buildAiModelsResponse(config));

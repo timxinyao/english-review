@@ -12,6 +12,9 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "job:prefetch": "tsx src/jobs/daily-prefetch.ts",
+    "job:cleanup": "tsx src/jobs/weekly-cleanup.ts",
+    "job:backup": "tsx src/jobs/daily-backup.ts",
+    "job:maintenance": "tsx src/jobs/monthly-maintenance.ts",
     "ai:eval": "tsx scripts/ai-eval.ts"
   },
   "dependencies": {

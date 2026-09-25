@@ -1,8 +1,17 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { and, eq, ne } from 'drizzle-orm';
 import {
+  DEFAULT_BACKUP_SETTINGS,
+  localDateString,
+  MAX_NEW_ITEMS_UNLIMITED,
   parseTags,
   serializeTags,
+  type BackupExample,
+  type BackupExport,
+  type BackupItem,
+  type BackupSettings,
   type DuplicateDecision,
   type ExportLibraryResponse,
   type ImportCommitRequest,
@@ -12,10 +21,25 @@ import {
   type JudgeDuplicateMeaningResult,
   type LibraryImport,
   type LibraryImportItem,
+  type RestoreCommitRequest,
+  type RestoreCommitResponse,
+  type RestorePreviewResponse,
 } from '@el/shared';
 import type { AppConfig } from '../../config.js';
-import type { AppDatabase } from '../../db/client.js';
-import { learningExamples, learningItems, reviewStates } from '../../db/schema.js';
+import { rawSqlite, type AppDatabase } from '../../db/client.js';
+import {
+  attempts,
+  dailyStats,
+  learningExamples,
+  learningItems,
+  questions,
+  readArticleItems,
+  readArticles,
+  reviewSessions,
+  reviewStates,
+  reviewTasks,
+  settings as settingsTable,
+} from '../../db/schema.js';
 import { appError } from '../../lib/errors.js';
 import { getAiRuntime, type DuplicateJudgeItem } from '../../ai/runtime.js';
 import type { DbTx } from '../questions/service.js';
@@ -81,12 +105,18 @@ export interface PreviewStore {
   take(token: string): StoredPreviewEntry[] | null;
 }
 
-export function createPreviewStore(
+/** 通用一次性 token 存储（import preview 与 restore preview 共用语义） */
+export interface TokenStore<T> {
+  put(payload: T): string;
+  take(token: string): T | null;
+}
+
+export function createTokenStore<T>(
   opts: { now?: () => number; ttlMs?: number } = {},
-): PreviewStore {
+): TokenStore<T> {
   const ttlMs = opts.ttlMs ?? 2 * 60 * 60 * 1000; // 2 小时
   const now = opts.now ?? (() => Date.now());
-  const map = new Map<string, { payload: StoredPreviewEntry[]; expiresAt: number }>();
+  const map = new Map<string, { payload: T; expiresAt: number }>();
 
   function purge(): void {
     const current = now();
@@ -110,6 +140,12 @@ export function createPreviewStore(
       return entry.payload;
     },
   };
+}
+
+export function createPreviewStore(
+  opts: { now?: () => number; ttlMs?: number } = {},
+): PreviewStore {
+  return createTokenStore<StoredPreviewEntry[]>(opts);
 }
 
 const previewStore = createPreviewStore();
@@ -479,4 +515,276 @@ export async function exportLibrary(db: AppDatabase): Promise<ExportLibraryRespo
   });
 
   return { version: '1.2', items };
+}
+
+// ---------- 完整备份 / 覆盖恢复（PRODUCT §9.3，TECHNICAL §14） ----------
+
+export function createRestoreStore(
+  opts: { now?: () => number; ttlMs?: number } = {},
+): TokenStore<BackupExport> {
+  return createTokenStore<BackupExport>(opts);
+}
+
+const restoreStore = createRestoreStore();
+
+function loadSettingsForBackup(db: AppDatabase): BackupSettings {
+  const row = db.select().from(settingsTable).where(eq(settingsTable.id, 1)).get();
+  if (!row) return { ...DEFAULT_BACKUP_SETTINGS };
+  return {
+    maxNewItemsPerDay: row.maxNewItemsPerDay,
+    contentLevel: row.contentLevel as BackupSettings['contentLevel'],
+    preferredTtsVoice: row.preferredTtsVoice,
+  };
+}
+
+/** 构建完整备份 JSON：全部学习项（含 archived）+ 例句 + 双维进度 + settings + daily_stats；
+ * 不含可再生的 AI 缓存（questions/attempts）与 Read。 */
+export function exportBackup(db: AppDatabase, now: Date): BackupExport {
+  const itemRows = db
+    .select()
+    .from(learningItems)
+    .orderBy(learningItems.createdAt, learningItems.id)
+    .all();
+  const exampleRows = db
+    .select()
+    .from(learningExamples)
+    .orderBy(learningExamples.learningItemId, learningExamples.kind, learningExamples.sortOrder)
+    .all();
+  const stateRows = db.select().from(reviewStates).all();
+  const dailyRows = db.select().from(dailyStats).orderBy(dailyStats.date).all();
+
+  const examplesByItem = new Map<string, typeof exampleRows>();
+  for (const example of exampleRows) {
+    const list = examplesByItem.get(example.learningItemId) ?? [];
+    list.push(example);
+    examplesByItem.set(example.learningItemId, list);
+  }
+  const statesByItem = new Map<string, typeof stateRows>();
+  for (const state of stateRows) {
+    const list = statesByItem.get(state.learningItemId) ?? [];
+    list.push(state);
+    statesByItem.set(state.learningItemId, list);
+  }
+
+  const items: BackupItem[] = itemRows.map((row) => ({
+    id: row.id,
+    type: row.type as BackupItem['type'],
+    target: row.target,
+    meaning: row.meaning,
+    ipa: row.type === 'word' ? row.ipa : null,
+    source: row.source,
+    sourceUrl: row.sourceUrl,
+    tags: parseTags(row.tagsJson),
+    notes: row.notes,
+    status: row.status as BackupItem['status'],
+    queueState: row.queueState as BackupItem['queueState'],
+    needsReinforcement: row.needsReinforcement,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt,
+    examples: (examplesByItem.get(row.id) ?? []).map((e): BackupExample => ({
+      kind: e.kind as BackupExample['kind'],
+      text: e.text,
+      originalText: e.originalText,
+      betterText: e.betterText,
+      pinned: e.pinned,
+      qualityScore: e.qualityScore,
+      sortOrder: e.sortOrder,
+    })),
+    reviewStates: (statesByItem.get(row.id) ?? []).map((s) => ({
+      dimension: s.dimension as 'understanding' | 'production',
+      level: s.level,
+      stable: s.stable,
+      nextReviewAt: s.nextReviewAt,
+      lastReviewAt: s.lastReviewAt,
+      correctStreak: s.correctStreak,
+      wrongStreak: s.wrongStreak,
+    })),
+  }));
+
+  return {
+    version: '1.2',
+    exportedAt: now.toISOString(),
+    settings: loadSettingsForBackup(db),
+    items,
+    dailyStats: dailyRows.map((r) => ({
+      date: r.date,
+      formalTasksCompleted: r.formalTasksCompleted,
+      newItemsStarted: r.newItemsStarted,
+      productionAttempts: r.productionAttempts,
+      productionPass: r.productionPass,
+    })),
+  };
+}
+
+/** 备份文件名时间戳：yyyyMMdd-HHmmss（APP_TIMEZONE 本地时间） */
+function localTimestamp(date: Date, timeZone: string): string {
+  const day = localDateString(date, timeZone).replace(/-/g, '');
+  const time = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+    .format(date)
+    .replaceAll(':', '');
+  return `${day}-${time}`;
+}
+
+export function previewRestore(
+  db: AppDatabase,
+  payload: BackupExport,
+  store: TokenStore<BackupExport> = restoreStore,
+): RestorePreviewResponse {
+  const warnings: string[] = [];
+  const archivedCount = payload.items.filter((i) => i.status === 'archived').length;
+  if (archivedCount > 0) {
+    warnings.push(`备份中包含 ${archivedCount} 个已归档学习项，将按原样恢复。`);
+  }
+  if (payload.settings.maxNewItemsPerDay === MAX_NEW_ITEMS_UNLIMITED) {
+    warnings.push('备份的每日新学习额度为「不限制」，恢复后每天不再限制新学习项数量。');
+  }
+  if (payload.items.length === 0) {
+    warnings.push('备份中没有学习项，恢复后将清空当前学习库。');
+  }
+
+  const currentItemTotal = db.select({ id: learningItems.id }).from(learningItems).all().length;
+  const previewToken = store.put(payload);
+
+  return {
+    previewToken,
+    exportedAt: payload.exportedAt,
+    itemCount: payload.items.length,
+    dailyStatsDays: payload.dailyStats.length,
+    currentItemTotal,
+    warnings,
+  };
+}
+
+function chunk<T>(rows: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
+  return out;
+}
+
+/**
+ * 覆盖式恢复：
+ * 1. 一次性 token 校验（过期/不存在 → 404）；
+ * 2. 恢复前用 SQLite 原生 backup API 创建当前库快照（一致性快照，TECHNICAL §14）；
+ * 3. 同步事务内按外键安全顺序清空全部业务表，再按备份逐表回填
+ *    （learning_items 保留原 id；examples/review_states 生成新 id；
+ *    questions/attempts/read 等可再生数据不还原）。
+ */
+export async function commitRestore(
+  db: AppDatabase,
+  config: AppConfig,
+  req: RestoreCommitRequest,
+  now: Date,
+  store: TokenStore<BackupExport> = restoreStore,
+): Promise<RestoreCommitResponse> {
+  const backup = store.take(req.previewToken);
+  if (!backup) throw appError('NOT_FOUND', '预览已过期，请重新上传');
+
+  // 快照目录：data 目录 = dirname(config.databasePath)
+  const snapshotsDir = join(dirname(config.databasePath), 'snapshots');
+  mkdirSync(snapshotsDir, { recursive: true });
+  const stamp = localTimestamp(now, config.appTimezone);
+  let snapshotFile = `backup-before-restore-${stamp}.db`;
+  for (let i = 1; existsSync(join(snapshotsDir, snapshotFile)); i++) {
+    snapshotFile = `backup-before-restore-${stamp}-${i}.db`;
+  }
+  await rawSqlite(db).backup(join(snapshotsDir, snapshotFile));
+
+  const nowIso = now.toISOString();
+  const itemRows: (typeof learningItems.$inferInsert)[] = backup.items.map((item) => ({
+    id: item.id,
+    type: item.type,
+    target: item.target,
+    meaning: item.meaning,
+    ipa: item.ipa ?? null,
+    source: item.source,
+    sourceUrl: item.sourceUrl,
+    tagsJson: serializeTags(item.tags),
+    notes: item.notes,
+    status: item.status,
+    queueState: item.queueState,
+    needsReinforcement: item.needsReinforcement,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    archivedAt: item.archivedAt,
+  }));
+  const exampleRows: (typeof learningExamples.$inferInsert)[] = backup.items.flatMap((item) =>
+    item.examples.map((ex, index) => ({
+      id: randomUUID(),
+      learningItemId: item.id,
+      kind: ex.kind,
+      text: ex.text,
+      originalText: ex.originalText ?? null,
+      betterText: ex.betterText ?? null,
+      pinned: ex.pinned ?? 0,
+      qualityScore: ex.qualityScore ?? null,
+      sortOrder: ex.sortOrder ?? index,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    })),
+  );
+  const stateRows: (typeof reviewStates.$inferInsert)[] = backup.items.flatMap((item) =>
+    item.reviewStates.map((rs) => ({
+      id: randomUUID(),
+      learningItemId: item.id,
+      dimension: rs.dimension,
+      level: rs.level,
+      stable: rs.stable,
+      nextReviewAt: rs.nextReviewAt,
+      lastReviewAt: rs.lastReviewAt,
+      correctStreak: rs.correctStreak,
+      wrongStreak: rs.wrongStreak,
+      updatedAt: nowIso,
+    })),
+  );
+  const dailyRows: (typeof dailyStats.$inferInsert)[] = backup.dailyStats.map((d) => ({
+    date: d.date,
+    formalTasksCompleted: d.formalTasksCompleted,
+    newItemsStarted: d.newItemsStarted,
+    productionAttempts: d.productionAttempts,
+    productionPass: d.productionPass,
+    updatedAt: nowIso,
+  }));
+
+  db.transaction((tx: DbTx) => {
+    // 覆盖清空（外键安全顺序：子表 → 父表；questions/attempts 为可再生缓存，不还原）
+    tx.delete(attempts).run();
+    tx.delete(reviewTasks).run();
+    tx.delete(reviewSessions).run();
+    tx.delete(readArticleItems).run();
+    tx.delete(readArticles).run();
+    tx.delete(questions).run();
+    tx.delete(learningExamples).run();
+    tx.delete(reviewStates).run();
+    tx.delete(learningItems).run();
+    tx.delete(dailyStats).run();
+    tx.delete(settingsTable).run();
+
+    for (const rows of chunk(itemRows, 200)) tx.insert(learningItems).values(rows).run();
+    for (const rows of chunk(exampleRows, 200)) tx.insert(learningExamples).values(rows).run();
+    for (const rows of chunk(stateRows, 200)) tx.insert(reviewStates).values(rows).run();
+    tx.insert(settingsTable)
+      .values({
+        id: 1,
+        maxNewItemsPerDay: backup.settings.maxNewItemsPerDay,
+        contentLevel: backup.settings.contentLevel,
+        preferredTtsVoice: backup.settings.preferredTtsVoice,
+        updatedAt: nowIso,
+      })
+      .run();
+    for (const rows of chunk(dailyRows, 200)) tx.insert(dailyStats).values(rows).run();
+  });
+
+  return {
+    ok: true,
+    restoredItems: backup.items.length,
+    restoredDailyStats: backup.dailyStats.length,
+    snapshotFile,
+  };
 }

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { AiModelsResponse, Settings } from '@el/shared';
 import { api } from '../../lib/api';
+import { BackupSection } from './components/BackupSection';
 
 function fmtQuota(v: number): string {
   return v === -1 ? '不限制' : `${v} 个/天`;
@@ -93,15 +94,15 @@ export function SettingsPage() {
             </div>
           </dl>
         )}
-        <p className="text-xs text-muted-foreground">
-          设置编辑、导入导出与备份恢复将在后续阶段提供。
-        </p>
+        <p className="text-xs text-muted-foreground">设置编辑将在后续阶段提供。</p>
       </div>
 
       <AiModelsSection />
 
+      <BackupSection />
+
       <Link to="/stats" className="block text-sm text-accent hover:underline">
-        查看统计（Phase 6 预览）
+        查看统计
       </Link>
     </section>
   );

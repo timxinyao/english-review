@@ -1,0 +1,11 @@
+# English Learning Tool — maintenance 定时器：每月 1 日 02:00
+[Unit]
+Description=Run english-learning-maintenance on the 1st of each month at 02:00
+
+[Timer]
+OnCalendar=*-*-01 02:00:00
+Persistent=true
+Unit=english-learning-maintenance.service
+
+[Install]
+WantedBy=timers.target

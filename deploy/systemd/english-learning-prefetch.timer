@@ -1,0 +1,11 @@
+# English Learning Tool — prefetch 定时器：每日 04:00
+[Unit]
+Description=Run english-learning-prefetch daily at 04:00
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=english-learning-prefetch.service
+
+[Install]
+WantedBy=timers.target

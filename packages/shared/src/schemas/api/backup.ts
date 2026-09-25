@@ -57,7 +57,8 @@ export const BackupSettings = z.object({
     .number()
     .int()
     .refine(
-      (v) => v === MAX_NEW_ITEMS_UNLIMITED || (MAX_NEW_ITEMS_CHOICES as readonly number[]).includes(v),
+      (v) =>
+        v === MAX_NEW_ITEMS_UNLIMITED || (MAX_NEW_ITEMS_CHOICES as readonly number[]).includes(v),
       { message: '每日新学额度非法' },
     ),
   contentLevel: z.enum(CONTENT_LEVELS),

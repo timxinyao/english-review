@@ -1,9 +1,23 @@
 import type { FastifyInstance } from 'fastify';
-import { ImportCommitRequest, LibraryImport } from '@el/shared';
+import {
+  BackupExport,
+  ImportCommitRequest,
+  LibraryImport,
+  localDateString,
+  RestoreCommitRequest,
+} from '@el/shared';
 import type { AppConfig } from '../../config.js';
 import type { AppDatabase } from '../../db/client.js';
 import { parseBody } from '../../lib/http.js';
-import { commitImport, createRuntimeJudge, exportLibrary, previewImport } from './service.js';
+import {
+  commitImport,
+  commitRestore,
+  createRuntimeJudge,
+  exportBackup,
+  exportLibrary,
+  previewImport,
+  previewRestore,
+} from './service.js';
 
 export function importExportRoutes(app: FastifyInstance, db: AppDatabase, config: AppConfig): void {
   const judge = createRuntimeJudge(config);
@@ -25,4 +39,23 @@ export function importExportRoutes(app: FastifyInstance, db: AppDatabase, config
       .header('content-disposition', `attachment; filename="library-${date}.json"`)
       .send(data);
   });
+
+  // ---------- 完整备份 / 覆盖恢复（PRODUCT §9.3） ----------
+
+  app.get('/api/export/backup', async (_req, reply) => {
+    const now = new Date();
+    const data = exportBackup(db, now);
+    const stamp = localDateString(now, config.appTimezone).replace(/-/g, '');
+    return reply
+      .header('content-disposition', `attachment; filename="english-review-backup-${stamp}.json"`)
+      .send(data);
+  });
+
+  app.post('/api/restore/preview', async (req) =>
+    previewRestore(db, parseBody(BackupExport, req.body)),
+  );
+
+  app.post('/api/restore/commit', async (req) =>
+    commitRestore(db, config, parseBody(RestoreCommitRequest, req.body), new Date()),
+  );
 }

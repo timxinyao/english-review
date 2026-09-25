@@ -1,0 +1,9 @@
+# English Learning Tool — 月度维护 job（膨胀检查 + 月度长期快照，oneshot，由 timer 触发）
+[Unit]
+Description=English Learning monthly maintenance job
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/english-learning/app/apps/api
+EnvironmentFile=/etc/english-learning/env
+ExecStart=/opt/english-learning/app/node_modules/.bin/tsx src/jobs/monthly-maintenance.ts

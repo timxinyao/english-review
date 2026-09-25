@@ -1,0 +1,9 @@
+# English Learning Tool — 每周生命周期清理 job（oneshot，由 timer 触发）
+[Unit]
+Description=English Learning weekly cleanup job
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/english-learning/app/apps/api
+EnvironmentFile=/etc/english-learning/env
+ExecStart=/opt/english-learning/app/node_modules/.bin/tsx src/jobs/weekly-cleanup.ts

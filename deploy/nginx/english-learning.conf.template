@@ -1,0 +1,130 @@
+# English Learning Tool — nginx 站点配置模板（Ubuntu nginx 1.18）
+#
+# 使用方法：
+#   1. 将 __DOMAIN__ 全部替换为实际域名：sed 's/__DOMAIN__/example.com/g'
+#   2. 首次上线只启用下面 80 端口 server（certbot 需要先通过 HTTP 完成验证）：
+#      sudo cp english-learning.conf /etc/nginx/sites-available/english-learning.conf
+#      sudo ln -sf /etc/nginx/sites-available/english-learning.conf /etc/nginx/sites-enabled/
+#      sudo nginx -t && sudo systemctl reload nginx
+#   3. 签发证书：sudo certbot certonly --webroot -w /opt/english-learning/app/apps/web/dist -d <域名>
+#   4. 取消本文底部 443 段的全部注释，并取消 80 段内 HTTP→HTTPS 重定向注释，
+#      再次 nginx -t && systemctl reload nginx（详见 deploy/README.md）
+#
+# 注意：静态资源来自 apps/web 构建产物（deploy.sh 内 pnpm --filter @el/web run build）。
+
+# ---- 文本压缩 ----
+gzip on;
+gzip_min_length 1024;
+gzip_comp_level 5;
+gzip_vary on;
+gzip_types text/plain text/css text/javascript application/javascript application/json application/xml image/svg+xml;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __DOMAIN__;
+
+    # 静态站点（PWA 前端构建产物）
+    root /opt/english-learning/app/apps/web/dist;
+    index index.html;
+
+    # certbot webroot 验证（保留在 HTTP 段，签发/续期都需要）
+    location /.well-known/acme-challenge/ {
+        root /opt/english-learning/app/apps/web/dist;
+    }
+
+    # ---- 证书签发后启用：HTTP 一律重定向到 HTTPS（先注释，certbot 完成后再放开） ----
+    # location / { return 301 https://$host$request_uri; }
+
+    # API 反代到本机 Fastify（PORT=5174，仅监听 127.0.0.1）
+    location /api/ {
+        proxy_pass http://127.0.0.1:5174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s; # AI 实时批改/生成可能较慢
+    }
+
+    # 带内容哈希的构建资产：长缓存
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # Service Worker 与注册脚本：禁止缓存（发版后必须立即拿到新版本）
+    location = /sw.js {
+        add_header Cache-Control "no-cache, must-revalidate";
+        try_files $uri =404;
+    }
+    location = /registerSW.js {
+        add_header Cache-Control "no-cache, must-revalidate";
+        try_files $uri =404;
+    }
+
+    # PWA manifest：正确 MIME + 不缓存
+    location = /manifest.webmanifest {
+        types { application/manifest+json webmanifest; }
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
+
+    # SPA 路由回退
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+# ============================================================================
+# 以下 443 段在 certbot 签发证书并放置好后，整体取消注释启用，
+# 同时放开上面 80 段内的 return 301 重定向（HTTP→HTTPS）。
+# ============================================================================
+# server {
+#     listen 443 ssl http2;
+#     listen [::]:443 ssl http2;
+#     server_name __DOMAIN__;
+#
+#     ssl_certificate     /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;
+#     ssl_protocols TLSv1.2 TLSv1.3;
+#     ssl_ciphers HIGH:!aNULL:!MD5;
+#     ssl_session_cache shared:SSL:10m;
+#     ssl_session_timeout 1d;
+#
+#     root /opt/english-learning/app/apps/web/dist;
+#     index index.html;
+#
+#     location /api/ {
+#         proxy_pass http://127.0.0.1:5174;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto https;
+#         proxy_read_timeout 120s;
+#     }
+#
+#     location /assets/ {
+#         add_header Cache-Control "public, max-age=31536000, immutable";
+#         try_files $uri =404;
+#     }
+#
+#     location = /sw.js {
+#         add_header Cache-Control "no-cache, must-revalidate";
+#         try_files $uri =404;
+#     }
+#     location = /registerSW.js {
+#         add_header Cache-Control "no-cache, must-revalidate";
+#         try_files $uri =404;
+#     }
+#     location = /manifest.webmanifest {
+#         types { application/manifest+json webmanifest; }
+#         add_header Cache-Control "no-cache";
+#         try_files $uri =404;
+#     }
+#
+#     location / {
+#         try_files $uri $uri/ /index.html;
+#     }
+# }

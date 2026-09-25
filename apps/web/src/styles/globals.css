@@ -59,8 +59,8 @@ body {
 }
 
 /*
- * iOS 全面屏安全区（刘海/灵动岛 + home 指示条），参照原生 App 的留白惯例：
- * 顶栏在安全区之上再加固定呼吸空间；底部导航贴指示条上沿。
+ * iOS 全面屏安全区（刘海/灵动岛 + home 指示条）：
+ * 顶栏只留安全区（标题贴近顶部）；底部导航用收紧版避让（菜单贴底但不压指示条）。
  */
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
@@ -70,6 +70,7 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
-@utility pt-safe-lg {
-  padding-top: calc(env(safe-area-inset-top) + 0.875rem);
+/* 收紧版底避让：比指示条实际需要再多留 10px 即可（用户偏好菜单更贴底） */
+@utility pb-safe-tight {
+  padding-bottom: max(0.5rem, calc(env(safe-area-inset-bottom) - 0.75rem));
 }

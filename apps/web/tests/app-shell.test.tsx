@@ -23,16 +23,18 @@ describe('AppShell iOS 兼容', () => {
     const { container } = renderShell();
     const bottomNav = container.querySelector('nav.fixed');
     expect(bottomNav).not.toBeNull();
-    expect(bottomNav!.className).toContain('pb-safe');
+    expect(bottomNav!.className).toContain('pb-safe-tight');
     expect(bottomNav!.className).toContain('bottom-0');
   });
 
-  it('主内容区底部大留白（iOS 惯例）+ 顶栏安全区呼吸留白', () => {
+  it('主内容区底部大留白；顶栏只留安全区、导航用收紧避让（用户偏好更贴边）', () => {
     const { container } = renderShell();
     const main = container.querySelector('main');
     const header = container.querySelector('header');
+    const nav = container.querySelector('nav.fixed');
     expect(main?.className).toContain('pb-40');
-    expect(header?.className).toContain('pt-safe-lg');
+    expect(header?.className).toContain('pt-safe');
+    expect(nav?.className).toContain('pb-safe-tight');
   });
 
   it('顶栏有刷新按钮，点击刷新全部查询数据（不打断当前会话）', async () => {

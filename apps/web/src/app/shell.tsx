@@ -64,7 +64,7 @@ export function AppShell() {
 
       <div className="flex min-h-dvh flex-col">
         {/* 手机顶栏：iOS 惯例——安全区之上再加呼吸留白；右侧动作图标（刷新/设置） */}
-        <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
+        <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe md:hidden">
           <p className="text-base font-semibold text-foreground">English Review</p>
           <div className="flex items-center gap-1">
             <Button
@@ -92,7 +92,7 @@ export function AppShell() {
         </main>
 
         {/* 手机底部导航：pb-safe 避开 iOS home 指示条（globals.css 定义的工具类） */}
-        <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-border bg-background pb-safe md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-border bg-background pb-safe-tight md:hidden">
           {MAIN_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={bottomLinkClass}>
               <Icon className="h-5 w-5" aria-hidden />

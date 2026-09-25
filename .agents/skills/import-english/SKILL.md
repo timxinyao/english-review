@@ -42,7 +42,7 @@ description: 通过对话把用户想学的英语单词/词块导入 English Rev
 ### 2. 预览（服务端做重复检测与合并建议）
 
 ```bash
-cd /var/www/english-review/apps/api && echo '<上述 JSON>' | pnpm exec tsx scripts/import-cli.ts preview
+cd /var/www/english-review/apps/api && echo '<上述 JSON>' | pnpm exec tsx scripts/el-cli.ts preview
 ```
 
 （也可以先把 JSON 写临时文件再 `preview <file>`。命令默认打本机服务 http://127.0.0.1:5174，密码自动从 env 读，无需额外配置。）
@@ -54,7 +54,7 @@ cd /var/www/english-review/apps/api && echo '<上述 JSON>' | pnpm exec tsx scri
 ### 4. 提交
 
 ```bash
-pnpm exec tsx scripts/import-cli.ts commit --token <preview 输出的 token> \
+pnpm exec tsx scripts/el-cli.ts commit --token <preview 输出的 token> \
   [--decision 1=new_item] [--decision 2=skip_exact_duplicate]
 ```
 

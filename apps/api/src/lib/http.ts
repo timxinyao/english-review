@@ -22,9 +22,20 @@ export function errorHandler(error: unknown, _req: FastifyRequest, reply: Fastif
     return;
   }
   // Zod 直接抛出（未经 parseBody）也归一化为 400
-  const err = error as { name?: string; issues?: unknown[] };
+  const err = error as { name?: string; issues?: unknown[]; statusCode?: number; message?: string };
   if (err?.name === 'ZodError') {
     void reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: '请求参数无效' } });
+    return;
+  }
+  // Fastify 框架级 4xx（如空 JSON body、路由不存在）：保留原状态码，不升 500
+  if (typeof err?.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500) {
+    const is404 = err.statusCode === 404;
+    void reply.status(err.statusCode).send({
+      error: {
+        code: is404 ? 'NOT_FOUND' : 'VALIDATION_ERROR',
+        message: is404 ? '资源不存在' : '请求无效',
+      },
+    });
     return;
   }
   _req.log.error({ err: error }, 'unhandled error');

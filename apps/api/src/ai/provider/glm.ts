@@ -53,9 +53,12 @@ export function createGlmProvider(config: AppConfig, fetcher: typeof fetch = fet
             model: req.model,
             max_tokens: maxTokens,
             temperature: req.temperature,
-            ...(thinkingBudget !== null
-              ? { thinking: { type: 'enabled', budget_tokens: thinkingBudget } }
-              : {}),
+            // GLM 端点不传 thinking 时模型会"自发思考"（实测 flash 单次可自发 ~10k 字符导致 60s+ 延迟），
+            // 因此 off 必须显式 disabled
+            thinking:
+              thinkingBudget !== null
+                ? { type: 'enabled', budget_tokens: thinkingBudget }
+                : { type: 'disabled' },
             messages: [{ role: 'user', content: req.prompt }],
           }),
         });

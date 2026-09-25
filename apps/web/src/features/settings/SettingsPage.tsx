@@ -17,6 +17,7 @@ const SOURCE_LABEL: Record<AiModelsResponse['models']['flash']['source'], string
 const THINKING_LABEL: Record<AiModelsResponse['models']['flash']['thinking'], string> = {
   off: '思考 关',
   low: '思考 低',
+  medium: '思考 中',
   high: '思考 高',
   max: '思考 最大',
 };

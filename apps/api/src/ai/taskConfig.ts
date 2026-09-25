@@ -13,6 +13,7 @@ interface TaskModelPolicy {
 
 export const THINKING_BUDGET_TOKENS: Record<Exclude<ThinkingLevel, 'off'>, number> = {
   low: 2048,
+  medium: 4096,
   high: 6144,
   max: 16384,
 };
@@ -36,6 +37,7 @@ export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
 export function resolveThinking(task: AiTask, config: AppConfig): ThinkingLevel {
   return config.glmThinking ?? TASK_MODEL_POLICY[task].thinking;
 }
+
 
 export const MAX_STRUCTURED_RETRIES = 2;
 

@@ -33,7 +33,7 @@ function fakeFetch(): { fetcher: typeof fetch; bodies: unknown[] } {
 }
 
 describe('GLM provider 请求体组装（thinking 档位）', () => {
-  it('off：不带 thinking 参数，max_tokens=配置值', async () => {
+  it('off：显式 thinking disabled（GLM 端点不传会自发思考），max_tokens=配置值', async () => {
     const { fetcher, bodies } = fakeFetch();
     const provider = createGlmProvider(config(), fetcher);
     await provider.complete({
@@ -44,8 +44,8 @@ describe('GLM provider 请求体组装（thinking 档位）', () => {
       prompt: 'p',
       vars: {},
     });
-    const body = bodies[0] as Record<string, unknown>;
-    expect(body).not.toHaveProperty('thinking');
+    const body = bodies[0] as { thinking: { type: string }; max_tokens: number };
+    expect(body.thinking).toEqual({ type: 'disabled' });
     expect(body.max_tokens).toBe(8192);
   });
 

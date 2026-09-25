@@ -183,7 +183,7 @@ export async function resolveModelForTask(config: AppConfig, task: AiTask): Prom
 /** GET /api/ai/models 响应构建（不含 endpoint/密钥） */
 export async function buildAiModelsResponse(config: AppConfig): Promise<AiModelsResponse> {
   const resolved = await getResolvedModels(config);
-  const aliasThinking = (alias: ModelAlias): 'off' | 'low' | 'high' | 'max' => {
+  const aliasThinking = (alias: ModelAlias): 'off' | 'low' | 'medium' | 'high' | 'max' => {
     const task = (Object.keys(TASK_MODEL_POLICY) as AiTask[]).find(
       (t) => TASK_MODEL_POLICY[t].alias === alias,
     );

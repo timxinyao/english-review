@@ -1,0 +1,4 @@
+{"task":"generateUnderstandingQuestions","model":"glm-5.3-flash","thinking":"off","run":1,"caseId":"gu01-chunk","ok":true,"ms":11544}
+{"task":"generateUnderstandingQuestions","model":"glm-5.3-flash","thinking":"off","run":1,"caseId":"gu02-polysemy-lock","ok":true,"ms":9987}
+{"task":"generateUnderstandingQuestions","model":"glm-5.3-flash","thinking":"off","run":2,"caseId":"gu01-chunk","ok":false,"error":"模型输出 JSON 解析失败","ms":8107}
+{"task":"generateUnderstandingQuestions","model":"glm-5.3-flash","thinking":"off","run":2,"caseId":"gu02-polysemy-lock","ok":true,"ms":7657}

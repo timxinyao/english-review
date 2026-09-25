@@ -4,8 +4,8 @@ import { z } from 'zod';
 export const AiModelSource = z.enum(['auto', 'config', 'fallback']);
 export type AiModelSource = z.infer<typeof AiModelSource>;
 
-/** 思考强度：off=不启用；low≈2k / high≈6k / max≈16k tokens 思考预算 */
-export const ThinkingLevel = z.enum(['off', 'low', 'high', 'max']);
+/** 思考强度：off=不启用；low≈2k / medium≈4k / high≈6k / max≈16k tokens 思考预算 */
+export const ThinkingLevel = z.enum(['off', 'low', 'medium', 'high', 'max']);
 export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
 
 export const AiModelInfo = z.object({

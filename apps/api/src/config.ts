@@ -23,9 +23,9 @@ const ConfigSchema = z.object({
   GLM_MAX_TOKENS: z.coerce.number().int().min(256).default(8192),
   // 思考强度全局强制：off/low/high/max；留空=按任务策略（判定批改 low、生成 off）
   GLM_THINKING: z
-    .enum(['', 'off', 'low', 'high', 'max'])
+    .enum(['', 'off', 'low', 'medium', 'high', 'max'])
     .default('')
-    .transform((v) => (v === '' ? null : (v as 'off' | 'low' | 'high' | 'max'))),
+    .transform((v) => (v === '' ? null : (v as 'off' | 'low' | 'medium' | 'high' | 'max'))),
   // Cookie Secure 标志：留空=auto（按 X-Forwarded-Proto 自适应，HTTPS/HTTP 双入口并存）；
   // 显式 true/false 强制覆盖
   COOKIE_SECURE: z
@@ -49,7 +49,7 @@ export interface AppConfig {
   glmModels: { flash: string; air: string; max: string };
   glmMaxTokens: number;
   /** GLM_THINKING 全局强制（null=按任务策略） */
-  glmThinking: 'off' | 'low' | 'high' | 'max' | null;
+  glmThinking: 'off' | 'low' | 'medium' | 'high' | 'max' | null;
   /** 会话 Cookie 的 Secure 标志（null=按请求协议自适应，默认；true/false 显式覆盖） */
   cookieSecure: boolean | null;
 }

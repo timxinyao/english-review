@@ -10,7 +10,7 @@ export interface ProviderRequest {
   /** 渲染后的完整 Prompt 正文 */
   prompt: string;
   /** 思考强度（off 时省略 thinking 参数） */
-  thinking: 'off' | 'low' | 'high' | 'max';
+  thinking: 'off' | 'low' | 'medium' | 'high' | 'max';
   /** 原始结构化变量（供 mock provider 生成确定性输出；GLM 忽略） */
   vars: Record<string, unknown>;
 }

@@ -27,6 +27,13 @@ describe('AppShell iOS 兼容', () => {
     expect(bottomNav!.className).toContain('bottom-0');
   });
 
+  it('顶栏为 fixed 且未被 relative 覆盖（CSS 级联陷阱回归）', () => {
+    const { container } = renderShell();
+    const header = container.querySelector('header');
+    expect(header?.className).toContain('fixed');
+    expect(header?.className).not.toContain('relative');
+  });
+
   it('主内容区底部大留白；顶栏只留安全区、导航用收紧避让（用户偏好更贴边）', () => {
     const { container } = renderShell();
     const main = container.querySelector('main');

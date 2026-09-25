@@ -13,5 +13,7 @@
   <path d="M182 272 Q198 258 214 272" fill="none" stroke="#a8541f" stroke-width="16" stroke-linecap="round" />
   <path d="M298 272 Q314 258 330 272" fill="none" stroke="#a8541f" stroke-width="16" stroke-linecap="round" />
   <!-- 鼻尖 -->
-  <path d="M238 348 Q256 338 274 348 Q272 372 256 380 Q240 372 238 348 Z" fill="#a8541f" />
+  <path d="M238 344 Q256 334 274 344 Q272 366 256 374 Q240 366 238 344 Z" fill="#a8541f" />
+  <!-- 佛系微笑 -->
+  <path d="M232 398 Q256 414 280 398" fill="none" stroke="#a8541f" stroke-width="13" stroke-linecap="round" />
 </svg>

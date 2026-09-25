@@ -61,22 +61,22 @@ export function LearnContent({
           <SpeakButton text={item.target} className="translate-y-0.5" />
         </div>
 
-        {/* 释义：阶段 1 模糊 → 点击展开（generation effect） */}
-        {revealed ? (
-          <p className="text-base text-foreground">{item.meaning}</p>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setRevealed(true)}
-            className="flex w-full items-center gap-2 rounded-lg bg-muted px-3 py-2 text-left transition-colors hover:bg-accent/10"
-            aria-label="点击显示释义"
-          >
-            <Eye className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="select-none text-base text-muted-foreground blur-sm">
-              {item.meaning}
-            </span>
-          </button>
-        )}
+        {/* 释义：文字始终占位（零布局抖动），未展开时覆盖模糊层 */}
+        <div className="relative">
+          <p className="select-none text-base text-foreground">{item.meaning}</p>
+          {!revealed && (
+            <button
+              type="button"
+              onClick={() => setRevealed(true)}
+              className="absolute inset-0 flex items-center gap-2 rounded-lg px-1 text-left transition-colors"
+              aria-label="点击显示释义"
+            >
+              <span className="absolute inset-0 -z-10 rounded-lg bg-background/70 backdrop-blur-[6px]" />
+              <Eye className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="text-sm text-muted-foreground">点击显示释义</span>
+            </button>
+          )}
+        </div>
 
         {/* 例句分区 */}
         {task.sourceExample && (

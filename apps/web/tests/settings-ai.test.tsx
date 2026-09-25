@@ -26,13 +26,33 @@ vi.mock('../src/lib/api', () => ({
         thinkingOverride: null,
         // 2026-09-25 基准矩阵：生成全 flash/off；批改 max/medium；judge flash/low；cloze flash/off
         taskMapping: [
-          { task: 'generateUnderstandingQuestions', alias: 'flash', model: 'glm-5.3-flash', thinking: 'off' },
-          { task: 'generateClozeQuestions', alias: 'flash', model: 'glm-5.3-flash', thinking: 'off' },
+          {
+            task: 'generateUnderstandingQuestions',
+            alias: 'flash',
+            model: 'glm-5.3-flash',
+            thinking: 'off',
+          },
+          {
+            task: 'generateClozeQuestions',
+            alias: 'flash',
+            model: 'glm-5.3-flash',
+            thinking: 'off',
+          },
           { task: 'checkCloze', alias: 'flash', model: 'glm-5.3-flash', thinking: 'off' },
-          { task: 'generateProductionPrompt', alias: 'flash', model: 'glm-5.3-flash', thinking: 'off' },
+          {
+            task: 'generateProductionPrompt',
+            alias: 'flash',
+            model: 'glm-5.3-flash',
+            thinking: 'off',
+          },
           { task: 'checkProduction', alias: 'max', model: 'glm-5.3', thinking: 'medium' },
           { task: 'generateRead', alias: 'flash', model: 'glm-5.3-flash', thinking: 'off' },
-          { task: 'judgeDuplicateMeaning', alias: 'flash', model: 'glm-5.3-flash', thinking: 'low' },
+          {
+            task: 'judgeDuplicateMeaning',
+            alias: 'flash',
+            model: 'glm-5.3-flash',
+            thinking: 'low',
+          },
         ],
         availableModels: ['glm-5.3', 'glm-5.3-flash'],
         checkedAt: '2026-09-25T00:00:00.000Z',

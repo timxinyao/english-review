@@ -40,10 +40,18 @@ interface ModelRow {
 
 /** 按实际任务矩阵动态分组：模型+思考相同的任务合并一行（跟随 taskConfig，不写死用途） */
 function groupTaskMapping(data: AiModelsResponse): ModelRow[] {
-  const groups = new Map<string, { usage: string[]; alias: string; model: string; thinking: string }>();
+  const groups = new Map<
+    string,
+    { usage: string[]; alias: string; model: string; thinking: string }
+  >();
   for (const t of data.taskMapping) {
     const key = `${t.alias}|${t.model}|${t.thinking}`;
-    const g = groups.get(key) ?? { usage: [], alias: t.alias, model: t.model, thinking: t.thinking };
+    const g = groups.get(key) ?? {
+      usage: [],
+      alias: t.alias,
+      model: t.model,
+      thinking: t.thinking,
+    };
     g.usage.push(TASK_LABEL[t.task] ?? t.task);
     groups.set(key, g);
   }
@@ -72,7 +80,10 @@ function AiModelsSection() {
       <h2 className="text-sm font-semibold">AI 模型</h2>
       <dl className="space-y-3 text-sm">
         {rows.map((row) => (
-          <div key={row.key} className="flex items-center justify-between gap-3 border-b border-border pb-3">
+          <div
+            key={row.key}
+            className="flex items-center justify-between gap-3 border-b border-border pb-3"
+          >
             <dt className="text-muted-foreground">{row.usage}</dt>
             <dd className="flex shrink-0 items-center gap-2">
               <span className="font-mono text-xs">{row.model}</span>
@@ -138,9 +149,7 @@ export function SettingsPage() {
                   aria-label="每日新学习项上限"
                   value={String(data.maxNewItemsPerDay)}
                   disabled={update.isPending}
-                  onChange={(e) =>
-                    update.mutate({ maxNewItemsPerDay: Number(e.target.value) })
-                  }
+                  onChange={(e) => update.mutate({ maxNewItemsPerDay: Number(e.target.value) })}
                 >
                   {QUOTA_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -156,7 +165,9 @@ export function SettingsPage() {
                 aria-label="内容难度"
                 value={data.contentLevel}
                 disabled={update.isPending}
-                onChange={(e) => update.mutate({ contentLevel: e.target.value as Settings['contentLevel'] })}
+                onChange={(e) =>
+                  update.mutate({ contentLevel: e.target.value as Settings['contentLevel'] })
+                }
               >
                 {LEVEL_OPTIONS.map((l) => (
                   <option key={l} value={l}>

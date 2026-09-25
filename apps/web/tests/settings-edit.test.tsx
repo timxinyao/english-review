@@ -39,7 +39,12 @@ vi.mock('../src/lib/api', () => ({
         },
         thinkingOverride: null,
         taskMapping: [
-          { task: 'generateUnderstandingQuestions', alias: 'flash', model: 'glm-5.3-flash', thinking: 'off' },
+          {
+            task: 'generateUnderstandingQuestions',
+            alias: 'flash',
+            model: 'glm-5.3-flash',
+            thinking: 'off',
+          },
         ],
         availableModels: [],
         checkedAt: null,
@@ -72,9 +77,7 @@ describe('Settings 编辑（每日额度与内容难度）', () => {
     const select = await screen.findByLabelText('每日新学习项上限');
     expect(select).toHaveValue('10');
     await userEvent.selectOptions(select, '20');
-    expect(patchCalls).toEqual([
-      { path: '/api/settings', body: { maxNewItemsPerDay: 20 } },
-    ]);
+    expect(patchCalls).toEqual([{ path: '/api/settings', body: { maxNewItemsPerDay: 20 } }]);
     expect(await screen.findByText('已保存')).toBeVisible();
   });
 

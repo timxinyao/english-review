@@ -397,6 +397,8 @@ Coding Plan 的模型号会随版本演进（glm-5.3 → glm-5.4 …），因此
 
 解析结果进程内缓存（TTL 1 小时，失败 60 秒后重试）；版本比较按数字段（5.10 > 5.9 > 5.3）。前端在 Settings 只读展示（`GET /api/ai/models`）；endpoint 与密钥不暴露给前端。
 
+任务级「模型×思考」策略以 [docs/MODEL_BENCHMARK.md](MODEL_BENCHMARK.md) 的基准数据为准（活文档：当前策略、历史矩阵、换模型对比指南与复现命令），变更策略须先跑基准并追加记录。
+
 ### 思考强度（2026-09-25）
 
 GLM Anthropic 端点支持 `thinking: {type: 'enabled', budget_tokens}`（与 temperature 可同用；响应含 thinking 块，provider 只取 text 块）。档位与预算映射：`low=2048 / high=6144 / max=16384`。

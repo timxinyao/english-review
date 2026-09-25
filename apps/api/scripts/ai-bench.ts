@@ -34,10 +34,22 @@ function expectedOk(task: AiTask, out: unknown, expected: Record<string, unknown
   return true; // 生成类无标签：通过 = Schema + 不变式
 }
 
-const MODELS = [
+const DEFAULT_MODELS = [
   { label: 'flash', id: 'glm-5.3-flash' },
   { label: 'main', id: 'glm-5.3' },
 ];
+
+/** --models label=id,label=id（如 ds=deepseek-chat,ds-r=deepseek-reasoner） */
+function parseModels(args: string[]): typeof DEFAULT_MODELS {
+  const i = args.indexOf('--models');
+  if (i === -1) return DEFAULT_MODELS;
+  const out: Array<{ label: string; id: string }> = [];
+  for (const pair of (args[i + 1] ?? '').split(',')) {
+    const [label, id] = pair.split('=');
+    if (label && id) out.push({ label, id });
+  }
+  return out.length ? out : DEFAULT_MODELS;
+}
 const LEVELS_JUDGMENT: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'max'];
 const LEVELS_GEN: ThinkingLevel[] = ['off', 'low', 'medium', 'high'];
 const RUNS = { judgment: 3, gen: 2 } as const;
@@ -98,7 +110,7 @@ async function main() {
     const runs = isJudgment ? RUNS.judgment : RUNS.gen;
     const temperature = TASK_MODEL_POLICY[task].temperature; // 用各任务策略温度，贴近真实
 
-    for (const model of MODELS) {
+    for (const model of parseModels(args)) {
       for (const level of levels) {
         const row: Row = {
           task,

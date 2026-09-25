@@ -13,6 +13,7 @@
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 前后端代码分层、全局样式/组件约束 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | TDD 开发流、测试流、lint 门禁 |
 | [docs/PHASES.md](docs/PHASES.md) | 阶段划分与进度留档（进度唯一事实源） |
+| [docs/MODEL_BENCHMARK.md](docs/MODEL_BENCHMARK.md) | 模型×思考基准与策略（活文档，换模型对比） |
 | [AGENTS.md](AGENTS.md) | Coding Agent 开发纪律 |
 | [apps/api/prompts/](apps/api/prompts/) | 真正发送给模型的 7 个 Prompt（Git 为源） |
 | [apps/api/tests/ai/eval/](apps/api/tests/ai/eval/) | Prompt Eval fixtures |

@@ -29,7 +29,7 @@ export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
   checkCloze: { alias: 'flash', temperature: 0.1, thinking: 'off' },
   generateProductionPrompt: { alias: 'flash', temperature: 0.8, thinking: 'off' },
   // 批改是唯一 main+思考组合：基准实测 main+medium=100%·14s，flash 各档最高 89% 且更慢，
-  // off 档两模型均 67%（scripts/bench/2026-09-25-summary.md）
+  // off 档两模型均 67%（docs/MODEL_BENCHMARK.md）
   checkProduction: { alias: 'max', temperature: 0.2, thinking: 'medium' },
   generateRead: { alias: 'flash', temperature: 0.8, thinking: 'off' },
   judgeDuplicateMeaning: { alias: 'flash', temperature: 0.2, thinking: 'low' },

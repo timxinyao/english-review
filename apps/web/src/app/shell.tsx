@@ -1,4 +1,5 @@
-import { BookOpen, Library, Settings, Sun } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { BookOpen, Library, RotateCw, Settings, Sun } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { useLogout } from '../features/auth/api';
@@ -19,7 +20,7 @@ function navLinkClass({ isActive }: { isActive: boolean }): string {
 
 function bottomLinkClass({ isActive }: { isActive: boolean }): string {
   return cn(
-    'flex flex-1 flex-col items-center gap-1 py-2 text-xs',
+    'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs',
     isActive ? 'text-accent' : 'text-muted-foreground',
   );
 }
@@ -27,6 +28,7 @@ function bottomLinkClass({ isActive }: { isActive: boolean }): string {
 export function AppShell() {
   const logout = useLogout();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   function onLogout() {
     logout.mutate(undefined, {
@@ -61,24 +63,34 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-h-dvh flex-col">
-        {/* 手机顶栏 */}
-        <header className="flex h-12 items-center justify-between border-b border-border px-4 md:hidden">
-          <p className="text-sm font-semibold text-foreground">English Review</p>
-          <NavLink
-            to="/settings"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
-            aria-label="设置"
-          >
-            <Settings className="h-4 w-4" />
-          </NavLink>
+        {/* 手机顶栏：iOS 惯例——安全区之上再加呼吸留白；右侧动作图标（刷新/设置） */}
+        <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
+          <p className="text-base font-semibold text-foreground">English Review</p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-muted-foreground"
+              aria-label="刷新"
+              onClick={() => void queryClient.invalidateQueries()}
+            >
+              <RotateCw className="h-4 w-4" aria-hidden />
+            </Button>
+            <NavLink
+              to="/settings"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+              aria-label="设置"
+            >
+              <Settings className="h-4 w-4" aria-hidden />
+            </NavLink>
+          </div>
         </header>
 
-        {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12）；移动端底部留出导航 + iOS 安全区高度 */}
-        <main className="mx-auto w-full max-w-[900px] flex-1 px-4 pb-28 pt-6 md:px-8 md:pb-10">
+        {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12）；移动端底部大留白（iOS 惯例）+ 覆盖导航与指示条 */}
+        <main className="mx-auto w-full max-w-[900px] flex-1 px-5 pb-40 pt-6 md:px-8 md:pb-10">
           <Outlet />
         </main>
 
-        {/* 手机底部导航 */}
         {/* 手机底部导航：pb-safe 避开 iOS home 指示条（globals.css 定义的工具类） */}
         <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-border bg-background pb-safe md:hidden">
           {MAIN_NAV.map(({ to, label, icon: Icon }) => (

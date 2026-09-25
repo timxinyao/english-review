@@ -36,17 +36,19 @@ describe('Today 完成摘要', () => {
     ).toBeVisible();
   });
 
-  it('recommendRead=true 时提示 Read 复现（Phase 5 开放）；false 时不提示', async () => {
+  it('recommendRead=true 时提供 /read 链接；false 时不显示', async () => {
     stubApi({ '/api/today': makeCompleted({ recommendRead: true }) });
     renderTodayApp();
-    expect(await screen.findByText('可以生成一篇 Read 复现今日内容（Phase 5 开放）')).toBeVisible();
+    const link = await screen.findByRole('link', { name: '生成一篇 Read 复现今日内容' });
+    expect(link).toBeVisible();
+    expect(link).toHaveAttribute('href', '/read');
 
     cleanup();
     stubApi({ '/api/today': makeCompleted({ recommendRead: false }) });
     renderTodayApp();
     expect(await screen.findByRole('heading', { name: '今天完成了' })).toBeVisible();
     expect(
-      screen.queryByText('可以生成一篇 Read 复现今日内容（Phase 5 开放）'),
+      screen.queryByRole('link', { name: '生成一篇 Read 复现今日内容' }),
     ).not.toBeInTheDocument();
   });
 });

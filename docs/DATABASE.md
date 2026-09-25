@@ -174,9 +174,11 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 |---|---|---|
 | id | text/uuid | PK |
 | title | text | |
+| type | text | story / daily_scene / knowledge / short_opinion（Phase 5 工程补齐） |
 | body | text | |
 | content_level | text | 默认 B1 |
 | favorite | integer | |
+| checks_json | text | 检查题存储（Phase 5 工程补齐）：[{id, learningItemId, question, options, correctOptionId, answered?}]；correctOptionId 仅服务端判定用，不返回前端 |
 | prompt_key | text | `generate_read`。 |
 | prompt_version | integer | Prompt frontmatter 版本。 |
 | prompt_hash | text | Prompt 模板文件 SHA-256，用于精确追溯。 |
@@ -194,6 +196,7 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 | learning_item_id | FK | |
 | role | text | `focus` / `old` |
 | highlighted | integer | focus=1，old=0 |
+| surface_form | text nullable | focus 项在正文中的实际形式（AI coverage 持久化，Phase 5 工程补齐）；old 为 null |
 
 联合主键或唯一约束 `(read_article_id, learning_item_id)`。
 

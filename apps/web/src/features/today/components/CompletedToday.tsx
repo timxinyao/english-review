@@ -1,6 +1,7 @@
 import type { TodayCompletedResponse } from '@el/shared';
+import { Link } from 'react-router-dom';
 
-/** completed 态：安静完成摘要（PRODUCT §4.3/§5.1） */
+/** completed 态：安静完成摘要（PRODUCT §4.3/§5.1）；recommendRead 提供 /read 入口 */
 export function CompletedToday({ data }: { data: TodayCompletedResponse }) {
   const { summary } = data;
 
@@ -15,7 +16,9 @@ export function CompletedToday({ data }: { data: TodayCompletedResponse }) {
       </p>
       {summary.recommendRead && (
         <p className="text-sm text-muted-foreground">
-          可以生成一篇 Read 复现今日内容（Phase 5 开放）
+          <Link to="/read" className="text-accent underline-offset-2 hover:underline">
+            生成一篇 Read 复现今日内容
+          </Link>
         </p>
       )}
     </div>

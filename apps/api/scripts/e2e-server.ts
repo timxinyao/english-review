@@ -9,6 +9,11 @@ import { buildApp } from '../src/app.js';
 import { learningExamples, learningItems, questions, reviewStates } from '../src/db/schema.js';
 import { setTodayDepsForTests, loadRealTodayDeps } from '../src/modules/today/service.js';
 import { loadRealPracticeDeps, setPracticeDepsForTests } from '../src/modules/practice/service.js';
+import {
+  setReadDepsForTests,
+  type ReadGeneration,
+  type ReadSelection,
+} from '../src/modules/read/service.js';
 import type { ProductionEvaluation, QuestionRow } from '../src/modules/questions/service.js';
 
 // ---------------------------------------------------------------------------
@@ -486,6 +491,67 @@ export async function fakeEvaluateProduction(
 }
 
 // ---------------------------------------------------------------------------
+// E2E 确定性 Read 生成 fake（Phase 5；前端 Playwright 依赖文案，勿随意改动）
+// ---------------------------------------------------------------------------
+
+/** 固定段落（合计约 199 词；正文总词数随 focus 句递增，保持 180–400 区间） */
+const READ_FAKE_PARA_1 =
+  'The morning began quietly, the way it always does in this small town. ' +
+  'Maya woke up before her alarm, made a cup of tea, and sat by the kitchen window. ' +
+  'The street outside was almost empty. A delivery truck passed slowly, and a neighbor waved ' +
+  'on his way to work. She opened her notebook and wrote a few lines about the weekend, ' +
+  'then read them again and smiled. The light came in slowly, warming the table, the chair, ' +
+  'and the old wooden floor. Nothing needed to hurry. The whole day was still ahead, ' +
+  'patient and unhurried, waiting for her to begin.';
+const READ_FAKE_PARA_3 =
+  'In the evening, she walked home along the river. The water moved quietly under the bridge, ' +
+  'and the sky turned soft orange behind the buildings. She thought about the words she had ' +
+  'met during the day, how each one had a small history of its own. Some were heavy, some ' +
+  'were light, and a few still felt like strangers. Tomorrow she would meet them again, ' +
+  'in another sentence, in another quiet hour. Learning a language, she decided, was less ' +
+  'about memory and more about meeting: the same words, returning like old friends, ' +
+  'patient until you finally knew them.';
+
+/**
+ * E2E_SEED=1 时注入 read 模块的 generate：不用 AI，直接构造确定性文章。
+ * title/type 固定；正文 3 段且包含所有 focus 的 surface_form=target 原词；
+ * checks 取前 2 个 focus（o1=item.meaning 正确）；promptMeta 用 'seed' 占位。
+ */
+export async function fakeGenerateRead(input: ReadSelection): Promise<ReadGeneration> {
+  const sentences = input.focusItems
+    .map(
+      (f) =>
+        `The phrase ${f.target} came back to her more than once that day, and each time it felt a little more natural.`,
+    )
+    .join(' ');
+  const body = [READ_FAKE_PARA_1, sentences, READ_FAKE_PARA_3].join('\n\n');
+  return {
+    data: {
+      title: 'A Quiet Morning',
+      type: 'story',
+      body,
+      coverage: input.focusItems.map((f) => ({
+        learning_item_id: f.id,
+        surface_form: f.target,
+      })),
+      checks: input.focusItems.slice(0, 2).map((f) => ({
+        learning_item_id: f.id,
+        question: `文中 ${f.target} 的意思是什么？`,
+        options: [
+          { id: 'o1', text: f.meaning },
+          { id: 'o2', text: '干扰甲' },
+          { id: 'o3', text: '干扰乙' },
+          { id: 'o4', text: '干扰丙' },
+        ],
+        correct_option_id: 'o1',
+      })),
+    },
+    meta: { key: 'seed', version: 1, hash: 'seed' },
+    model: 'seed',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // E2E 重置（测试专用端点，见 main()：多个"完整会话"spec 共享同一 e2e.db，
 // 而一天只允许一个正式 session，因此每个会话型 spec 开始时重置回种子状态）
 // ---------------------------------------------------------------------------
@@ -533,6 +599,9 @@ async function main(): Promise<void> {
     const practiceDeps = await loadRealPracticeDeps();
     setPracticeDepsForTests({ ...practiceDeps, evaluateProduction: fakeEvaluateProduction });
     console.info('[e2e] fake production evaluation injected (today + practice)');
+    // fake Read 生成注入：POST /api/read/generate 不依赖 GLM key（确定性输出）
+    setReadDepsForTests({ generate: fakeGenerateRead });
+    console.info('[e2e] fake read generation injected');
   }
   const app = buildApp({ config, db, logger: false });
   if (process.env.E2E_SEED === '1') {

@@ -13,6 +13,7 @@ import { healthRoutes } from './modules/health/routes.js';
 import { importExportRoutes } from './modules/import-export/routes.js';
 import { learningItemsRoutes } from './modules/learning-items/routes.js';
 import { practiceRoutes } from './modules/practice/routes.js';
+import { readRoutes } from './modules/read/routes.js';
 import { settingsRoutes } from './modules/settings/routes.js';
 import { todayRoutes } from './modules/today/routes.js';
 
@@ -58,6 +59,7 @@ export function buildApp({ config, db, logger = true }: AppOptions): FastifyInst
   learningItemsRoutes(app, db);
   todayRoutes(app, db, config);
   practiceRoutes(app, db);
+  readRoutes(app, db);
   importExportRoutes(app, db, config);
 
   // 模型自动发现状态（Settings 只读展示；不暴露 endpoint/密钥）

@@ -213,6 +213,7 @@ POST /api/restore/commit
 
 POST /api/read/generate
 GET  /api/read/history
+GET  /api/read/:id
 POST /api/read/:id/favorite
 POST /api/read/:id/check
 

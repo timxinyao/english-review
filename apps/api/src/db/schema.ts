@@ -208,12 +208,19 @@ export const readArticles = sqliteTable('read_articles', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
   body: text('body').notNull(),
+  /** story | daily_scene | knowledge | short_opinion（契约 ReadArticleView.type） */
+  type: text('type').notNull().default('story'),
   contentLevel: text('content_level').notNull().default('B1'),
   favorite: integer('favorite').notNull().default(0),
   promptKey: text('prompt_key').notNull(),
   promptVersion: integer('prompt_version').notNull(),
   promptHash: text('prompt_hash').notNull(),
   model: text('model').notNull(),
+  /** 检查题（[{id, learningItemId, question, options, correctOptionId, explanation?, answered?}]）；
+   * correctOptionId 仅服务端判定用，永不下发前端 */
+  checksJson: text('checks_json')
+    .notNull()
+    .default(sql`'[]'`),
   createdAt: text('created_at').notNull(),
   expiresAt: text('expires_at'),
 });
@@ -229,6 +236,8 @@ export const readArticleItems = sqliteTable(
       .references(() => learningItems.id, { onDelete: 'cascade' }),
     role: text('role').notNull(), // focus | old
     highlighted: integer('highlighted').notNull().default(0),
+    /** focus 项在正文中的实际形式（AI coverage 持久化）；old 为 null */
+    surfaceForm: text('surface_form'),
   },
   (t) => ({ pk: primaryKey({ columns: [t.readArticleId, t.learningItemId] }) }),
 );

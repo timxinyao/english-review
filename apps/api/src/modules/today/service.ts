@@ -76,6 +76,8 @@ export interface StateSnapshot {
   };
   itemStatus: string;
   queueState: string;
+  /** Phase 5 起写入；旧快照（更早 attempts）无此字段，恢复时保持现值 */
+  needsReinforcement?: 0 | 1;
   /** 仅 post：本次结算新增的补强任务 id */
   reinforcementTaskIds?: string[];
   /** 仅 post：本次结算写入的 Personal Example id（坏题撤销时删除该例句的依据） */
@@ -275,6 +277,7 @@ function snapshotOf(exec: DbExecutor, itemId: string): StateSnapshot {
     },
     itemStatus: item?.status ?? 'active',
     queueState: item?.queueState ?? 'new',
+    needsReinforcement: (item?.needsReinforcement ?? 0) === 1 ? 1 : 0,
   };
 }
 
@@ -351,7 +354,7 @@ function writeDimState(
   }
 }
 
-/** 坏题撤销：按 pre 快照恢复两维状态、item.status 与 queue_state */
+/** 坏题撤销：按 pre 快照恢复两维状态、item.status 与 queue_state（含 Read 补强旗回滚） */
 function restoreSnapshot(
   exec: DbExecutor,
   itemId: string,
@@ -384,7 +387,15 @@ function restoreSnapshot(
   }
   exec
     .update(learningItems)
-    .set({ status: snap.itemStatus, queueState: snap.queueState, updatedAt: nowIso })
+    .set({
+      status: snap.itemStatus,
+      queueState: snap.queueState,
+      // 旧快照无此字段时保持现值（Phase 5 前的 attempts）
+      ...(snap.needsReinforcement === undefined
+        ? {}
+        : { needsReinforcement: snap.needsReinforcement }),
+      updatedAt: nowIso,
+    })
     .where(eq(learningItems.id, itemId))
     .run();
 }
@@ -775,6 +786,7 @@ interface PlanTask {
   dimension: Dimension;
   taskType: 'learn' | 'understanding' | 'cloze' | 'production';
   questionId: string | null;
+  origin: 'base' | 'read_reinforcement';
 }
 
 /** 事务外取题：无库存时懒生成（AI 失败返回 null，不抛出） */
@@ -852,6 +864,12 @@ export async function startTodaySession(
 
   // ---- 3) 题目获取（事务外；取不到则跳过该任务/项，不占额度）----
   const plans: PlanTask[] = [];
+  const acquiredQuestionIds = new Map<string, string[]>(); // itemId → 已占用题目（同 item 防重复取题）
+  const markAcquired = (itemId: string, questionId: string): void => {
+    const list = acquiredQuestionIds.get(itemId);
+    if (list) list.push(questionId);
+    else acquiredQuestionIds.set(itemId, [questionId]);
+  };
   for (const row of dueRows) {
     const dimension = row.state.dimension as Dimension;
     // P 维度按阶段取题（PRODUCT §6.3）：L1-2 填空；L3 哈希奇偶混合；L4+ 表达题
@@ -859,14 +877,16 @@ export async function startTodaySession(
       dimension === 'understanding'
         ? 'understanding'
         : productionQuestionTypeFor(row.item.id, row.state.level);
-    const q = await acquireWithGenerate(db, deps, row.item.id, taskType, now);
+    const exclude = acquiredQuestionIds.get(row.item.id) ?? [];
+    const q = await acquireWithGenerate(db, deps, row.item.id, taskType, now, exclude);
     if (!q) {
       console.warn(
         `[today] start 跳过到期任务：item=${row.item.id} dim=${dimension}（无可用题目）`,
       );
       continue;
     }
-    plans.push({ itemId: row.item.id, dimension, taskType, questionId: q.id });
+    markAcquired(row.item.id, q.id);
+    plans.push({ itemId: row.item.id, dimension, taskType, questionId: q.id, origin: 'base' });
   }
   for (const item of learnItems) {
     const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now);
@@ -879,6 +899,38 @@ export async function startTodaySession(
       dimension: 'understanding',
       taskType: 'learn',
       questionId: q.id,
+      origin: 'base',
+    });
+  }
+
+  // ---- 3A) Read 补强（PRODUCT §8.2）：Read 答错置旗项 → 每项 1 题正式理解复习 ----
+  // 每项最多 1 个（去重）；无题且 AI 生成失败则跳过；计入 base_task_count/progress/daily_stats。
+  const flaggedItems = db
+    .select()
+    .from(learningItems)
+    .where(
+      and(
+        eq(learningItems.status, 'active'),
+        eq(learningItems.queueState, 'started'),
+        eq(learningItems.needsReinforcement, 1),
+      ),
+    )
+    .orderBy(asc(learningItems.id))
+    .all();
+  for (const item of flaggedItems) {
+    const exclude = acquiredQuestionIds.get(item.id) ?? [];
+    const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now, exclude);
+    if (!q) {
+      console.warn(`[today] start 跳过 Read 补强：item=${item.id}（无可用题目）`);
+      continue;
+    }
+    markAcquired(item.id, q.id);
+    plans.push({
+      itemId: item.id,
+      dimension: 'understanding',
+      taskType: 'understanding',
+      questionId: q.id,
+      origin: 'read_reinforcement',
     });
   }
 
@@ -908,7 +960,7 @@ export async function startTodaySession(
             dimension: p.dimension,
             questionId: p.questionId,
             taskType: p.taskType,
-            origin: 'base',
+            origin: p.origin,
             sortKey: index + 1,
             deferCount: 0,
             completedAt: null,
@@ -1194,6 +1246,14 @@ export async function answerTodayTask(
         },
         nowIso,
       );
+    }
+
+    // Read 补强任务完成即清旗（无论对错；PRODUCT §8.2 旗只在此清，答对 Read check 不清）
+    if (fresh.origin === 'read_reinforcement') {
+      tx.update(learningItems)
+        .set({ needsReinforcement: 0, updatedAt: nowIso })
+        .where(eq(learningItems.id, itemId))
+        .run();
     }
 
     // 补强任务插入（fail；题目已事务外预取；配额事务内复核）

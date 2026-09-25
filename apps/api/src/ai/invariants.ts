@@ -87,6 +87,13 @@ export function checkAiOutput(
       for (const id of focusIds) {
         if (!covered.has(id)) violations.push(`focus item ${id} 未出现在 coverage`);
       }
+      // surface_form 必须真实出现在正文中（大小写不敏感 includes；AI_RULES §11 后端硬校验）
+      const bodyLower = out.body.toLowerCase();
+      for (const c of out.coverage) {
+        if (!bodyLower.includes(c.surface_form.toLowerCase())) {
+          violations.push(`coverage surface_form "${c.surface_form}" 未出现在正文中`);
+        }
+      }
       out.checks.forEach((c, i) => {
         if (!c.options.some((o) => o.id === c.correct_option_id)) {
           violations.push(`第 ${i + 1} 道检查题 correct_option_id 不存在`);

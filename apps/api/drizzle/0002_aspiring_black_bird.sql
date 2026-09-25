@@ -1,0 +1,1 @@
+ALTER TABLE `read_article_items` ADD `surface_form` text;

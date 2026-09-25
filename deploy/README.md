@@ -78,9 +78,11 @@ GLM_MODEL_MAX=
 GLM_MAX_TOKENS=8192
 GLM_THINKING=
 
-# ---- 备份（S3）----
-# 留空 = 不上传，每日快照仅保留本地一份（data 目录同级 snapshots/latest-daily.db）
-**S3_BUCKET=<你的桶名>**
+# ---- 备份（S3 可选）----
+# 不设置 = 本地备份模式：快照存 <数据库目录>/snapshots/，日备 daily-<日期>.db 保留 30 天、
+# 月备 monthly-<年月>.db 保留 12 个月，自动轮转，无需任何云依赖
+# 设置 = S3 异地容灾模式：快照上传 s3://<bucket>/english-review/{daily,monthly}/，本地不留副本
+S3_BUCKET=
 # AWS 凭证不要写在这里：aws-cli 用实例 IAM 角色或 root 的 `aws configure`
 ```
 
@@ -172,11 +174,15 @@ journalctl -u english-learning-api -n 100 --no-pager
 
 ### 快照位置
 
-| 位置 | 内容 | 保留 |
+| 模式 | 位置 | 保留 |
 | --- | --- | --- |
-| `s3://<bucket>/english-review/daily/<yyyy-mm-dd>.db` | 每日一致性快照 | 30 天（备份 job 轮转） |
-| `s3://<bucket>/english-review/monthly/<yyyy-mm-dd>.db` | 月度长期快照 | 12 个月（按月初边界轮转） |
-| `<数据库目录>/snapshots/` | 本地临时快照 | 上传成功后立即删除；未配置 S3_BUCKET 时保留 `latest-daily.db` / `latest-monthly.db` 各一份 |
+| S3 模式（设置了 `S3_BUCKET`） | `s3://<bucket>/english-review/daily/<yyyy-mm-dd>.db` | 30 天（备份 job 轮转） |
+| S3 模式 | `s3://<bucket>/english-review/monthly/<yyyy-mm>.db` | 12 个月（按月初边界轮转）；本地仅临时文件，上传后即删 |
+| **本地模式（默认，无 S3_BUCKET）** | `<数据库目录>/snapshots/daily-<yyyy-mm-dd>.db` | 30 天（按文件名日期轮转） |
+| 本地模式 | `<数据库目录>/snapshots/monthly-<yyyy-mm>.db` | 12 个月 |
+| 恢复前快照 | `<数据库目录>/snapshots/backup-before-restore-<ts>.db` | 手动清理 |
+
+> 无 S3 也完全可用：本地轮转防软件级灾难；建议偶尔在 PC 上「导出完整备份」保存到自己电脑作为异地副本。
 
 ### 验证备份真的在工作
 

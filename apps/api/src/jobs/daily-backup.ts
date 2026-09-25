@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdirSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
@@ -100,6 +100,49 @@ export async function rotateS3(
   return expired.length;
 }
 
+/**
+ * 本地轮转（无 S3 模式）：按文件名日期判定保留期（daily-<yyyy-mm-dd>.db /
+ * monthly-<yyyy-mm>.db），与 S3 轮转共用 objectsToRotate 的边界规则。
+ * 以文件名而非 mtime 判定，复制/移动文件不改变轮转结果；
+ * daily 以整日粒度比较（now 归一到当日 00:00），保留最近 30 个日期名。
+ */
+export function rotateLocalSnapshots(
+  snapshotsDir: string,
+  prefix: 'daily' | 'monthly',
+  policy: RotatePolicy,
+  now: Date,
+): number {
+  let names: string[];
+  try {
+    names = readdirSync(snapshotsDir).filter(
+      (n) => n.startsWith(`${prefix}-`) && n.endsWith('.db'),
+    );
+  } catch {
+    return 0;
+  }
+  const objects: S3ListingObject[] = [];
+  for (const name of names) {
+    const daily = new RegExp(`^${prefix}-(\\d{4})-(\\d{2})-(\\d{2})\\.db$`).exec(name);
+    const monthly = new RegExp(`^${prefix}-(\\d{4})-(\\d{2})\\.db$`).exec(name);
+    let lastModified: Date | null = null;
+    if (daily) {
+      lastModified = new Date(Date.UTC(Number(daily[1]), Number(daily[2]) - 1, Number(daily[3])));
+    } else if (monthly) {
+      lastModified = new Date(Date.UTC(Number(monthly[1]), Number(monthly[2]) - 1, 1));
+    }
+    if (lastModified) objects.push({ key: name, lastModified });
+  }
+  const dayNormalized =
+    policy === 'daily30'
+      ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+      : now;
+  const expired = objectsToRotate(objects, dayNormalized, policy);
+  for (const obj of expired) {
+    rmSync(join(snapshotsDir, obj.key), { force: true });
+  }
+  return expired.length;
+}
+
 // ---------- 备份入口 ----------
 
 export interface BackupConfig {
@@ -127,38 +170,29 @@ export interface BackupSummary {
 
 interface BackupKind {
   prefix: 'daily' | 'monthly';
-  localName: string;
   policy: RotatePolicy;
 }
 
 /**
  * 日备份（TECHNICAL_DESIGN §14）：
- * 快照到 data/snapshots/tmp-daily-<ts>.db → 有 S3_BUCKET 则上传
- * s3://<bucket>/english-review/daily/<yyyy-mm-dd>.db → 立即删除本地临时快照 →
- * 轮转删除 S3 超 30 天对象；无桶则快照落 data/snapshots/latest-daily.db
- * （覆盖式保留 1 份）并 console.warn，不视为失败。
+ * 快照 → 有 S3_BUCKET：上传 s3://<bucket>/english-review/daily/<yyyy-mm-dd>.db →
+ * 立即删除本地临时快照 → S3 轮转（30 天）；
+ * 无桶（本地模式）：快照落 snapshots/daily-<yyyy-mm-dd>.db（同日覆盖）→ 本地轮转
+ * 删除超 30 天者。两种模式轮转策略一致，磁盘占用有界（≤30 日份 + 12 月份）。
  */
 export async function runDailyBackup(
   config: BackupConfig,
   opts: BackupRunOptions = {},
 ): Promise<BackupSummary> {
-  return runBackup(
-    config,
-    { prefix: 'daily', localName: 'latest-daily.db', policy: 'daily30' },
-    opts,
-  );
+  return runBackup(config, { prefix: 'daily', policy: 'daily30' }, opts);
 }
 
-/** 月备份：prefix monthly/，按月比较保留最近 12 个月 */
+/** 月备份：S3 monthly/ 或本地 monthly-<yyyy-mm>.db，保留最近 12 个月 */
 export async function runMonthlyBackup(
   config: BackupConfig,
   opts: BackupRunOptions = {},
 ): Promise<BackupSummary> {
-  return runBackup(
-    config,
-    { prefix: 'monthly', localName: 'latest-monthly.db', policy: 'monthly12' },
-    opts,
-  );
+  return runBackup(config, { prefix: 'monthly', policy: 'monthly12' }, opts);
 }
 
 async function runBackup(
@@ -184,10 +218,15 @@ async function runBackup(
       );
       return { uploaded: true, target: url, rotated };
     }
-    const localPath = join(config.snapshotsDir, kind.localName);
+    // 本地模式：按日/月命名（同日重跑覆盖），随后本地轮转
+    const nameKey = kind.prefix === 'daily' ? utcDateKey(now) : `${utcDateKey(now).slice(0, 7)}`;
+    const localPath = join(config.snapshotsDir, `${kind.prefix}-${nameKey}.db`);
     renameSync(tmpPath, localPath);
-    console.warn(`[backup] 未配置 S3_BUCKET，${kind.prefix} 快照仅保留本地一份：${localPath}`);
-    return { uploaded: false, target: localPath, rotated: 0 };
+    const rotated = rotateLocalSnapshots(config.snapshotsDir, kind.prefix, kind.policy, now);
+    console.warn(
+      `[backup] 未配置 S3_BUCKET，${kind.prefix} 快照本地保留（清理超期 ${rotated} 份）：${localPath}`,
+    );
+    return { uploaded: false, target: localPath, rotated };
   } finally {
     // 上传后立即删除本地临时快照；失败/异常路径也清理残留（rename 后 tmp 已不存在）
     rmSync(tmpPath, { force: true });

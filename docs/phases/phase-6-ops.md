@@ -60,17 +60,18 @@
 - 清理边界统一闭区间（`<= now-Nd`）；S3 轮转严格早于（30 天整保留）；双向边界有测试。
 - 热力图 ≥20 档色阶用 `bg-accent opacity-80`（token 约束下）；图例四档。
 - PWA 不设 navigateFallback（仅 precache 静态资产），/api 永不经 SW。
-- 无 S3_BUCKET 时备份降级本地单份 + warn（timer 不持续报错）。
+- **备份双模式（2026-09-25 用户确认无 S3）**：设置 `S3_BUCKET` = S3 异地容灾（30 天/12 个月 S3 轮转，本地临时即删）；**默认本地模式** = `snapshots/daily-<日期>.db`（30 天）+ `monthly-<年月>.db`（12 个月），按**文件名日期**整日粒度轮转（与 mtime 无关，30 天整保留、31 天删）。无 S3 完整可用；异地容灾由 PC 手动导出完整备份补足。
 - stats 口径：items/words/chunks 含 archived（备份完整性优先），页面加注脚说明。
 
 ## 遗留问题（上线待办，需用户输入）
 
 1. **域名 + DNS** → certbot 签发 → 启用 nginx 443 段（deploy/README.md 步骤）。
-2. **S3 桶名**（`S3_BUCKET`）→ 日/月备份与轮转自动生效。
-3. 生产 `/etc/english-learning/env`（强 SESSION_SECRET、AUTH_PASSWORD 或 scrypt HASH、GLM_API_KEY）。
+2. 生产 `/etc/english-learning/env`（强 SESSION_SECRET、AUTH_PASSWORD 或 scrypt HASH、GLM_API_KEY）。
+3. （可选）S3 桶名或任何 S3 兼容存储 → 自动切到异地容灾模式；不设置则本地轮转。
 4. 真机（手机 PWA）跨设备续接 smoke。
 5. snapshots/ 目录的历史快照积累由 monthly-maintenance 顺带清理的策略，真实使用后再定。
 
 ## 变更日志
 
 - 2026-09-25：三子 agent 并行交付（stats/备份 18 测试、jobs/部署 31 测试、前端 32 测试 + PWA）；集成全量门禁：api 391 + web 132 用例、E2E 14/14、真实 Eval 7 任务 20/20、PWA 构建产物确认。
+- 2026-09-25：备份升级为双模式——无 S3 时本地按日/月命名 + 30 天/12 个月轮转（文件名日期整日判定，30 天整保留）；实跑演示通过；TECHNICAL §14 / deploy README / .env.example 同步（S3 变为可选）。

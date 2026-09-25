@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -199,21 +199,28 @@ describe('runDailyBackup', () => {
     expect(readdirSync(snapshotsDir)).toEqual([]);
   });
 
-  it('无桶：快照落到本地 latest-daily.db（覆盖式），console.warn 但不抛错', async () => {
+  it('无桶（本地模式）：按日命名 + 30 天本地轮转（31 天前清理、30 天整保留）', async () => {
     const src = makeSourceDb();
     const snapshotsDir = join(tmpRoot, 'snap-local');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+    // 预置历史快照：31 天前（应清理）、30 天整（应保留）
+    mkdirSync(snapshotsDir, { recursive: true });
+    writeFileSync(join(snapshotsDir, 'daily-2026-08-25.db'), 'old-31d');
+    writeFileSync(join(snapshotsDir, 'daily-2026-08-26.db'), 'old-30d');
+
     const summary = await runDailyBackup(
       { databasePath: src, snapshotsDir, s3Bucket: '' },
-      { now: NOW },
+      { now: NOW }, // 2026-09-25
     );
 
-    const localPath = join(snapshotsDir, 'latest-daily.db');
-    expect(summary).toEqual({ uploaded: false, target: localPath, rotated: 0 });
+    const localPath = join(snapshotsDir, 'daily-2026-09-25.db');
+    expect(summary).toEqual({ uploaded: false, target: localPath, rotated: 1 });
     expect(warn).toHaveBeenCalledTimes(1);
-    const files = readdirSync(snapshotsDir);
-    expect(files).toEqual(['latest-daily.db']);
+    expect(readdirSync(snapshotsDir).sort()).toEqual([
+      'daily-2026-08-26.db',
+      'daily-2026-09-25.db',
+    ]);
     const check = new Database(localPath);
     try {
       const count = check.prepare('select count(*) as n from learning_items').get() as {
@@ -223,28 +230,22 @@ describe('runDailyBackup', () => {
     } finally {
       check.close();
     }
-
-    // 覆盖式：再跑一次仍是同一份文件
-    const src2 = makeSourceDb('source2.db');
-    await runDailyBackup(
-      { databasePath: src2, snapshotsDir, s3Bucket: '' },
-      { now: new Date(NOW.getTime() + DAY) },
-    );
-    expect(readdirSync(snapshotsDir)).toEqual(['latest-daily.db']);
   });
 
-  it('覆盖式本地保留：同日重复执行无残留临时文件', async () => {
+  it('本地模式：同日重复执行覆盖同名快照、无临时残留；无历史文件时 rotated=0', async () => {
     const src = makeSourceDb();
     const snapshotsDir = join(tmpRoot, 'snap-idem');
-    await runDailyBackup(
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const first = await runDailyBackup(
       { databasePath: src, snapshotsDir, s3Bucket: '' },
-      { now: NOW, runAws: fakeAws().run },
+      { now: NOW },
     );
+    expect(first.rotated).toBe(0);
     await runDailyBackup(
-      { databasePath: src, snapshotsDir, s3Bucket: '' },
-      { now: NOW, runAws: fakeAws().run },
+      { databasePath: makeSourceDb('source2.db'), snapshotsDir, s3Bucket: '' },
+      { now: NOW },
     );
-    expect(readdirSync(snapshotsDir)).toEqual(['latest-daily.db']);
+    expect(readdirSync(snapshotsDir)).toEqual(['daily-2026-09-25.db']);
   });
 });
 

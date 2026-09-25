@@ -13,7 +13,7 @@
 | 5 | Read | 阅读生成、检查题、needs_reinforcement 闭环 | done（2026-09-25） | [phase-5-read.md](phases/phase-5-read.md) |
 | 6 | 统计/备份/部署 | Stats+热力图、备份恢复、清理任务、Nginx/systemd/S3、PWA | done（2026-09-25，部署待域名/桶名） | [phase-6-ops.md](phases/phase-6-ops.md) |
 
-> **V1.2 六个阶段全部完成（2026-09-25）**。上线三待办（用户输入）：域名+certbot、S3 桶名、生产 env——见 phase-6 留档"遗留问题"。
+> **V1.2 六个阶段全部完成（2026-09-25）**。上线待办（用户输入）：域名+certbot、生产 env（S3 可选，无 S3 走本地轮转备份）——见 phase-6 留档"遗留问题"。
 
 状态取值：`planned / in-progress / done / blocked`。
 

@@ -1,12 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import type { AiModelsResponse, Settings } from '@el/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AiModelsResponse, Settings, UpdateSettingsRequest } from '@el/shared';
 import { api } from '../../lib/api';
+import { Select } from '../../components/ui/select';
 import { BackupSection } from './components/BackupSection';
-
-function fmtQuota(v: number): string {
-  return v === -1 ? '不限制' : `${v} 个/天`;
-}
 
 const SOURCE_LABEL: Record<AiModelsResponse['models']['flash']['source'], string> = {
   auto: '自动选择',
@@ -97,10 +95,32 @@ function AiModelsSection() {
   );
 }
 
+const QUOTA_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '5', label: '5 个/天' },
+  { value: '10', label: '10 个/天' },
+  { value: '15', label: '15 个/天' },
+  { value: '20', label: '20 个/天' },
+  { value: '-1', label: '不限制' },
+];
+
+const LEVEL_OPTIONS = ['A2', 'B1', 'B2', 'C1'] as const;
+
 export function SettingsPage() {
+  const qc = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api<Settings>('/api/settings'),
+  });
+  const [saved, setSaved] = useState(false);
+
+  const update = useMutation({
+    mutationFn: (patch: UpdateSettingsRequest) =>
+      api<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+    onSuccess: (next) => {
+      qc.setQueryData(['settings'], next);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    },
   });
 
   return (
@@ -110,18 +130,48 @@ export function SettingsPage() {
         {isLoading && <p className="text-sm text-muted-foreground">加载中…</p>}
         {isError && <p className="text-sm text-destructive">读取失败，请刷新重试。</p>}
         {data && (
-          <dl className="space-y-3 text-sm">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <dt className="text-muted-foreground">每日新学习项上限</dt>
-              <dd>{fmtQuota(data.maxNewItemsPerDay)}</dd>
+          <div className="space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+              <span className="text-muted-foreground">每日新学习项上限</span>
+              <div className="flex items-center gap-2">
+                <Select
+                  aria-label="每日新学习项上限"
+                  value={String(data.maxNewItemsPerDay)}
+                  disabled={update.isPending}
+                  onChange={(e) =>
+                    update.mutate({ maxNewItemsPerDay: Number(e.target.value) })
+                  }
+                >
+                  {QUOTA_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <dt className="text-muted-foreground">内容难度</dt>
-              <dd>{data.contentLevel}</dd>
+            <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+              <span className="text-muted-foreground">内容难度</span>
+              <Select
+                aria-label="内容难度"
+                value={data.contentLevel}
+                disabled={update.isPending}
+                onChange={(e) => update.mutate({ contentLevel: e.target.value as Settings['contentLevel'] })}
+              >
+                {LEVEL_OPTIONS.map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </Select>
             </div>
-          </dl>
+            <p className="text-xs text-muted-foreground">
+              新学上限只限制每天从 New Queue 引入的新词；到期复习不受限制。
+              {update.isError && <span className="text-destructive"> 保存失败，请重试。</span>}
+              {saved && <span className="text-success"> 已保存</span>}
+            </p>
+          </div>
         )}
-        <p className="text-xs text-muted-foreground">设置编辑将在后续阶段提供。</p>
       </div>
 
       <AiModelsSection />

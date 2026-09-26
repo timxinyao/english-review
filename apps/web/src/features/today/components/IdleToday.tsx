@@ -1,6 +1,7 @@
 import type { TodayIdleResponse } from '@el/shared';
 import { Button } from '../../../components/ui/button';
 import { useStartSession } from '../api';
+import { StartSessionDialog } from './StartSessionDialog';
 
 export const RECENTLY_LEARNED_MAX = 5;
 
@@ -23,6 +24,13 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
           {start.isPending ? '正在开始…' : '开始今日复习'}
         </Button>
       </div>
+
+      <StartSessionDialog
+        pending={start.isPending}
+        errorMessage={start.isError ? ((start.error as Error | undefined)?.message ?? '请稍候重试') : null}
+        onRetry={() => start.mutate()}
+        onDismiss={() => start.reset()}
+      />
 
       {data.recentlyLearned.length > 0 && (
         <div className="space-y-1">

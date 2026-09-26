@@ -1,6 +1,7 @@
 import { useMemo, useState, type MouseEvent } from 'react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
+import { HighlightText } from './highlight-text';
 import { shuffled } from '../lib/questions';
 import type { QuestionAnswerResult } from './question-answer';
 
@@ -13,6 +14,8 @@ export interface ChoiceQuestionData {
 
 interface ChoiceQuestionCardProps {
   question: ChoiceQuestionData;
+  /** 学习项目标词，用于上下文高亮（可选：PracticeView 无此上下文时省略） */
+  target?: string;
   /** 冻结的作答结果（null = 尚未作答） */
   result: QuestionAnswerResult | null;
   pending: boolean;
@@ -28,6 +31,7 @@ interface ChoiceQuestionCardProps {
 /** 选择题渲染与作答交互（PRODUCT §7.1/§7.6）；Today 与 Library 练一下共用 */
 export function ChoiceQuestionCard({
   question,
+  target,
   result,
   pending,
   onSubmitOption,
@@ -66,7 +70,9 @@ export function ChoiceQuestionCard({
       onClick={phase === 'correct' ? onAdvance : undefined}
     >
       {question.context && (
-        <p className="text-sm italic text-muted-foreground">{question.context}</p>
+        <p className="text-sm italic text-muted-foreground">
+          <HighlightText text={question.context} target={target ?? ''} />
+        </p>
       )}
       <p className="text-base text-foreground">{question.question}</p>
 

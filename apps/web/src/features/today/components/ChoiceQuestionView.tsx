@@ -26,6 +26,7 @@ export function ChoiceQuestionView({ task, question, result, onAnswered, onAdvan
   return (
     <ChoiceQuestionCard
       question={question}
+      target={task.item.target}
       result={result}
       pending={answer.isPending}
       sourceExample={sourceExample}

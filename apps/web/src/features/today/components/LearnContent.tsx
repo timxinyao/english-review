@@ -3,6 +3,7 @@ import type { TodayTaskView } from '@el/shared';
 import { Eye, Volume2 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { speak } from '../../../lib/tts';
+import { HighlightText } from '../../../components/highlight-text';
 
 /**
  * 发音按钮：词/词块与例句共用（PRODUCT §12.1）。
@@ -75,7 +76,9 @@ export function LearnContent({ task, children }: { task: TodayTaskView; children
           <div className="border-l-2 border-border pl-3">
             <p className="mb-0.5 text-xs text-muted-foreground">原句</p>
             <div className="flex items-start gap-1">
-              <p className="text-base leading-relaxed text-foreground">{task.sourceExample}</p>
+              <p className="text-base leading-relaxed text-foreground">
+                <HighlightText text={task.sourceExample} target={item.target} />
+              </p>
               <SpeakButton text={task.sourceExample} className="-mt-1" />
             </div>
           </div>
@@ -83,7 +86,9 @@ export function LearnContent({ task, children }: { task: TodayTaskView; children
         {supplementary.map((example) => (
           <div key={example} className="border-l-2 border-accent/30 pl-3">
             <p className="mb-0.5 text-xs text-muted-foreground">补充例句</p>
-            <p className="text-lg leading-relaxed text-foreground">{example}</p>
+            <p className="text-lg leading-relaxed text-foreground">
+              <HighlightText text={example} target={item.target} />
+            </p>
           </div>
         ))}
       </div>

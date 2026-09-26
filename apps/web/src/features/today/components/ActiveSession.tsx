@@ -165,8 +165,48 @@ export function ActiveSession({
   const shownResult = reviewing ? reviewing.result : (frozen?.result ?? null);
   const isReviewMode = reviewing !== null && viewIndex !== null;
 
+  // 自定义滑动：左滑上一题，右滑下一题/返回当前
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  function onTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    if (t) touchStart.current = { x: t.clientX, y: t.clientY };
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    if (!touchStart.current) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - touchStart.current.x;
+    const dy = t.clientY - touchStart.current.y;
+    touchStart.current = null;
+
+    // 必须是水平主导且距离够长（避免误触和垂直滚动干扰）
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
+    if (dx < 0) {
+      // 左滑 → 上一题
+      if (viewIndex === null && history.length > 0) {
+        setViewIndex(history.length - 1);
+      } else if (viewIndex !== null && viewIndex > 0) {
+        setViewIndex(viewIndex - 1);
+      }
+    } else {
+      // 右滑 → 下一题 / 返回当前
+      if (viewIndex !== null) {
+        if (viewIndex < history.length - 1) {
+          setViewIndex(viewIndex + 1);
+        } else {
+          setViewIndex(null);
+        }
+      } else if (frozen?.result) {
+        onAdvance();
+      }
+    }
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       {/* 导航行：回看时显示返回，正常时显示上一题（有历史才显示） */}
       {isReviewMode ? (
         <button

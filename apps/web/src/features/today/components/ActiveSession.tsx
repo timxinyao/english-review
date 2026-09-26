@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
-import { Check, ChevronLeft, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { CORRECT_AUTO_ADVANCE_MS } from '../../../lib/questions';
 import { cn } from '../../../lib/utils';
 import { SwipeDeck } from './SwipeDeck';
@@ -283,17 +283,6 @@ export function ActiveSession({
 
   return (
     <SwipeDeck className="space-y-4" onSwipeLeft={handleSwipeLeft} onSwipeRight={handleSwipeRight}>
-      {reviewing ? (
-        <button
-          type="button"
-          className="flex items-center gap-1 text-xs text-muted-foreground"
-          onClick={() => setCursor(null)}
-        >
-          <ChevronLeft className="h-3 w-3" aria-hidden />
-          返回当前
-        </button>
-      ) : null}
-
       <ProgressRow
         progress={progress}
         entries={entries}

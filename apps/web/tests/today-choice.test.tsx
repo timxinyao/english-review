@@ -106,7 +106,7 @@ describe('Today 选择题任务卡', () => {
 
       // 2 秒内不切换
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1999);
+        await vi.advanceTimersByTimeAsync(3999);
       });
       expect(screen.getByText('"stable" 的意思是？')).toBeVisible();
 

@@ -186,6 +186,11 @@ export function ActiveSession({
   const [hold, setHold] = useState(false);
   /** 已武装过自动跳题的作答：一次作答最多武装一次，中途离开/按住后不再重置 */
   const armedRef = useRef<FrozenAnswer | null>(null);
+  // StrictMode 双 effect 会吞掉首次武装（run1 武装→cleanup→run2 命中 armedRef 早退）；
+  // 卸载时重置，让重挂载周期可重新武装。不得并入带 deps 的 effect（hold 切换的 cleanup 会破坏单次武装）。
+  useEffect(() => () => {
+    armedRef.current = null;
+  }, []);
   const later = useLater();
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? null;
@@ -214,6 +219,7 @@ export function ActiveSession({
     [onAnswered],
   );
 
+  // 不变量：onAdvance 必须身份稳定（TodayPage 用 useCallback([]) 包裹）——否则 cleanup 清 timer 后 armedRef 会阻止再武装
   // 答对自动下一题：仅作答瞬间武装一次；回看/按住中断后返回当前不重新武装
   useEffect(() => {
     if (cursor !== null) return;

@@ -51,6 +51,16 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance, onHold
         )}
       </div>
 
+      {/* 回看/已答：顶部显示考的单词（learn 卡已有词行，不重复） */}
+      {(result !== null || readOnly) && task.taskType !== 'learn' && (
+        <div className="mb-3 flex items-baseline gap-2 pr-12">
+          <h3 className="text-lg font-semibold text-foreground">{task.item.target}</h3>
+          {task.item.type === 'word' && task.item.ipa !== null && (
+            <span className="text-sm text-muted-foreground">{task.item.ipa}</span>
+          )}
+        </div>
+      )}
+
       {/* Learn 卡：两阶段交互——释义模糊 → 点击展开 → 题目出现 */}
       {task.taskType === 'learn' ? (
         <LearnContent task={task}>

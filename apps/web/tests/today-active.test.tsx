@@ -55,36 +55,10 @@ describe('Today 任务卡：learn 卡 / 稍后再做 / 坏题', () => {
     ).toBeVisible();
   });
 
-  it('稍后再做：POST later 并 invalidate/refetch today', async () => {
-    const nextCard = makeChoiceTask({
-      taskId: 'task-2',
-      question: {
-        questionId: 'q-2',
-        kind: 'direct_meaning',
-        context: null,
-        question: '"make sense" 的意思是？',
-        options: [
-          { id: 'm1', text: '讲得通' },
-          { id: 'm2', text: '毫无意义' },
-        ],
-      },
-    });
-    const statusQueue = [makeActive(makeChoiceTask(), { completed: 0, total: 4 })];
-    stubApi({
-      '/api/today': () => statusQueue.shift() ?? makeActive(nextCard, { completed: 0, total: 4 }),
-      '/api/today/tasks/task-1/later': { ok: true, progress: { completed: 0, total: 4 } },
-    });
+  it('稍后再做按钮已移除（右滑替代）', async () => {
     renderTodayApp();
-
-    fireEvent.click(await screen.findByRole('button', { name: '稍后再做' }));
-
-    await waitFor(() => {
-      expect(apiCalls('/api/today/tasks/task-1/later')).toHaveLength(1);
-    });
-    const laterCalls = apiCalls('/api/today/tasks/task-1/later');
-    expect(laterCalls[0].init).toMatchObject({ method: 'POST' });
-    expect(await screen.findByText('"make sense" 的意思是？')).toBeVisible();
-    expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
+    await screen.findByRole('heading', { name: 'gravity' });
+    expect(screen.queryByRole('button', { name: '稍后再做' })).not.toBeInTheDocument();
   });
 
   it('坏题：confirm 流程后 POST bad-question、撤销并刷新', async () => {

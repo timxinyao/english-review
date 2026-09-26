@@ -4,6 +4,7 @@ import { Check, ChevronLeft, X } from 'lucide-react';
 import { CORRECT_AUTO_ADVANCE_MS } from '../../../lib/questions';
 import { cn } from '../../../lib/utils';
 import { TaskCard } from './TaskCard';
+import { useLater } from '../api';
 
 export { CORRECT_AUTO_ADVANCE_MS };
 
@@ -130,6 +131,7 @@ export function ActiveSession({
   onAdvance,
 }: ActiveSessionProps) {
   const [hold, setHold] = useState(false);
+  const later = useLater();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   /** -1 = 最后一个历史，-2 = 倒数第二个…；null = 当前任务 */
   const [viewIndex, setViewIndex] = useState<number | null>(null);
@@ -201,6 +203,9 @@ export function ActiveSession({
         }
       } else if (frozen?.result) {
         onAdvance();
+      } else if (nextTask) {
+        // 未答题右滑 = 稍后再做（推到队尾，refetch 拿到下一题）
+        later.mutate(nextTask.taskId);
       }
     }
   }
@@ -217,20 +222,7 @@ export function ActiveSession({
           <ChevronLeft className="h-3 w-3" aria-hidden />
           返回当前
         </button>
-      ) : (
-        history.length > 0 &&
-        !frozen && (
-          <button
-            type="button"
-            className="flex items-center gap-1 text-xs text-muted-foreground"
-            onClick={() => setViewIndex(history.length - 1)}
-            aria-label="上一题"
-          >
-            <ChevronLeft className="h-3 w-3" aria-hidden />
-            上一题
-          </button>
-        )
-      )}
+      ) : null}
 
       {progress && (
         <ProgressRow

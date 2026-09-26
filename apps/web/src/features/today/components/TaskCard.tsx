@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import type { AnswerResponse, TodayTaskView } from '@el/shared';
-import { Clock, ThumbsDown } from 'lucide-react';
+import { ThumbsDown } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
-import { useBadQuestion, useLater } from '../api';
+import { useBadQuestion } from '../api';
 import { ChoiceQuestionView } from './ChoiceQuestionView';
 import { ClozeQuestionView } from './ClozeQuestionView';
 import { LearnContent } from './LearnContent';
@@ -22,7 +22,6 @@ interface Props {
 
 /** 单张任务卡：learn 内容 + 按题型渲染题目；右上操作（稍后再做 / 坏题） */
 export function TaskCard({ task, result, readOnly, onAnswered, onAdvance, onHoldChange }: Props) {
-  const later = useLater();
   const badQuestion = useBadQuestion();
   const [confirmBad, setConfirmBad] = useState(false);
 
@@ -37,19 +36,6 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance, onHold
     <article className="relative rounded-xl border border-border bg-card p-5 pt-4">
       {/* 右上角操作：绝对定位，与词行同高（LearnContent 词行 pr-12 让位） */}
       <div className="absolute right-3 top-3 z-10">
-        {!result && !readOnly && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground"
-            aria-label="稍后再做"
-            title="稍后再做"
-            disabled={later.isPending}
-            onClick={() => later.mutate(task.taskId)}
-          >
-            <Clock className="h-4 w-4" aria-hidden />
-          </Button>
-        )}
         {result && (
           <Button
             variant="ghost"

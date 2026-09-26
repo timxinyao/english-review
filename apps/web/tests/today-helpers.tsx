@@ -195,6 +195,7 @@ export function makeActive(
     session: { id: 'session-1', sessionDate: '2026-09-24' },
     progress,
     currentTask,
+    sessionTasks: [],
   };
 }
 

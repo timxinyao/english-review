@@ -56,7 +56,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(screen.queryByRole('button', { name: '查看原句' })).not.toBeInTheDocument();
     expect(screen.queryByText('其实是蒙的')).not.toBeInTheDocument();
     expect(screen.queryByText('太简单了')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '稍后再做' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '稍后再做' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
     await waitFor(() => {

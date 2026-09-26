@@ -115,17 +115,17 @@ export function ChoiceQuestionCard({
         <div className="space-y-3">
           <p className="text-sm text-success">回答正确</p>
           {onFeedback && (
-            <div className="flex gap-4">
+            <div className="flex gap-2 pt-1">
               <button
                 type="button"
-                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors active:bg-muted"
                 onClick={(e) => sendFeedback('guessed', e)}
               >
-                其实我蒙的
+                其实是蒙的
               </button>
               <button
                 type="button"
-                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors active:bg-muted"
                 onClick={(e) => sendFeedback('too_easy', e)}
               >
                 太简单了

@@ -172,7 +172,7 @@ describe('Today 选择题任务卡', () => {
     expect(screen.getByText('The ladder feels stable.')).toBeVisible();
     // 反馈小按钮：答错后 too_easy 无意义应隐藏，蒙的保留
     expect(screen.queryByText('太简单了')).not.toBeInTheDocument();
-    expect(screen.getByText('其实我蒙的')).toBeVisible();
+    expect(screen.getByText('其实是蒙的')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
     expect(await screen.findByText('句中 stable 的意思是？')).toBeVisible();

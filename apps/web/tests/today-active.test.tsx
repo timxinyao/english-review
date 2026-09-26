@@ -37,9 +37,7 @@ describe('Today 任务卡：learn 卡 / 稍后再做 / 坏题', () => {
     expect(screen.getByText('/ˈɡrævəti/')).toBeVisible();
     // 阶段 1：释义模糊（点击展开前不可见为 <p>）
     expect(screen.getByRole('button', { name: '点击显示释义' })).toBeVisible();
-    expect(
-      document.querySelector('mark'),
-    ).toBeVisible();
+    expect(document.querySelector('mark')).toBeVisible();
     expect(screen.getByText(/fundamental force/)).toBeVisible();
     expect(screen.queryByText('Gravity keeps us grounded.')).not.toBeInTheDocument();
     expect(screen.getByText('补充例句')).toBeVisible();

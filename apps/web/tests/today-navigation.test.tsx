@@ -151,4 +151,90 @@ describe('Today 会话导航', () => {
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     await screen.findByText('第 3 / 4');
   });
+
+  it('冻结错配回归：答错后 refetch 落地仍显示原题反馈，坏题提交到原题 taskId', async () => {
+    // 作答后桩切换快照：t3 完成(fail)、currentTask=t4、entries 更新（模拟 invalidate refetch 落地）
+    let answered = false;
+    stubApi({
+      '/api/today': () =>
+        answered
+          ? makeActive(t4, { completed: 3, total: 4 })
+          : makeActive(t3, { completed: 2, total: 4 }),
+      '/api/today/tasks': () =>
+        answered
+          ? makeTasksResponse([
+              makeSessionEntry(t1, makeCorrectAnswer()),
+              makeSessionEntry(t2, makeWrongAnswer()),
+              makeSessionEntry(t3, makeWrongAnswer()),
+              makeSessionEntry(t4, null),
+            ])
+          : makeTasksResponse([
+              makeSessionEntry(t1, makeCorrectAnswer()),
+              makeSessionEntry(t2, makeWrongAnswer()),
+              makeSessionEntry(t3, null),
+              makeSessionEntry(t4, null),
+            ]),
+      '/api/today/tasks/task-3/answer': () => {
+        answered = true;
+        return makeWrongAnswer();
+      },
+      '/api/today/tasks/task-3/bad-question': { ok: true, progress: { completed: 3, total: 4 } },
+    });
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    fireEvent.click(screen.getByRole('button', { name: '摇晃的' }));
+    await screen.findByText('回答错误');
+    // 等 invalidate refetch 落地（t3 变为已完成段），反馈仍冻结在 t3 的题面上
+    await waitFor(() => expect(document.querySelectorAll('[data-seg="done"]')).toHaveLength(3));
+    expect(screen.getByRole('heading', { name: 'gamma' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'delta' })).toBeNull();
+    // 坏题必须 mutate 到冻结的旧题 task-3，而非 refetch 后的当前题 task-4
+    fireEvent.click(screen.getByRole('button', { name: '坏题' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确定' }));
+    await waitFor(() => {
+      expect(apiCalls('/api/today/tasks/task-3/bad-question')).toHaveLength(1);
+    });
+    expect(apiCalls('/api/today/tasks/task-4/bad-question')).toHaveLength(0);
+  });
+
+  it('回看到最前后继续左滑 → 停留 第 1 / 4（边界回弹）', async () => {
+    stubSession();
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
+    const withinDialog = within(screen.getByRole('dialog', { name: '任务列表' }));
+    fireEvent.click(withinDialog.getByRole('button', { name: /alpha/ }));
+    await screen.findByText('第 1 / 4');
+    swipeBy(-120);
+    await waitFor(() => expect(screen.getByText('第 1 / 4')).toBeVisible());
+  });
+
+  it('跳到最后一条后右滑越过末尾 → 回到当前题 第 3 / 4', async () => {
+    stubSession();
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
+    const withinDialog = within(screen.getByRole('dialog', { name: '任务列表' }));
+    fireEvent.click(withinDialog.getByRole('button', { name: /delta/ }));
+    await screen.findByText('第 4 / 4');
+    swipeBy(120);
+    await screen.findByText('第 3 / 4');
+  });
+
+  it('左滑回看跳过已撤销条目 → 落在 第 1 / 4', async () => {
+    stubApi({
+      '/api/today': makeActive(t3, { completed: 2, total: 4 }),
+      '/api/today/tasks': makeTasksResponse([
+        makeSessionEntry(t1, makeCorrectAnswer()),
+        makeSessionEntry(t2, makeWrongAnswer(), true), // t2 已撤销：回看路径跳过 2 号位
+        makeSessionEntry(t3, null),
+        makeSessionEntry(t4, null),
+      ]),
+    });
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    swipeBy(-120);
+    await screen.findByText('第 1 / 4');
+    expect(screen.getByRole('heading', { name: 'alpha' })).toBeVisible();
+  });
 });

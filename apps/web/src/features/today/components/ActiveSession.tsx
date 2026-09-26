@@ -224,12 +224,17 @@ export function ActiveSession({
   const shownIdx = cursor ?? currentIdx;
   const entry = entries && shownIdx !== null && shownIdx < entries.length ? entries[shownIdx]! : null;
   const isCurrent = cursor === null;
-  const shownTask = entry ? entry.task : (frozen?.task ?? currentTask);
+  // 当前题视图必须信任 props（frozen/currentTask）：答错/跳做后 invalidate refetch 落地时
+  // 批量 entries 已指向新的当前题，取 entry.task 会渲染"新题卡 + 旧题反馈"错配，
+  // 坏题等操作也会 mutate 到错误的 taskId
+  const shownTask = isCurrent
+    ? (frozen?.task ?? currentTask ?? entry?.task)
+    : (entry?.task ?? frozen?.task ?? currentTask);
   const shownResult = isCurrent ? (frozen?.result ?? null) : (entry?.result ?? null);
   // 跳做未完成任务 = 可作答；回看已完成 = 只读
   const reviewing = !isCurrent && (entry === null || entry.result !== null);
 
-  // 相邻导航（跳过撤销条目）；返回 false = 边界回弹
+  // 相邻导航（跳过撤销条目）；返回 false = 边界回弹；右向越过末尾 = 回到当前题
   const stepCursor = useCallback(
     (dir: -1 | 1): boolean => {
       if (!entries || entries.length === 0) return false;
@@ -237,7 +242,11 @@ export function ActiveSession({
       if (from === null) return false;
       let i = from + dir;
       while (i >= 0 && i < entries.length && entries[i]!.canceled) i += dir;
-      if (i < 0 || i >= entries.length) return false;
+      if (i < 0) return false;
+      if (i >= entries.length) {
+        setCursor(null);
+        return true;
+      }
       setCursor(i === currentIdx ? null : i);
       return true;
     },

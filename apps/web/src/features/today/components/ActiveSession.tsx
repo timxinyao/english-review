@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
 import { Check, X } from 'lucide-react';
 import { CORRECT_AUTO_ADVANCE_MS } from '../../../lib/questions';
@@ -89,80 +90,82 @@ function ProgressRow({
         )
       )}
 
-      {open && (
-        <div
-          role="dialog"
-          aria-label="任务列表"
-          className="fixed inset-0 z-40 flex items-end justify-center bg-foreground/20"
-          onClick={() => setOpen(false)}
-        >
+      {open &&
+        createPortal(
           <div
-            className="max-h-[60vh] w-full max-w-[420px] overflow-y-auto rounded-t-xl border-t border-border bg-card p-4 pb-8"
-            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="任务列表"
+            className="fixed inset-0 z-overlay flex items-end justify-center bg-foreground/20"
+            onClick={() => setOpen(false)}
           >
-            <p className="mb-3 text-sm font-medium">任务列表</p>
-            <ul className="space-y-1">
-              {entries?.map((e, i) => {
-                const isCurrent = i === currentIdx;
-                const status = e.canceled
-                  ? '已撤销'
-                  : e.result
-                    ? e.result.correct
-                      ? '对'
-                      : '错'
-                    : isCurrent
-                      ? '当前'
-                      : '未做';
-                return (
-                  <li key={e.task.taskId}>
-                    <button
-                      type="button"
-                      disabled={e.canceled}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm',
-                        isCurrent ? 'bg-accent-soft' : 'hover:bg-muted',
-                        e.canceled && 'opacity-50',
-                      )}
-                      onClick={() => {
-                        onJump(isCurrent ? null : i);
-                        setOpen(false);
-                      }}
-                    >
-                      <span className="flex items-baseline gap-2">
-                        <span className={cn('text-foreground', isCurrent && 'font-medium text-accent')}>
-                          {e.task.item.target}
-                        </span>
-                        <span className="text-xs text-muted-foreground/60">
-                          {TYPE_LABEL[e.task.taskType]}
-                        </span>
-                      </span>
-                      <span
+            <div
+              className="max-h-[60vh] w-full max-w-[420px] overflow-y-auto rounded-t-xl border-t border-border bg-card p-4 pb-8"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="mb-3 text-sm font-medium">任务列表</p>
+              <ul className="space-y-1">
+                {entries?.map((e, i) => {
+                  const isCurrent = i === currentIdx;
+                  const status = e.canceled
+                    ? '已撤销'
+                    : e.result
+                      ? e.result.correct
+                        ? '对'
+                        : '错'
+                      : isCurrent
+                        ? '当前'
+                        : '未做';
+                  return (
+                    <li key={e.task.taskId}>
+                      <button
+                        type="button"
+                        disabled={e.canceled}
                         className={cn(
-                          'flex items-center gap-1 text-xs',
-                          e.result?.correct
-                            ? 'text-success'
-                            : e.result
-                              ? 'text-destructive'
-                              : 'text-muted-foreground',
+                          'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm',
+                          isCurrent ? 'bg-accent-soft' : 'hover:bg-muted',
+                          e.canceled && 'opacity-50',
                         )}
+                        onClick={() => {
+                          onJump(isCurrent ? null : i);
+                          setOpen(false);
+                        }}
                       >
-                        {e.result ? (
-                          e.result.correct ? (
-                            <Check className="h-3 w-3" aria-hidden />
-                          ) : (
-                            <X className="h-3 w-3" aria-hidden />
-                          )
-                        ) : null}
-                        {status}
-                      </span>
-                    </button>
-                  </li>
-                );
-              }) ?? null}
-            </ul>
-          </div>
-        </div>
-      )}
+                        <span className="flex items-baseline gap-2">
+                          <span className={cn('text-foreground', isCurrent && 'font-medium text-accent')}>
+                            {e.task.item.target}
+                          </span>
+                          <span className="text-xs text-muted-foreground/60">
+                            {TYPE_LABEL[e.task.taskType]}
+                          </span>
+                        </span>
+                        <span
+                          className={cn(
+                            'flex items-center gap-1 text-xs',
+                            e.result?.correct
+                              ? 'text-success'
+                              : e.result
+                                ? 'text-destructive'
+                                : 'text-muted-foreground',
+                          )}
+                        >
+                          {e.result ? (
+                            e.result.correct ? (
+                              <Check className="h-3 w-3" aria-hidden />
+                            ) : (
+                              <X className="h-3 w-3" aria-hidden />
+                            )
+                          ) : null}
+                          {status}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                }) ?? null}
+              </ul>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -58,3 +58,10 @@ pnpm lint && pnpm typecheck && pnpm test
 
 - 核心域（review、today、questions、import-export、prompt registry）保持高覆盖，行为规则以测试固定。
 - 纯序列化/透传代码不追求覆盖率数字；不为覆盖率写无断言测试。
+
+## 层叠与弹层规则（z-index 令牌）
+
+- 令牌定义在 `apps/web/src/styles/globals.css` 的 `@theme inline`：`z-nav`(10) < `z-header`(20) < `z-overlay`(40) < `z-toast`(50)。
+- 业务容器禁止裸写 z-index。chrome（底部导航/顶栏）与弹层只用令牌类。
+- 新增任何弹层/浮层一律 `createPortal(... , document.body)` 渲染——脱离业务祖先的层叠上下文（perspective/transform 等会困住 z-index），再配 `z-overlay`/`z-toast`。
+- 卡片内部局部层叠（如角标）不受此规则约束。

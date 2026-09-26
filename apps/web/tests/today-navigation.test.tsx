@@ -239,4 +239,22 @@ describe('Today 会话导航', () => {
     fireEvent.click(screen.getByText('回答正确'));
     await screen.findByText('第 4 / 4');
   }, 20_000);
+
+  it('任务列表弹层 portal 到 body：脱离业务容器层叠上下文；点遮罩可关闭', async () => {
+    stubSession();
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
+    const dialog = screen.getByRole('dialog', { name: '任务列表' });
+    await waitFor(() => expect(dialog).toBeVisible());
+    // portal：弹层直接挂在 body 下，而非 ProgressRow 容器内
+    expect(dialog.parentElement).toBe(document.body);
+    // 面板内部点击不关闭：stopPropagation 拦截，不冒泡到遮罩
+    fireEvent.click(within(dialog).getByText('任务列表'));
+    expect(dialog).toBeVisible();
+    // 遮罩（弹层根节点本身）点击关闭。注：不能 fire 在 portal 容器 body 上——
+    // React 合成事件沿组件树派发，portal 容器自身无 fiber，body 上的原生 click 不会触发遮罩 onClick
+    fireEvent.click(dialog);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '任务列表' })).toBeNull());
+  });
 });

@@ -86,7 +86,7 @@ export function AppShell() {
 
       <div className="flex min-h-dvh flex-col pt-header-space md:pt-0">
         {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
-        <header className="fixed inset-x-0 top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
+        <header className="fixed inset-x-0 top-0 z-header flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
           <div className="flex min-w-0 items-center gap-2">
             <img src="/icon.svg" alt="Foxi" className="h-6 w-6 rounded-md" />
             <span className="text-sm font-semibold tracking-wide text-foreground">Foxi</span>
@@ -121,7 +121,7 @@ export function AppShell() {
         </main>
 
         {/* 手机底部导航：pb-safe 避开 iOS home 指示条（globals.css 定义的工具类） */}
-        <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-border bg-background pb-safe-tight md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-nav flex border-t border-border bg-background pb-safe-tight md:hidden">
           {MAIN_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={bottomLinkClass}>
               <Icon className="h-5 w-5" aria-hidden />

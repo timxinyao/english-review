@@ -24,6 +24,11 @@
   --color-diff-insert: var(--diff-insert);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 0.25rem);
+  /* 层叠令牌：nav < header < overlay < toast；弹层一律 portal 到 body 后使用 */
+  --z-index-nav: 10;
+  --z-index-header: 20;
+  --z-index-overlay: 40;
+  --z-index-toast: 50;
 }
 
 :root {

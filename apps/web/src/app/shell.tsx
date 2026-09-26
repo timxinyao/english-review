@@ -1,7 +1,8 @@
 import { BookOpen, Library, RotateCw, Settings, Sun } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { stopSpeaking } from '../lib/tts';
 import { useLogout } from '../features/auth/api';
 import { Button } from '../components/ui/button';
 
@@ -39,6 +40,11 @@ export function AppShell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [refreshed, setRefreshed] = useState(false);
+
+  // 路由切换时停止正在播放的发音
+  useEffect(() => {
+    stopSpeaking();
+  }, [pathname]);
 
   function onRefresh() {
     setRefreshed(true);

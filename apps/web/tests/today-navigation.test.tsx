@@ -35,7 +35,7 @@ function stubSession() {
 }
 
 function swipeBy(dx: number): void {
-  const el = document.querySelector('[data-swipe-deck]');
+  const el = document.querySelector('[data-swipe-area]');
   if (!(el instanceof HTMLElement)) throw new Error('deck 未渲染');
   fireEvent.touchStart(el, { touches: [{ clientX: 200, clientY: 300 }] });
   fireEvent.touchMove(el, { touches: [{ clientX: 200 + dx / 2, clientY: 300 }] });

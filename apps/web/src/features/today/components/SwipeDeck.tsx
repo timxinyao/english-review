@@ -3,21 +3,24 @@ import { useEffect, useRef, type ReactNode } from 'react';
 const THRESHOLD_PX = 60;
 /** 水平判定比例：|dx| 必须超过 |dy| 的 1.5 倍 */
 const H_RATIO = 1.5;
+/** 触摸起点命中交互元素时不接管手势（点击/输入/弹层归它们自己） */
+const IGNORE_SELECTOR = 'button, input, textarea, select, a, [role="dialog"], [data-no-swipe]';
 
 interface SwipeDeckProps {
   onSwipeLeft: () => boolean | void;
   onSwipeRight: () => boolean | void;
+  className?: string;
   children: ReactNode;
 }
 
 /**
- * 跟手 3D 翻页容器：水平滑动时卡片跟随手指位移 + 轻微 rotateY；
- * 松手超过阈值翻页（先滑出再换内容、新卡从对侧滑入），否则回弹。
- * handler 返回 false = 边界，直接回弹不翻页。
+ * 页面级滑动翻页容器：手势监听在整个会话区块（进度行+卡片+留白），
+ * 跟手 translateX/rotateY 位移只作用于内部 [data-swipe-card] 目标。
+ * 松手超过阈值翻页（旧卡滑出、新卡对侧滑入），否则回弹；handler 返回 false = 边界回弹。
  * prefers-reduced-motion 时跳过所有动画，仅保留手势判定。
  */
-export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProps) {
-  const cardRef = useRef<HTMLDivElement>(null);
+export function SwipeDeck({ onSwipeLeft, onSwipeRight, className, children }: SwipeDeckProps) {
+  const areaRef = useRef<HTMLDivElement>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
   /** 翻页滑出动画的 setTimeout id；新手势/卸载时取消，避免旧回调打断新一轮动画 */
@@ -38,7 +41,7 @@ export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProp
   useEffect(() => () => clearSlideTimer(), []);
 
   function setTransform(dx: number, animated: boolean, ms = 200) {
-    const el = cardRef.current;
+    const el = areaRef.current?.querySelector<HTMLElement>('[data-swipe-card]');
     if (!el) return;
     el.style.transition = animated ? `transform ${ms}ms ease-out` : 'none';
     el.style.transform = dx === 0 ? '' : `translateX(${dx}px) rotateY(${dx * 0.06}deg)`;
@@ -48,6 +51,10 @@ export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProp
     const t = e.touches[0];
     if (!t) return;
     clearSlideTimer();
+    if ((e.target as Element).closest?.(IGNORE_SELECTOR)) {
+      start.current = null; // 交互元素：不接管
+      return;
+    }
     start.current = { x: t.clientX, y: t.clientY };
     dragging.current = false;
     if (!reducedMotion) setTransform(0, false);
@@ -105,18 +112,18 @@ export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProp
   }
 
   return (
-    <div style={{ perspective: '1200px' }}>
-      <div
-        ref={cardRef}
-        data-swipe-deck
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchCancel}
-        style={{ willChange: 'transform', backfaceVisibility: 'hidden' }}
-      >
-        {children}
-      </div>
+    <div
+      ref={areaRef}
+      data-swipe-area
+      className={className}
+      /* pan-y：横向手势留给组件，纵向滚动归浏览器 */
+      style={{ touchAction: 'pan-y', perspective: '1200px' }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchCancel}
+    >
+      {children}
     </div>
   );
 }

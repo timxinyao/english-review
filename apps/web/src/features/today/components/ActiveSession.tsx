@@ -282,7 +282,7 @@ export function ActiveSession({
   }, [handleSwipeLeft, handleSwipeRight]);
 
   return (
-    <div className="space-y-4">
+    <SwipeDeck className="space-y-4" onSwipeLeft={handleSwipeLeft} onSwipeRight={handleSwipeRight}>
       {reviewing ? (
         <button
           type="button"
@@ -302,7 +302,7 @@ export function ActiveSession({
         onJump={(i) => setCursor(i)}
       />
 
-      <SwipeDeck onSwipeLeft={handleSwipeLeft} onSwipeRight={handleSwipeRight}>
+      <div data-swipe-card style={{ willChange: 'transform', backfaceVisibility: 'hidden' }}>
         {shownTask ? (
           <TaskCard
             key={shownTask.taskId}
@@ -316,7 +316,7 @@ export function ActiveSession({
         ) : (
           <p className="py-16 text-center text-sm text-muted-foreground">正在加载下一题…</p>
         )}
-      </SwipeDeck>
-    </div>
+      </div>
+    </SwipeDeck>
   );
 }

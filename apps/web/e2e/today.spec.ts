@@ -35,6 +35,41 @@ async function continueAfterCorrect(page: Page) {
   }
 }
 
+/** 在页面坐标 (x, y) 以真实 TouchEvent 序列横向滑 dx 像素（冒泡到 React 根） */
+async function touchSwipe(page: Page, x: number, y: number, dx: number) {
+  await page.evaluate(
+    ([sx, sy, d]) => {
+      const target = document.elementFromPoint(sx, sy);
+      if (!target) throw new Error('elementFromPoint 命中为空');
+      const mk = (type: string, cx: number) => {
+        const t = new Touch({
+          identifier: 1,
+          target,
+          clientX: cx,
+          clientY: sy,
+          radiusX: 1,
+          radiusY: 1,
+          rotationAngle: 0,
+          force: 1,
+        });
+        target.dispatchEvent(
+          new TouchEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            touches: type === 'touchend' ? [] : [t],
+            targetTouches: type === 'touchend' ? [] : [t],
+            changedTouches: [t],
+          }),
+        );
+      };
+      mk('touchstart', sx);
+      mk('touchmove', sx + d / 2);
+      mk('touchend', sx + d);
+    },
+    [x, y, dx],
+  );
+}
+
 test.describe('Today 复习全流程', () => {
   test('idle → 开始 → Learn + 选择/填空/稍后/答错 → 完成摘要', async ({ page }) => {
     test.setTimeout(120_000);
@@ -191,5 +226,34 @@ test.describe('Today 复习全流程', () => {
     await page.getByRole('button', { name: '稳定的' }).click();
     await expect(page.getByText('回答正确')).toBeVisible();
     await continueAfterCorrect(page);
+  });
+
+  test('手势：卡片外区域起滑可翻页；按钮起滑不翻页', async ({ page }) => {
+    test.setTimeout(90_000);
+    await login(page);
+    await resetSeedData(page);
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+
+    // 首卡 give up 表达题：提交通过 → 手动下一题，当前推进到第 2/6（make sense）
+    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+    await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+    await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '下一题' }).click();
+    await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
+
+    // 卡片正上方间隙（进度行与卡片之间的 space-y-4 留白）起左滑 → 回看上一题
+    const card = (await page.locator('[data-swipe-card]').boundingBox())!;
+    await touchSwipe(page, card.x + card.width / 2, card.y - 8, -160);
+    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
+
+    // "查看任务列表"按钮中心起滑 → 手势被防护忽略，仍停留第 1
+    const listBtn = (await page.getByRole('button', { name: '查看任务列表' }).boundingBox())!;
+    await touchSwipe(page, listBtn.x + listBtn.width / 2, listBtn.y + listBtn.height / 2, 160);
+    await page.waitForTimeout(300);
+    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
+    await expect(page.getByRole('dialog', { name: '任务列表' })).toBeHidden();
   });
 });

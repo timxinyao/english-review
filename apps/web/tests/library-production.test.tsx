@@ -164,7 +164,7 @@ describe('Library 练一下（PRODUCT §4.4：不改正式进度）', () => {
     expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
   });
 
-  it('答选择题：提交 option id；答对点击任意处继续到表达题', async () => {
+  it('答选择题：提交 option id；答对点"下一题"按钮继续到表达题', async () => {
     renderDetailWithPractice();
 
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
@@ -178,7 +178,7 @@ describe('Library 练一下（PRODUCT §4.4：不改正式进度）', () => {
     });
     expect(await screen.findByText('回答正确')).toBeVisible();
 
-    fireEvent.click(screen.getByText('回答正确'));
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
     expect(await screen.findByText('他决定戒烟。')).toBeVisible();
     expect(screen.getByText('2 / 3')).toBeVisible();
   });
@@ -212,7 +212,7 @@ describe('Library 练一下（PRODUCT §4.4：不改正式进度）', () => {
     // 第 1 题：选择
     fireEvent.click(await screen.findByRole('button', { name: '放弃' }));
     await screen.findByText('回答正确');
-    fireEvent.click(screen.getByText('回答正确'));
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
 
     // 第 2 题：表达
     await screen.findByLabelText('表达答案');

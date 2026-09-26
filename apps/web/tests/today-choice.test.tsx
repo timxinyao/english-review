@@ -84,7 +84,7 @@ describe('Today 选择题任务卡', () => {
     expect(jsonBodyOf(answerCalls[0])).toEqual({ selectedOptionId: 'o2' });
   });
 
-  it('答对：轻量反馈后 2 秒自动下一题（fake timers）', async () => {
+  it('答对：不自动跳题，点"下一题"按钮推进（与答错统一）', async () => {
     vi.useFakeTimers();
     try {
       const statusQueue = [makeActive(makeChoiceTask())];
@@ -104,14 +104,17 @@ describe('Today 选择题任务卡', () => {
       });
       expect(screen.getByText('回答正确')).toBeVisible();
 
-      // 2 秒内不切换
+      // 越过原 4s 自动跳题窗口：仍停留本题反馈
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(3999);
+        await vi.advanceTimersByTimeAsync(5000);
       });
-      expect(screen.getByText('"stable" 的意思是？')).toBeVisible();
+      expect(screen.getByText('回答正确')).toBeVisible();
+      expect(screen.queryByText('句中 stable 的意思是？')).toBeNull();
 
+      // 统一手动"下一题"按钮推进
+      fireEvent.click(screen.getByRole('button', { name: '下一题' }));
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(0);
       });
       expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
       expect(screen.getByText('句中 stable 的意思是？')).toBeVisible();
@@ -120,7 +123,7 @@ describe('Today 选择题任务卡', () => {
     }
   });
 
-  it('答对后点击任意处立即继续（无需等待 2 秒）', async () => {
+  it('答对后点"下一题"按钮立即继续', async () => {
     vi.useFakeTimers();
     try {
       const statusQueue = [makeActive(makeChoiceTask())];
@@ -139,8 +142,8 @@ describe('Today 选择题任务卡', () => {
         await vi.advanceTimersByTimeAsync(0);
       });
 
-      // 时间停在 0ms，仅靠点击推进
-      fireEvent.click(screen.getByText('回答正确'));
+      // 时间停在 0ms，仅靠"下一题"按钮推进
+      fireEvent.click(screen.getByRole('button', { name: '下一题' }));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });

@@ -4,7 +4,6 @@ import { ChoiceQuestionCard } from '../../components/choice-question-card';
 import { ClozeQuestionCard } from '../../components/cloze-question-card';
 import { ProductionQuestionCard } from '../../components/production-question-card';
 import { Button } from '../../components/ui/button';
-import { CORRECT_AUTO_ADVANCE_MS } from '../../lib/questions';
 import { usePractice, usePracticeAnswer } from './api';
 
 interface PracticeViewProps {
@@ -39,13 +38,6 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
     setResult(null);
     setIndex((i) => i + 1);
   }, []);
-
-  // 选择题答对：约 2 秒自动下一题/点击任意处继续（与 Today 一致）；填空/表达手动
-  useEffect(() => {
-    if (!result?.correct || current?.qtype !== 'choice') return;
-    const timer = setTimeout(advance, CORRECT_AUTO_ADVANCE_MS);
-    return () => clearTimeout(timer);
-  }, [result, current, advance]);
 
   function submit(body: PracticeAnswerRequest) {
     if (!current) return;

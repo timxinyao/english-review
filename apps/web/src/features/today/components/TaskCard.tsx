@@ -16,12 +16,10 @@ interface Props {
   readOnly?: boolean;
   onAnswered?: (result: AnswerResponse) => void;
   onAdvance?: () => void;
-  /** 打开/关闭确认框时暂停”答对 2 秒自动下一题” */
-  onHoldChange?: (hold: boolean) => void;
 }
 
 /** 单张任务卡：learn 内容 + 按题型渲染题目；右上操作（稍后再做 / 坏题） */
-export function TaskCard({ task, result, readOnly, onAnswered, onAdvance, onHoldChange }: Props) {
+export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Props) {
   const badQuestion = useBadQuestion();
   const [confirmBad, setConfirmBad] = useState(false);
 
@@ -29,7 +27,6 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance, onHold
 
   function closeBadConfirm() {
     setConfirmBad(false);
-    onHoldChange?.(false);
   }
 
   return (
@@ -40,10 +37,7 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance, onHold
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => {
-              setConfirmBad(true);
-              onHoldChange?.(true);
-            }}
+            onClick={() => setConfirmBad(true)}
           >
             <ThumbsDown className="h-3.5 w-3.5" aria-hidden />
             坏题

@@ -24,15 +24,11 @@ async function resetSeedData(page: Page) {
   if (res !== 200) throw new Error(`reset 失败：${res}`);
 }
 
-/** 答对后：点击任意处立即继续；若 2 秒自动下一题已先行触发则忽略 */
+/** 答对/答错后：统一点"下一题"按钮推进（自动跳题已删除） */
 async function continueAfterCorrect(page: Page) {
   const feedback = page.getByText('回答正确');
   await expect(feedback).toBeVisible({ timeout: 5000 });
-  try {
-    await feedback.click({ timeout: 1200 });
-  } catch {
-    // 自动下一题已触发，无需点击
-  }
+  await page.getByRole('button', { name: '下一题' }).click();
 }
 
 test.describe('Phase 4：表达题批改与 Library 练一下', () => {
@@ -47,7 +43,8 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
     // idle 主卡片：种子 5 到期（含 give up）+ 新学额度
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
-    await expect(page.getByText(/^\d+ \/ \d+$/)).toBeVisible();
+    // active 态：批量 entries 落地前为 "1 / 6"，落地后为 "第 1 / 6"（两者都接受，避免竞态）
+    await expect(page.getByText(/^(第 )?\d+ \/ \d+$/)).toBeVisible();
 
     let productionDone = false;
     let completed = false;

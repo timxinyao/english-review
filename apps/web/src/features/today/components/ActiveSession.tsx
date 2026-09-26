@@ -1,18 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
 import { Check, X } from 'lucide-react';
-import { CORRECT_AUTO_ADVANCE_MS } from '../../../lib/questions';
 import { cn } from '../../../lib/utils';
 import { TaskCard } from './TaskCard';
 import { useSessionTasks } from '../api';
-
-export { CORRECT_AUTO_ADVANCE_MS };
-
-const MANUAL_ADVANCE_TYPES: ReadonlySet<TodayTaskView['taskType']> = new Set([
-  'cloze',
-  'production',
-]);
 
 const TYPE_LABEL: Record<TodayTaskView['taskType'], string> = {
   learn: 'learn',
@@ -185,20 +177,10 @@ export function ActiveSession({
   onAnswered,
   onAdvance,
 }: ActiveSessionProps) {
-  const [hold, setHold] = useState(false);
-  /** 已武装过自动跳题的作答：一次作答最多武装一次，中途离开/按住后不再重置 */
-  const armedRef = useRef<FrozenAnswer | null>(null);
-  // StrictMode 双 effect 会吞掉首次武装（run1 武装→cleanup→run2 命中 armedRef 早退）；
-  // 卸载时重置，让重挂载周期可重新武装。不得并入带 deps 的 effect（hold 切换的 cleanup 会破坏单次武装）。
-  useEffect(() => () => {
-    armedRef.current = null;
-  }, []);
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? null;
   /** null = 当前题；数字 = 回看/跳做条目索引 */
   const [cursor, setCursor] = useState<number | null>(null);
-
-  const handleHoldChange = useCallback((next: boolean) => setHold(next), []);
 
   // 当前题在会话序列中的索引（以 currentTask/frozen 的 taskId 定位；兜底第一个未完成）
   const currentIdx = useMemo(() => {
@@ -219,18 +201,6 @@ export function ActiveSession({
     },
     [onAnswered],
   );
-
-  // 不变量：onAdvance 必须身份稳定（TodayPage 用 useCallback([]) 包裹）——否则 cleanup 清 timer 后 armedRef 会阻止再武装
-  // 答对自动下一题：仅作答瞬间武装一次；回看/按住中断后返回当前不重新武装
-  useEffect(() => {
-    if (cursor !== null) return;
-    if (!frozen || !frozen.result.correct || MANUAL_ADVANCE_TYPES.has(frozen.task.taskType) || hold)
-      return;
-    if (armedRef.current === frozen) return;
-    armedRef.current = frozen;
-    const timer = setTimeout(onAdvance, CORRECT_AUTO_ADVANCE_MS);
-    return () => clearTimeout(timer);
-  }, [frozen, hold, onAdvance, cursor]);
 
   const shownIdx = cursor ?? currentIdx;
   const entry = entries && shownIdx !== null && shownIdx < entries.length ? entries[shownIdx]! : null;
@@ -263,7 +233,6 @@ export function ActiveSession({
           readOnly={reviewing}
           onAnswered={reviewing ? undefined : (result) => handleAnswered(shownTask, result)}
           onAdvance={reviewing ? undefined : onAdvance}
-          onHoldChange={reviewing ? undefined : handleHoldChange}
         />
       ) : (
         <p className="py-16 text-center text-sm text-muted-foreground">正在加载下一题…</p>

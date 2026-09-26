@@ -24,15 +24,11 @@ async function resetSeedData(page: Page) {
   if (res !== 200) throw new Error(`reset 失败：${res}`);
 }
 
-/** 答对后：点击任意处立即继续；若 2 秒自动下一题已先行触发则忽略 */
+/** 答对/答错后：统一点"下一题"按钮推进（自动跳题已删除） */
 async function continueAfterCorrect(page: Page) {
   const feedback = page.getByText('回答正确');
   await expect(feedback).toBeVisible({ timeout: 5000 });
-  try {
-    await feedback.click({ timeout: 1200 });
-  } catch {
-    // 自动下一题已触发，无需点击
-  }
+  await page.getByRole('button', { name: '下一题' }).click();
 }
 
 test.describe('Today 复习全流程', () => {
@@ -51,7 +47,7 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText(/^(第 )?\d+ \/ \d+$/)).toBeVisible();
 
     // 计划：gravity 学对；stable 答错一次看解释；wear down 答对；
-    // make sense 答对走自动下一题；raw 填空答对；give up 表达题答对（Phase 4 种子）；未知补强卡兜底处理。
+    // make sense 答对走"下一题"按钮；raw 填空答对；give up 表达题答对（Phase 4 种子）；未知补强卡兜底处理。
     let stableFailed = false;
     let completed = false;
 
@@ -110,7 +106,7 @@ test.describe('Today 复习全流程', () => {
         continue;
       }
 
-      // 5) make sense：答对，走自动下一题/点击继续
+      // 5) make sense：答对，走"下一题"按钮推进
       if (await page.getByRole('button', { name: '讲得通' }).isVisible()) {
         await page.getByRole('button', { name: '讲得通' }).click();
         await continueAfterCorrect(page);
@@ -185,45 +181,5 @@ test.describe('Today 复习全流程', () => {
     await page.getByRole('button', { name: '稳定的' }).click();
     await expect(page.getByText('回答正确')).toBeVisible();
     await continueAfterCorrect(page);
-  });
-
-  test('倒计时：答对后列表回看返回当前不自动跳题，点反馈进下一题', async ({ page }) => {
-    test.setTimeout(90_000);
-    await login(page);
-    await resetSeedData(page);
-    await page.goto('/today');
-    await page.getByRole('button', { name: '开始今日复习' }).click();
-
-    // 首卡 give up 表达题（手动推进型）通过 → 手动下一题到 make sense（第 2/6）
-    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
-    await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
-    await page.getByRole('button', { name: '提交' }).click();
-    await expect(page.getByText('通过', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '下一题' }).click();
-    await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
-
-    // make sense 答对（自动推进型）→ 立即列表回看 give up
-    await page.getByRole('button', { name: '讲得通' }).click();
-    await expect(page.getByText('回答正确')).toBeVisible();
-    await page.getByRole('button', { name: '查看任务列表' }).click();
-    const dialog = page.getByRole('dialog', { name: '任务列表' });
-    const giveUpEntry = dialog.getByRole('button', { name: /give up/ });
-    await expect(giveUpEntry).toContainText('对');
-    await giveUpEntry.click();
-    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
-
-    // 列表点"当前"项回当前（make sense 反馈仍冻结显示）
-    await page.getByRole('button', { name: '查看任务列表' }).click();
-    await dialog.getByRole('button', { name: /make sense/ }).click();
-    await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
-
-    // 超过 4s 自动跳题窗口：不得推进（旧代码会跳到 raw 填空）
-    await page.waitForTimeout(5000);
-    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
-
-    // 点反馈区手动进入下一题 raw 填空
-    await page.getByText('回答正确').click();
-    await expect(page.getByLabel('填空答案')).toBeVisible();
   });
 });

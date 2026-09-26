@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { HighlightText } from './highlight-text';
@@ -29,18 +29,6 @@ interface ChoiceQuestionCardProps {
 }
 
 /** 选择题渲染与作答交互（PRODUCT §7.1/§7.6）；Today 与 Library 练一下共用 */
-/** 答对后倒计时提示："下一题 · 3s" */
-function CountdownLabel() {
-  const [seconds, setSeconds] = useState(4);
-  useEffect(() => {
-    if (seconds <= 0) return;
-    const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [seconds]);
-  if (seconds <= 0) return null;
-  return <p className="text-center text-xs text-muted-foreground/60">下一题 · {seconds}s</p>;
-}
-
 export function ChoiceQuestionCard({
   question,
   target,
@@ -70,17 +58,12 @@ export function ChoiceQuestionCard({
     onSubmitOption(optionId, { viewedSource });
   }
 
-  function sendFeedback(kind: 'guessed' | 'too_easy', e: MouseEvent) {
-    e.stopPropagation(); // 不触发“点击任意处继续”
+  function sendFeedback(kind: 'guessed' | 'too_easy') {
     onFeedback?.(kind);
   }
 
   return (
-    <div
-      className="space-y-4"
-      /* 答对后点击任意处立即继续（PRODUCT §7.6），反馈按钮通过 stopPropagation 例外 */
-      onClick={phase === 'correct' ? onAdvance : undefined}
-    >
+    <div className="space-y-4">
       {question.context && (
         <p className="text-sm italic text-muted-foreground">
           <HighlightText text={question.context} target={target ?? ''} />
@@ -126,25 +109,27 @@ export function ChoiceQuestionCard({
       {phase === 'correct' && (
         <div className="space-y-3">
           <p className="text-sm text-success">回答正确</p>
-          <CountdownLabel />
-          {onFeedback && (
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors active:bg-muted"
-                onClick={(e) => sendFeedback('guessed', e)}
-              >
-                其实是蒙的
-              </button>
-              <button
-                type="button"
-                className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors active:bg-muted"
-                onClick={(e) => sendFeedback('too_easy', e)}
-              >
-                太简单了
-              </button>
-            </div>
-          )}
+          <div className="flex items-center justify-between gap-2">
+            {onFeedback && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors active:bg-muted"
+                  onClick={() => sendFeedback('guessed')}
+                >
+                  其实是蒙的
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors active:bg-muted"
+                  onClick={() => sendFeedback('too_easy')}
+                >
+                  太简单了
+                </button>
+              </div>
+            )}
+            <Button onClick={onAdvance}>下一题</Button>
+          </div>
         </div>
       )}
 
@@ -165,7 +150,7 @@ export function ChoiceQuestionCard({
               <button
                 type="button"
                 className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-                onClick={(e) => sendFeedback('guessed', e)}
+                onClick={() => sendFeedback('guessed')}
               >
                 其实我蒙的
               </button>

@@ -195,7 +195,7 @@ export function ActiveSession({
   // 当前题在会话序列中的索引（以 currentTask/frozen 的 taskId 定位；兜底第一个未完成）
   const currentIdx = useMemo(() => {
     if (!entries || entries.length === 0) return null;
-    const id = currentTask?.taskId ?? frozen?.task.taskId ?? null;
+    const id = frozen?.task.taskId ?? currentTask?.taskId ?? null;
     let idx = id !== null ? entries.findIndex((e) => e.task.taskId === id) : -1;
     if (idx === -1) {
       idx = entries.findIndex((e) => !e.canceled && e.result === null);

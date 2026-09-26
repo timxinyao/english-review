@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 const THRESHOLD_PX = 60;
 /** 水平判定比例：|dx| 必须超过 |dy| 的 1.5 倍 */
@@ -20,10 +20,22 @@ export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProp
   const cardRef = useRef<HTMLDivElement>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
+  /** 翻页滑出动画的 setTimeout id；新手势/卸载时取消，避免旧回调打断新一轮动画 */
+  const slideTimer = useRef<number | null>(null);
 
   const reducedMotion =
     typeof window.matchMedia === 'function' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function clearSlideTimer() {
+    if (slideTimer.current !== null) {
+      window.clearTimeout(slideTimer.current);
+      slideTimer.current = null;
+    }
+  }
+
+  // 卸载时清理挂起的翻页动画回调
+  useEffect(() => () => clearSlideTimer(), []);
 
   function setTransform(dx: number, animated: boolean, ms = 200) {
     const el = cardRef.current;
@@ -35,6 +47,7 @@ export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProp
   function onTouchStart(e: React.TouchEvent) {
     const t = e.touches[0];
     if (!t) return;
+    clearSlideTimer();
     start.current = { x: t.clientX, y: t.clientY };
     dragging.current = false;
     if (!reducedMotion) setTransform(0, false);
@@ -54,6 +67,7 @@ export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProp
   }
 
   function onTouchEnd(e: React.TouchEvent) {
+    clearSlideTimer();
     const s = start.current;
     if (!s) return;
     start.current = null;
@@ -76,10 +90,18 @@ export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProp
     // 滑出 → 换内容 → 新卡从对侧滑入
     const out = dx < 0 ? -(window.innerWidth ?? 400) : window.innerWidth ?? 400;
     setTransform(out, true, 250);
-    window.setTimeout(() => {
+    slideTimer.current = window.setTimeout(() => {
+      slideTimer.current = null;
       setTransform(dx < 0 ? 60 : -60, false);
       requestAnimationFrame(() => setTransform(0, true, 200));
     }, 250);
+  }
+
+  /** 浏览器接管手势（滚动/系统手势）：与"未构成滑动"一致，回弹到中位 */
+  function onTouchCancel() {
+    start.current = null;
+    dragging.current = false;
+    if (!reducedMotion) setTransform(0, true);
   }
 
   return (
@@ -90,6 +112,7 @@ export function SwipeDeck({ onSwipeLeft, onSwipeRight, children }: SwipeDeckProp
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
         style={{ willChange: 'transform', backfaceVisibility: 'hidden' }}
       >
         {children}

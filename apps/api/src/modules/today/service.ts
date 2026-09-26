@@ -16,6 +16,7 @@ import {
   type TodayActiveResponse,
   type TodayIdleResponse,
   type TodayProgress,
+  type TodaySessionTasksResponse,
   type TodayStatusResponse,
   type TodaySummary,
   type TodayTaskView,
@@ -759,6 +760,38 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
       id: r.id,
       target: r.target,
       type: r.type as 'word' | 'chunk',
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/today/tasks：会话全部任务批量视图（导航/回看/跳做）
+// ---------------------------------------------------------------------------
+
+export async function getSessionTasks(
+  db: AppDatabase,
+  timezone: string,
+  now: Date,
+): Promise<TodaySessionTasksResponse> {
+  const today = localDateString(now, timezone);
+  const session = db
+    .select()
+    .from(reviewSessions)
+    .where(eq(reviewSessions.sessionDate, today))
+    .get();
+  if (!session) throw appError('CONFLICT', '今日没有复习会话');
+  const tasks = db
+    .select()
+    .from(reviewTasks)
+    .where(eq(reviewTasks.sessionId, session.id))
+    .orderBy(asc(reviewTasks.sortKey))
+    .all();
+  return {
+    tasks: tasks.map((task) => ({
+      task: taskToView(db, task),
+      // 已撤销（含撤销前的作答）不回放结果：attempt 已 void，题面仅用于回看
+      result: task.canceledAt === null && task.completedAt !== null ? replayAnswer(db, task) : null,
+      canceled: task.canceledAt !== null,
     })),
   };
 }

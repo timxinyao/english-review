@@ -6,6 +6,7 @@ import { parseBody } from '../../lib/http.js';
 import {
   answerTodayTask,
   deferTodayTask,
+  getSessionTasks,
   getTodayStatus,
   reportBadQuestion,
   resolveTodayDeps,
@@ -17,6 +18,8 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
   const tz = config.appTimezone;
 
   app.get('/api/today', async () => getTodayStatus(db, tz, new Date()));
+
+  app.get('/api/today/tasks', async () => getSessionTasks(db, tz, new Date()));
 
   app.post('/api/today/start', async () =>
     startTodaySession(db, await resolveTodayDeps(), tz, new Date()),

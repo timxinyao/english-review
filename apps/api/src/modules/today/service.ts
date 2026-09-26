@@ -22,6 +22,7 @@ import {
   type TodayTaskView,
 } from '@el/shared';
 import type { AppDatabase } from '../../db/client.js';
+import { JobLockTimeoutError, withJobLock } from '../../db/job-lock.js';
 import {
   attempts,
   dailyStats,
@@ -842,7 +843,67 @@ async function acquireWithGenerate(
   return deps.acquire(db, itemId, type, now, excludeQuestionIds);
 }
 
+/** 在线生成并发度（预取未覆盖时的兜底路径）；GLM 串行每题约 4~5s */
+const GENERATION_CONCURRENCY = 3;
+
+/** 保序并发映射：结果顺序与输入一致；任一 fn 抛错整体 reject */
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
+/** 进程内串行化（双击/多标签同进程），跨进程由 uq_review_sessions_date + 全局锁兜底 */
+let startChain: Promise<unknown> = Promise.resolve();
+
 export async function startTodaySession(
+  db: AppDatabase,
+  deps: TodayDeps,
+  timezone: string,
+  now: Date,
+): Promise<TodayActiveResponse | { status: 'completed'; summary: TodaySummary }> {
+  const run = startChain.then(
+    () => startTodaySessionLocked(db, deps, timezone, now),
+    () => startTodaySessionLocked(db, deps, timezone, now),
+  );
+  startChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/** 持 question-generation 全局锁执行 start；等锁超时归一为 CONFLICT（前端提示稍候重试） */
+async function startTodaySessionLocked(
+  db: AppDatabase,
+  deps: TodayDeps,
+  timezone: string,
+  now: Date,
+): Promise<TodayActiveResponse | { status: 'completed'; summary: TodaySummary }> {
+  try {
+    return await withJobLock(db, 'question-generation', () =>
+      startTodaySessionInner(db, deps, timezone, now),
+    );
+  } catch (err) {
+    if (err instanceof JobLockTimeoutError) {
+      throw appError('CONFLICT', '题目正在准备中，请稍候重试');
+    }
+    throw err;
+  }
+}
+
+async function startTodaySessionInner(
   db: AppDatabase,
   deps: TodayDeps,
   timezone: string,
@@ -903,30 +964,65 @@ export async function startTodaySession(
     if (list) list.push(questionId);
     else acquiredQuestionIds.set(itemId, [questionId]);
   };
+  // 同 item 的多维度必须串行（防并发取到同题）；item 间并发 3；plans 顺序与串行实现一致
+  const dueGroups = new Map<string, typeof dueRows>();
   for (const row of dueRows) {
-    const dimension = row.state.dimension as Dimension;
-    // P 维度按阶段取题（PRODUCT §6.3）：L1-2 填空；L3 哈希奇偶混合；L4+ 表达题
-    const taskType: 'understanding' | 'cloze' | 'production' =
-      dimension === 'understanding'
-        ? 'understanding'
-        : productionQuestionTypeFor(row.item.id, row.state.level);
-    const exclude = acquiredQuestionIds.get(row.item.id) ?? [];
-    const q = await acquireWithGenerate(db, deps, row.item.id, taskType, now, exclude);
-    if (!q) {
-      console.warn(
-        `[today] start 跳过到期任务：item=${row.item.id} dim=${dimension}（无可用题目）`,
-      );
-      continue;
-    }
-    markAcquired(row.item.id, q.id);
-    plans.push({ itemId: row.item.id, dimension, taskType, questionId: q.id, origin: 'base' });
+    const list = dueGroups.get(row.item.id);
+    if (list) list.push(row);
+    else dueGroups.set(row.item.id, [row]);
   }
-  for (const item of learnItems) {
+  const dueAcquired = await mapLimit(
+    [...dueGroups.values()],
+    GENERATION_CONCURRENCY,
+    async (rows) => {
+      const acquired: {
+        row: (typeof rows)[number];
+        taskType: 'understanding' | 'cloze' | 'production';
+        q: QuestionRow | null;
+      }[] = [];
+      const exclude: string[] = [];
+      for (const row of rows) {
+        const dimension = row.state.dimension as Dimension;
+        // P 维度按阶段取题（PRODUCT §6.3）：L1-2 填空；L3 哈希奇偶混合；L4+ 表达题
+        const taskType: 'understanding' | 'cloze' | 'production' =
+          dimension === 'understanding'
+            ? 'understanding'
+            : productionQuestionTypeFor(row.item.id, row.state.level);
+        const q = await acquireWithGenerate(db, deps, row.item.id, taskType, now, exclude);
+        if (q) exclude.push(q.id);
+        acquired.push({ row, taskType, q });
+      }
+      return acquired;
+    },
+  );
+  for (const group of dueAcquired) {
+    for (const { row, taskType, q } of group) {
+      if (!q) {
+        console.warn(
+          `[today] start 跳过到期任务：item=${row.item.id} dim=${row.state.dimension}（无可用题目）`,
+        );
+        continue;
+      }
+      markAcquired(row.item.id, q.id);
+      plans.push({
+        itemId: row.item.id,
+        dimension: row.state.dimension as Dimension,
+        taskType,
+        questionId: q.id,
+        origin: 'base',
+      });
+    }
+  }
+  const learnAcquired = await mapLimit(learnItems, GENERATION_CONCURRENCY, async (item) => {
     const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now);
+    return { item, q };
+  });
+  for (const { item, q } of learnAcquired) {
     if (!q) {
       console.warn(`[today] start 跳过新项：item=${item.id}（Learn 题生成失败，不占额度）`);
       continue;
     }
+    markAcquired(item.id, q.id);
     plans.push({
       itemId: item.id,
       dimension: 'understanding',

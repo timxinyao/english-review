@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
-import { createDatabase, type AppDatabase } from '../../src/db/client.js';
+import { and, asc, eq } from 'drizzle-orm';
+import { createDatabase, rawSqlite, type AppDatabase } from '../../src/db/client.js';
+import { withJobLock } from '../../src/db/job-lock.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import {
   dailyStats,
@@ -388,5 +389,72 @@ describe('due 查询边界', () => {
     const res = getTodayStatus(db, TZ, NOW);
     if (res.status !== 'idle') throw new Error('应处于 idle');
     expect(res.dueItems).toBe(1);
+  });
+});
+
+describe('start 并发安全：全局生成锁 + 并发 3 保序取题', () => {
+  it('保序：3 个到期 item 乱序 resolve，session 任务顺序仍按 next_review_at, id；生成并发峰值 ≥2', async () => {
+    // 三个到期 item，next_review_at 递增（决定串行语义下的任务顺序）；不 seed 题 → 必须走 generate
+    const ids = ['item-1', 'item-2', 'item-3'];
+    for (const [i, id] of ids.entries()) {
+      await seedItem(db, { id, target: id, queueState: 'started' });
+      await seedReviewState(db, id, 'understanding', {
+        level: 2,
+        nextReviewAt: new Date(Date.parse(YESTERDAY_ISO) + i * 60_000).toISOString(),
+      });
+    }
+
+    const base = createFakeDeps();
+    const callOrder: string[] = [];
+    let inFlight = 0;
+    let peak = 0;
+    const deps: TodayDeps = {
+      ...base,
+      async generate(generateDb, itemId, type) {
+        callOrder.push(itemId);
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        try {
+          // item-2 先 resolve（乱序完成），其余延迟更久
+          await new Promise((r) => setTimeout(r, itemId === 'item-2' ? 5 : 60));
+          return await base.generate(generateDb, itemId, type);
+        } finally {
+          inFlight -= 1;
+        }
+      },
+    };
+
+    const res = await startTodaySession(db, deps, TZ, NOW);
+    expect(res.status).toBe('active');
+    expect(peak).toBeGreaterThanOrEqual(2); // 并发 3：至少 2 个生成同时在飞
+
+    // plans 顺序 = due 排序（next_review_at, id）→ 混排后 3 个异 item 仍保持相对顺序
+    const tasks = db.select().from(reviewTasks).orderBy(asc(reviewTasks.sortKey)).all();
+    expect(tasks.map((t) => t.learningItemId)).toEqual(['item-1', 'item-2', 'item-3']);
+  });
+
+  it('互斥：全局生成锁被占时 start 等待，锁释放后才建会话且无锁残留', async () => {
+    // 需要生成的 item（无库存题）
+    await seedNewItem('new-lock', '2026-09-01T00:00:00.000Z');
+
+    const holder = withJobLock(db, 'question-generation', async () => {
+      await new Promise((r) => setTimeout(r, 150));
+    });
+    const t0 = Date.now();
+    const pending = startTodaySession(db, deps, TZ, NOW);
+    await new Promise((r) => setTimeout(r, 80));
+    // 持锁期间：start 不得建 session
+    expect(db.select().from(reviewSessions).all()).toHaveLength(0);
+
+    const res = await pending;
+    const elapsed = Date.now() - t0;
+    await holder;
+
+    expect(res.status).toBe('active');
+    expect(elapsed).toBeGreaterThanOrEqual(150); // 锁释放（150ms）后 start 才完成
+    expect(db.select().from(reviewTasks).all()).toHaveLength(1);
+    // 锁释放无残留
+    const locks = rawSqlite(db).prepare('SELECT COUNT(*) n FROM job_locks').get() as { n: number };
+    expect(locks.n).toBe(0);
   });
 });

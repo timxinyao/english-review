@@ -7,7 +7,7 @@ import type {
   PracticeStartResponse,
 } from '@el/shared';
 import type { AppDatabase } from '../../db/client.js';
-import { withJobLock } from '../../db/job-lock.js';
+import { JobLockTimeoutError, withJobLock } from '../../db/job-lock.js';
 import { attempts, learningItems, questions, reviewStates } from '../../db/schema.js';
 import { AppError, appError } from '../../lib/errors.js';
 import type {
@@ -231,14 +231,21 @@ export async function startLibraryPractice(
   const usedQuestionIds: string[] = [];
   const out: PracticeQuestion[] = [];
   // 持 question-generation 全局锁（与 today/start、daily-prefetch 互斥，避免并发重复生成）
-  await withJobLock(db, 'question-generation', async () => {
-    for (const type of wanted) {
-      const q = await acquireWithGenerate(db, deps, itemId, type, now, usedQuestionIds);
-      if (!q) continue; // 单类失败不阻断其余题型
-      usedQuestionIds.push(q.id);
-      out.push(toPracticeQuestion(q, item.target));
+  try {
+    await withJobLock(db, 'question-generation', async () => {
+      for (const type of wanted) {
+        const q = await acquireWithGenerate(db, deps, itemId, type, now, usedQuestionIds);
+        if (!q) continue; // 单类失败不阻断其余题型
+        usedQuestionIds.push(q.id);
+        out.push(toPracticeQuestion(q, item.target));
+      }
+    });
+  } catch (err) {
+    if (err instanceof JobLockTimeoutError) {
+      throw appError('CONFLICT', '题目正在准备中，请稍候重试');
     }
-  });
+    throw err;
+  }
   if (out.length === 0) {
     throw appError('AI_PROVIDER_ERROR', '暂时无法生成练习题，请稍后重试');
   }

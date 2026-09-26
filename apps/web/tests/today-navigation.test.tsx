@@ -48,39 +48,24 @@ describe('Today 会话导航', () => {
     expect(current!.getAttribute('data-seg')).toBe('todo');
   });
 
-  it('列表弹层：显示全部 4 个任务与状态；点未完成任务跳去做并可作答', async () => {
+  it('列表只读：未做条目置灰不可点；已完成可点回看', async () => {
     stubSession();
     renderTodayApp();
     await screen.findByText('第 3 / 4');
     fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
     const dialog = screen.getByRole('dialog', { name: '任务列表' });
     await waitFor(() => expect(dialog).toBeVisible());
-    const withinDialog = within(dialog);
-    for (const w of ['alpha', 'beta', 'gamma', 'delta']) {
-      expect(withinDialog.getByText(w)).toBeVisible();
-    }
-    expect(withinDialog.getByText('对')).toBeVisible();
-    expect(withinDialog.getByText('错')).toBeVisible();
-    expect(withinDialog.getByText('当前')).toBeVisible();
-    expect(withinDialog.getByText('未做')).toBeVisible();
 
-    fireEvent.click(withinDialog.getByRole('button', { name: /delta/ }));
-    await screen.findByText('第 4 / 4');
-    // 跳到的未完成任务可作答：选项可点并提交该 taskId
-    stubApi({
-      '/api/today': makeActive(t3, { completed: 2, total: 4 }),
-      '/api/today/tasks': makeTasksResponse([
-        makeSessionEntry(t1, makeCorrectAnswer()),
-        makeSessionEntry(t2, makeWrongAnswer()),
-        makeSessionEntry(t3, null),
-        makeSessionEntry(t4, null),
-      ]),
-      '/api/today/tasks/task-4/answer': makeCorrectAnswer(),
-    });
-    fireEvent.click(screen.getByRole('button', { name: '稳定的' }));
-    await waitFor(() => {
-      expect(apiCalls('/api/today/tasks/task-4/answer')).toHaveLength(1);
-    });
+    // 未做（delta，非当前）置灰不可点：点击不跳转、弹层不关闭
+    const deltaBtn = within(dialog).getByRole('button', { name: /delta/ });
+    expect(deltaBtn).toBeDisabled();
+    fireEvent.click(deltaBtn);
+    expect(screen.queryByRole('dialog', { name: '任务列表' })).toBeVisible();
+
+    // 已完成（alpha）可点回看
+    fireEvent.click(within(dialog).getByRole('button', { name: /alpha/ }));
+    await screen.findByText('第 1 / 4');
+    expect(screen.getByRole('heading', { name: 'alpha' })).toBeVisible();
   });
 
   it('已撤销任务：弹层置灰不可点', async () => {

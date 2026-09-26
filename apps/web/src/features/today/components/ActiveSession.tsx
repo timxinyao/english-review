@@ -98,6 +98,8 @@ function ProgressRow({
               <ul className="space-y-1">
                 {entries?.map((e, i) => {
                   const isCurrent = i === currentIdx;
+                  // 列表只读：仅已完成或"当前"可点回看/返回；未做（按顺序做，不跳做）与已撤销置灰
+                  const disabled = e.canceled || (!e.result && !isCurrent);
                   const status = e.canceled
                     ? '已撤销'
                     : e.result
@@ -111,11 +113,11 @@ function ProgressRow({
                     <li key={e.task.taskId}>
                       <button
                         type="button"
-                        disabled={e.canceled}
+                        disabled={disabled}
                         className={cn(
                           'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm',
                           isCurrent ? 'bg-accent-soft' : 'hover:bg-muted',
-                          e.canceled && 'opacity-50',
+                          disabled && 'opacity-50',
                         )}
                         onClick={() => {
                           onJump(isCurrent ? null : i);
@@ -179,7 +181,7 @@ export function ActiveSession({
 }: ActiveSessionProps) {
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? null;
-  /** null = 当前题；数字 = 回看/跳做条目索引 */
+  /** null = 当前题；数字 = 回看条目索引（列表仅已完成条目可点） */
   const [cursor, setCursor] = useState<number | null>(null);
 
   // 当前题在会话序列中的索引（以 currentTask/frozen 的 taskId 定位；兜底第一个未完成）
@@ -212,8 +214,8 @@ export function ActiveSession({
     ? (frozen?.task ?? currentTask ?? entry?.task)
     : (entry?.task ?? frozen?.task ?? currentTask);
   const shownResult = isCurrent ? (frozen?.result ?? null) : (entry?.result ?? null);
-  // 跳做未完成任务 = 可作答；回看已完成 = 只读
-  const reviewing = !isCurrent && (entry === null || entry.result !== null);
+  // 回看（列表只点已完成条目或"当前"）：cursor 只指向已完成条目
+  const reviewing = cursor !== null;
 
   return (
     <div className="space-y-4">

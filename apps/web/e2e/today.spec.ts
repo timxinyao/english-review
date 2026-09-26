@@ -142,7 +142,7 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText(/新学 \d+ 项/)).toBeVisible();
   });
 
-  test('导航：列表回看与跳做未完成任务', async ({ page }) => {
+  test('导航：列表回看与未做条目置灰', async ({ page }) => {
     test.setTimeout(90_000);
     await login(page);
     await resetSeedData(page);
@@ -166,20 +166,14 @@ test.describe('Today 复习全流程', () => {
     await giveUpEntry.click();
     await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
-    // 回看态：返回当前按钮已移除（回当前=列表点当前项）
+    // 回看态：返回当前按钮已移除（回当前=列表点当前项，语义由单测覆盖）
     await expect(page.getByRole('button', { name: '返回当前' })).toHaveCount(0);
-    // 返回当前：列表点"当前"项（make sense，第 2/6）
-    await page.getByRole('button', { name: '查看任务列表' }).click();
-    await dialog.getByRole('button', { name: /make sense/ }).click();
-    await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
 
-    // 跳做一个未完成任务（stable，会话序第 4/6）：题面出现且可作答
+    // 未做条目（stable，非当前）置灰不可点
     await page.getByRole('button', { name: '查看任务列表' }).click();
-    await dialog.getByRole('button', { name: /stable/ }).click();
-    await expect(page.getByText(/^第 4 \/ \d+$/)).toBeVisible();
-    await expect(page.getByText('stable 在这里最接近什么意思？')).toBeVisible();
-    await page.getByRole('button', { name: '稳定的' }).click();
-    await expect(page.getByText('回答正确')).toBeVisible();
-    await continueAfterCorrect(page);
+    const stableEntry = dialog.getByRole('button', { name: /stable/ });
+    await expect(stableEntry).toBeDisabled();
+    await stableEntry.click({ force: true });
+    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible(); // 仍停留回看位
   });
 });

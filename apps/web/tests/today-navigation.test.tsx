@@ -34,6 +34,33 @@ function stubSession() {
   });
 }
 
+/** 答对 t3（understanding 自动推进型）后桩切换：currentTask → t4 */
+function stubAnsweredSession() {
+  let answered = false;
+  stubApi({
+    '/api/today': () =>
+      answered ? makeActive(t4, { completed: 3, total: 4 }) : makeActive(t3, { completed: 2, total: 4 }),
+    '/api/today/tasks': () =>
+      answered
+        ? makeTasksResponse([
+            makeSessionEntry(t1, makeCorrectAnswer()),
+            makeSessionEntry(t2, makeWrongAnswer()),
+            makeSessionEntry(t3, makeCorrectAnswer()),
+            makeSessionEntry(t4, null),
+          ])
+        : makeTasksResponse([
+            makeSessionEntry(t1, makeCorrectAnswer()),
+            makeSessionEntry(t2, makeWrongAnswer()),
+            makeSessionEntry(t3, null),
+            makeSessionEntry(t4, null),
+          ]),
+    '/api/today/tasks/task-3/answer': () => {
+      answered = true;
+      return makeCorrectAnswer();
+    },
+  });
+}
+
 function swipeBy(dx: number): void {
   const el = document.querySelector('[data-swipe-area]');
   if (!(el instanceof HTMLElement)) throw new Error('deck 未渲染');
@@ -237,4 +264,35 @@ describe('Today 会话导航', () => {
     await screen.findByText('第 1 / 4');
     expect(screen.getByRole('heading', { name: 'alpha' })).toBeVisible();
   });
+
+  it('答对不动 → 4s 自动跳题（基线行为）', async () => {
+    stubAnsweredSession();
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    fireEvent.click(screen.getByRole('button', { name: '稳定的' }));
+    await screen.findByText('回答正确');
+    // CORRECT_AUTO_ADVANCE_MS(4s) 后自动推进到 t4（未作答卡无词行 heading，以进度数字为推进信号）
+    await screen.findByText('第 4 / 4', {}, { timeout: 7000 });
+  }, 10_000);
+
+  it('答对后回看返回当前：不再重新武装自动跳题', async () => {
+    stubAnsweredSession();
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    fireEvent.click(screen.getByRole('button', { name: '稳定的' }));
+    await screen.findByText('回答正确');
+    // 4s 内左滑回看（取消本次倒计时），再右滑回当前
+    swipeBy(-120);
+    await screen.findByText('第 2 / 4');
+    swipeBy(120);
+    await screen.findByText('第 3 / 4');
+    expect(screen.getByRole('heading', { name: 'gamma' })).toBeVisible();
+    // 超过 CORRECT_AUTO_ADVANCE_MS：不得自动跳题（旧代码此处会推进到 delta）
+    await new Promise((r) => setTimeout(r, 5000));
+    expect(screen.getByRole('heading', { name: 'gamma' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'delta' })).toBeNull();
+    // 手动右滑（冻结反馈态右滑 = onAdvance）仍可进入下一题
+    swipeBy(120);
+    await screen.findByText('第 4 / 4');
+  }, 20_000);
 });

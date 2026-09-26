@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
 import { Check, X } from 'lucide-react';
 import { CORRECT_AUTO_ADVANCE_MS } from '../../../lib/questions';
@@ -184,6 +184,8 @@ export function ActiveSession({
   onAdvance,
 }: ActiveSessionProps) {
   const [hold, setHold] = useState(false);
+  /** 已武装过自动跳题的作答：一次作答最多武装一次，中途离开/按住后不再重置 */
+  const armedRef = useRef<FrozenAnswer | null>(null);
   const later = useLater();
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? null;
@@ -212,11 +214,13 @@ export function ActiveSession({
     [onAnswered],
   );
 
-  // 答对自动下一题（仅当前题、非回看/跳做）
+  // 答对自动下一题：仅作答瞬间武装一次；回看/按住中断后返回当前不重新武装
   useEffect(() => {
     if (cursor !== null) return;
     if (!frozen || !frozen.result.correct || MANUAL_ADVANCE_TYPES.has(frozen.task.taskType) || hold)
       return;
+    if (armedRef.current === frozen) return;
+    armedRef.current = frozen;
     const timer = setTimeout(onAdvance, CORRECT_AUTO_ADVANCE_MS);
     return () => clearTimeout(timer);
   }, [frozen, hold, onAdvance, cursor]);

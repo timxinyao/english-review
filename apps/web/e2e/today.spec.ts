@@ -261,4 +261,42 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
     await expect(page.getByRole('dialog', { name: '任务列表' })).toBeHidden();
   });
+
+  test('倒计时：答对后回看返回当前不自动跳题，手动右滑进下一题', async ({ page }) => {
+    test.setTimeout(90_000);
+    await login(page);
+    await resetSeedData(page);
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+
+    // 首卡 give up 表达题（手动推进型）通过 → 手动下一题到 make sense（第 2/6）
+    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+    await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+    await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '下一题' }).click();
+    await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
+
+    // make sense 答对（自动推进型）→ 立即卡片左滑回看 give up
+    await page.getByRole('button', { name: '讲得通' }).click();
+    await expect(page.getByText('回答正确')).toBeVisible();
+    const card = (await page.locator('[data-swipe-card]').boundingBox())!;
+    await touchSwipe(page, card.x + card.width / 2, card.y + card.height / 2, -160);
+    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
+
+    // 列表点"当前"项回当前（make sense 反馈仍冻结显示）
+    await page.getByRole('button', { name: '查看任务列表' }).click();
+    const dialog = page.getByRole('dialog', { name: '任务列表' });
+    await dialog.getByRole('button', { name: /make sense/ }).click();
+    await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+
+    // 超过 4s 自动跳题窗口：不得推进（旧代码会跳到 raw 填空）
+    await page.waitForTimeout(5000);
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+
+    // 手动右滑 → 进入下一题 raw 填空
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByLabel('填空答案')).toBeVisible();
+  });
 });

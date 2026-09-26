@@ -12,14 +12,16 @@ interface Props {
   task: TodayTaskView;
   /** 已作答时冻结的任务 + 结果（用于展示反馈，直到 advance） */
   result: AnswerResponse | null;
-  onAnswered: (result: AnswerResponse) => void;
-  onAdvance: () => void;
-  /** 打开/关闭确认框时暂停“答对 2 秒自动下一题” */
-  onHoldChange: (hold: boolean) => void;
+  /** 回看模式：禁用答题交互，仅展示冻结结果 */
+  readOnly?: boolean;
+  onAnswered?: (result: AnswerResponse) => void;
+  onAdvance?: () => void;
+  /** 打开/关闭确认框时暂停”答对 2 秒自动下一题” */
+  onHoldChange?: (hold: boolean) => void;
 }
 
 /** 单张任务卡：learn 内容 + 按题型渲染题目；右上操作（稍后再做 / 坏题） */
-export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: Props) {
+export function TaskCard({ task, result, readOnly, onAnswered, onAdvance, onHoldChange }: Props) {
   const later = useLater();
   const badQuestion = useBadQuestion();
   const [confirmBad, setConfirmBad] = useState(false);
@@ -28,14 +30,14 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
 
   function closeBadConfirm() {
     setConfirmBad(false);
-    onHoldChange(false);
+    onHoldChange?.(false);
   }
 
   return (
     <article className="relative rounded-xl border border-border bg-card p-5 pt-4">
       {/* 右上角操作：绝对定位，与词行同高（LearnContent 词行 pr-12 让位） */}
       <div className="absolute right-3 top-3 z-10">
-        {!result && (
+        {!result && !readOnly && (
           <Button
             variant="ghost"
             size="icon"
@@ -54,7 +56,7 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
             size="sm"
             onClick={() => {
               setConfirmBad(true);
-              onHoldChange(true);
+              onHoldChange?.(true);
             }}
           >
             <ThumbsDown className="h-3.5 w-3.5" aria-hidden />
@@ -71,8 +73,8 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
               task={task}
               question={question}
               result={result}
-              onAnswered={onAnswered}
-              onAdvance={onAdvance}
+              onAnswered={onAnswered ?? (() => {})}
+              onAdvance={onAdvance ?? (() => {})}
             />
           ) : null}
         </LearnContent>
@@ -83,24 +85,24 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
               task={task}
               question={question}
               result={result}
-              onAnswered={onAnswered}
-              onAdvance={onAdvance}
+              onAnswered={onAnswered ?? (() => {})}
+              onAdvance={onAdvance ?? (() => {})}
             />
           ) : question && 'textWithBlank' in question ? (
             <ClozeQuestionView
               task={task}
               question={question}
               result={result}
-              onAnswered={onAnswered}
-              onAdvance={onAdvance}
+              onAnswered={onAnswered ?? (() => {})}
+              onAdvance={onAdvance ?? (() => {})}
             />
           ) : question && 'zhPrompt' in question ? (
             <ProductionQuestionView
               task={task}
               question={question}
               result={result}
-              onAnswered={onAnswered}
-              onAdvance={onAdvance}
+              onAnswered={onAnswered ?? (() => {})}
+              onAdvance={onAdvance ?? (() => {})}
             />
           ) : null}
         </>
@@ -127,7 +129,7 @@ export function TaskCard({ task, result, onAnswered, onAdvance, onHoldChange }: 
                 badQuestion.mutate(task.taskId, {
                   onSuccess: () => {
                     closeBadConfirm();
-                    onAdvance();
+                    onAdvance?.();
                   },
                 })
               }

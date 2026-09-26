@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { HighlightText } from './highlight-text';
@@ -29,6 +29,18 @@ interface ChoiceQuestionCardProps {
 }
 
 /** 选择题渲染与作答交互（PRODUCT §7.1/§7.6）；Today 与 Library 练一下共用 */
+/** 答对后倒计时提示："下一题 · 3s" */
+function CountdownLabel() {
+  const [seconds, setSeconds] = useState(4);
+  useEffect(() => {
+    if (seconds <= 0) return;
+    const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [seconds]);
+  if (seconds <= 0) return null;
+  return <p className="text-center text-xs text-muted-foreground/60">下一题 · {seconds}s</p>;
+}
+
 export function ChoiceQuestionCard({
   question,
   target,
@@ -114,6 +126,7 @@ export function ChoiceQuestionCard({
       {phase === 'correct' && (
         <div className="space-y-3">
           <p className="text-sm text-success">回答正确</p>
+          <CountdownLabel />
           {onFeedback && (
             <div className="flex gap-2 pt-1">
               <button

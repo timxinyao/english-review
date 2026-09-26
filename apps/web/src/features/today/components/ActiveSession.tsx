@@ -1,30 +1,57 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnswerResponse, TodayProgress, TodayTaskView } from '@el/shared';
+import { Check, ChevronLeft, X } from 'lucide-react';
 import { CORRECT_AUTO_ADVANCE_MS } from '../../../lib/questions';
 import { cn } from '../../../lib/utils';
 import { TaskCard } from './TaskCard';
 
-/** 答对后的自动下一题延迟（PRODUCT §7.6：约 2 秒，点击任意处立即继续） */
 export { CORRECT_AUTO_ADVANCE_MS };
 
-/** 手动下一题的题型（PRODUCT §7.6：填空与表达题）；learn/理解题（选择题）答对自动下一题 */
 const MANUAL_ADVANCE_TYPES: ReadonlySet<TodayTaskView['taskType']> = new Set([
   'cloze',
   'production',
 ]);
 
-/** 冻结的作答反馈：任务 + 结果，advance 前一直展示（含最后一题答完会话已完成的情况） */
 export interface FrozenAnswer {
   task: TodayTaskView;
   result: AnswerResponse;
 }
 
-function ProgressRow({ completed, total }: { completed: number; total: number }) {
+/** 历史记录条目：已完成任务 + 冻结结果 */
+interface HistoryEntry {
+  task: TodayTaskView;
+  result: AnswerResponse;
+}
+
+/** 进度行 + 可点击弹出单词列表 */
+function ProgressRow({
+  completed,
+  total,
+  history,
+  currentTarget,
+  onJump,
+}: {
+  completed: number;
+  total: number;
+  history: HistoryEntry[];
+  currentTarget: string | null;
+  onJump: (index: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
   return (
     <div className="space-y-1.5">
-      <p className="text-xs text-muted-foreground">
-        {completed} / {total}
-      </p>
+      <button
+        type="button"
+        className="flex w-full items-center justify-between"
+        onClick={() => setOpen(true)}
+        aria-label="查看任务列表"
+      >
+        <p className="text-xs text-muted-foreground">
+          {completed} / {total}
+        </p>
+        <p className="text-xs text-muted-foreground/60">列表 ▾</p>
+      </button>
       {total > 0 && (
         <div className="flex gap-0.5" aria-hidden>
           {Array.from({ length: total }, (_, i) => (
@@ -33,6 +60,54 @@ function ProgressRow({ completed, total }: { completed: number; total: number })
               className={cn('h-1 flex-1 rounded-full', i < completed ? 'bg-accent' : 'bg-muted')}
             />
           ))}
+        </div>
+      )}
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="任务列表"
+          className="fixed inset-0 z-40 flex items-end justify-center bg-foreground/20"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="max-h-[60vh] w-full max-w-[420px] overflow-y-auto rounded-t-xl border-t border-border bg-card p-4 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-3 text-sm font-medium">任务列表</p>
+            <ul className="space-y-1">
+              {history.map((h, i) => (
+                <li key={h.task.taskId}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                    onClick={() => {
+                      onJump(i);
+                      setOpen(false);
+                    }}
+                  >
+                    <span className="text-foreground">{h.task.item.target}</span>
+                    <span
+                      className={cn(
+                        'flex items-center gap-1 text-xs',
+                        h.result.correct ? 'text-success' : 'text-destructive',
+                      )}
+                    >
+                      {h.result.correct ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                      {h.result.correct ? '对' : '错'}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {currentTarget && (
+                <li className="flex items-center justify-between rounded-lg bg-accent-soft px-3 py-2 text-sm">
+                  <span className="font-medium text-accent">{currentTarget}</span>
+                  <span className="text-xs text-accent/70">当前</span>
+                </li>
+              )}
+              <li className="px-3 py-2 text-xs text-muted-foreground/50">后续任务完成前不可跳转</li>
+            </ul>
+          </div>
         </div>
       )}
     </div>
@@ -47,7 +122,6 @@ interface ActiveSessionProps {
   onAdvance: () => void;
 }
 
-/** active 态：细进度行 + 当前任务卡；作答后冻结卡片展示反馈，advance 再进入下一题 */
 export function ActiveSession({
   progress,
   currentTask,
@@ -56,7 +130,9 @@ export function ActiveSession({
   onAdvance,
 }: ActiveSessionProps) {
   const [hold, setHold] = useState(false);
-  // 已结算任务 id：refetch 未落地时避免旧任务卡重复出现/重复作答
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  /** -1 = 最后一个历史，-2 = 倒数第二个…；null = 当前任务 */
+  const [viewIndex, setViewIndex] = useState<number | null>(null);
   const answeredTaskIds = useRef<Set<string>>(new Set());
 
   const handleHoldChange = useCallback((next: boolean) => setHold(next), []);
@@ -64,37 +140,77 @@ export function ActiveSession({
   const handleAnswered = useCallback(
     (task: TodayTaskView, result: AnswerResponse) => {
       answeredTaskIds.current.add(task.taskId);
+      setHistory((prev) => [...prev, { task, result }]);
+      setViewIndex(null); // 确保回到当前
       onAnswered({ task, result });
     },
     [onAnswered],
   );
 
-  // 选择题答对：约 2 秒后自动下一题（填空/表达题手动下一题；confirm 弹窗期间 hold 暂停）
+  // 自动下一题（仅当前任务答对且不在回看模式）
   useEffect(() => {
+    if (viewIndex !== null) return; // 回看模式不自动跳
     if (!frozen || !frozen.result.correct || MANUAL_ADVANCE_TYPES.has(frozen.task.taskType) || hold)
       return;
     const timer = setTimeout(onAdvance, CORRECT_AUTO_ADVANCE_MS);
     return () => clearTimeout(timer);
-  }, [frozen, hold, onAdvance]);
+  }, [frozen, hold, onAdvance, viewIndex]);
 
-  // 反馈展示期间冻结已答任务；advance 后显示 refetch 到的下一个任务，
-  // 已结算但 refetch 未落地时显示加载占位而非旧任务卡。
   const nextTask =
     currentTask && !answeredTaskIds.current.has(currentTask.taskId) ? currentTask : null;
-  const shownTask = frozen?.task ?? nextTask;
+
+  // 回看模式：显示历史条目
+  const reviewing = viewIndex !== null && history[viewIndex];
+  const shownTask = reviewing ? reviewing.task : (frozen?.task ?? nextTask);
+  const shownResult = reviewing ? reviewing.result : (frozen?.result ?? null);
+  const isReviewMode = reviewing !== null && viewIndex !== null;
 
   return (
     <div className="space-y-4">
-      {progress && <ProgressRow completed={progress.completed} total={progress.total} />}
+      {/* 导航行：回看时显示返回，正常时显示上一题（有历史才显示） */}
+      {isReviewMode ? (
+        <button
+          type="button"
+          className="flex items-center gap-1 text-xs text-muted-foreground"
+          onClick={() => setViewIndex(null)}
+        >
+          <ChevronLeft className="h-3 w-3" aria-hidden />
+          返回当前
+        </button>
+      ) : (
+        history.length > 0 &&
+        !frozen && (
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-muted-foreground"
+            onClick={() => setViewIndex(history.length - 1)}
+            aria-label="上一题"
+          >
+            <ChevronLeft className="h-3 w-3" aria-hidden />
+            上一题
+          </button>
+        )
+      )}
+
+      {progress && (
+        <ProgressRow
+          completed={progress.completed}
+          total={progress.total}
+          history={history}
+          currentTarget={shownTask?.item.target ?? null}
+          onJump={(i) => setViewIndex(i)}
+        />
+      )}
 
       {shownTask ? (
         <TaskCard
           key={shownTask.taskId}
           task={shownTask}
-          result={frozen?.result ?? null}
-          onAnswered={(result) => handleAnswered(shownTask, result)}
-          onAdvance={onAdvance}
-          onHoldChange={handleHoldChange}
+          result={shownResult}
+          readOnly={isReviewMode}
+          onAnswered={isReviewMode ? undefined : (result) => handleAnswered(shownTask, result)}
+          onAdvance={isReviewMode ? undefined : onAdvance}
+          onHoldChange={isReviewMode ? undefined : handleHoldChange}
         />
       ) : (
         <p className="py-16 text-center text-sm text-muted-foreground">正在加载下一题…</p>

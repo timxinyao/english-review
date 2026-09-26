@@ -11,7 +11,7 @@
 ### A. 跨进程全局生成锁（job_locks 表 + withJobLock）
 
 - 新表 `job_locks(name PK, holder, lease_until)`（drizzle-kit 生成迁移，启动时 runMigrations 自动执行）。
-- `apps/api/src/db/job-lock.ts` 导出 `withJobLock<T>(db, name, fn, { ttlMs=10min, waitTimeoutMs=180s, pollMs=300ms })`：better-sqlite3 同步事务内抢租约（空位或 `lease_until <= now` 视为崩溃残留可抢占），拿不到则轮询等待；fn 完成后仅当 holder 匹配才释放。超时抛 `JobLockTimeoutError`。
+- `apps/api/src/db/job-lock.ts` 导出 `withJobLock<T>(db, name, fn, { ttlMs=10min, waitTimeoutMs=180s, pollMs=300ms })`：better-sqlite3 同步事务内抢租约（空位或 `lease_until <= now` 视为崩溃残留可抢占；跨进程写锁竞争 SQLITE_BUSY 按未获取处理下轮重试），拿不到则轮询等待；fn 完成后仅当 holder 匹配才释放。超时抛 `JobLockTimeoutError`。（实施修订：预取调用点租约加长为 15min——unlimited 大积压串行生成可达约 60 次调用。）
 - 锁名 `question-generation`，消费点三处：`startTodaySession` 规划段、`runPrefetch`、`startLibraryPractice`。入口持锁、内部实现（acquireWithGenerate 等）不重复加锁，无重入死锁。
 
 ### B. start 生成并发 3（保序）

@@ -262,3 +262,12 @@ export const dailyStats = sqliteTable('daily_stats', {
   productionPass: integer('production_pass').notNull().default(0),
   updatedAt: text('updated_at').notNull(),
 });
+
+// ---------- job_locks（跨进程任务锁租约，TECHNICAL §6）----------
+
+/** 单行租约：name 为主键；lease_until 过期视为崩溃残留可被接管 */
+export const jobLocks = sqliteTable('job_locks', {
+  name: text('name').primaryKey(),
+  holder: text('holder').notNull(),
+  leaseUntil: text('lease_until').notNull(),
+});

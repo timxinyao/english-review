@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import type { TodayTaskView } from '@el/shared';
 import { Eye, Volume2 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { speak } from '../../../lib/tts';
+import { speak, type TtsDebug } from '../../../lib/tts';
 
 /**
  * 发音按钮：词/词块与例句共用（PRODUCT §12.1，优先 en-US voice）。
@@ -17,18 +17,37 @@ export function SpeakButton({
   label?: string;
   className?: string;
 }) {
+  const [debug, setDebug] = useState<TtsDebug | null>(null);
+
+  const onSpeak = useCallback(() => {
+    setDebug({ ok: true, message: '...' });
+    speak(text, (d) => setDebug(d.message ? d : null));
+  }, [text]);
+
   return (
-    <button
-      type="button"
-      aria-label={label ?? `朗读 ${text}`}
-      onClick={() => speak(text)}
-      className={cn(
-        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted',
-        className,
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        aria-label={label ?? `朗读 ${text}`}
+        onClick={onSpeak}
+        className={cn(
+          'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted',
+          className,
+        )}
+      >
+        <Volume2 className="h-4 w-4" aria-hidden />
+      </button>
+      {debug && (
+        <span
+          role="status"
+          className={`absolute left-1/2 top-full z-30 mt-1 -translate-x-1/2 rounded-md px-2 py-1 text-xs whitespace-nowrap ${
+            debug.ok ? 'bg-muted text-muted-foreground' : 'bg-destructive/10 text-destructive'
+          }`}
+        >
+          {debug.message}
+        </span>
       )}
-    >
-      <Volume2 className="h-4 w-4" aria-hidden />
-    </button>
+    </span>
   );
 }
 

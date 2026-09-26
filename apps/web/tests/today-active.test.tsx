@@ -38,7 +38,7 @@ describe('Today 任务卡：learn 卡 / 稍后再做 / 坏题', () => {
     // 阶段 1：释义模糊（点击展开前不可见为 <p>）
     expect(screen.getByRole('button', { name: '点击显示释义' })).toBeVisible();
     expect(
-      screen.getByText((_, el) => (el?.textContent ?? '').includes('I laugh at gravity')),
+      document.querySelector('mark'),
     ).toBeVisible();
     expect(screen.getByText('Gravity is a fundamental force.')).toBeVisible();
     expect(screen.queryByText('Gravity keeps us grounded.')).not.toBeInTheDocument();

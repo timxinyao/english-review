@@ -36,7 +36,7 @@ async function continueAfterCorrect(page: Page) {
 }
 
 test.describe('Today 复习全流程', () => {
-  test('idle → 开始 → Learn + 选择/填空/稍后/答错 → 完成摘要', async ({ page }) => {
+  test('idle → 开始 → Learn + 选择/填空/答错 → 完成摘要', async ({ page }) => {
     test.setTimeout(120_000);
     await login(page);
     await resetSeedData(page);
@@ -170,7 +170,7 @@ test.describe('Today 复习全流程', () => {
     await giveUpEntry.click();
     await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
-    // 回看态：返回当前按钮已移除（回当前=右滑越过末尾/列表点当前）
+    // 回看态：返回当前按钮已移除（回当前=列表点当前项）
     await expect(page.getByRole('button', { name: '返回当前' })).toHaveCount(0);
     // 返回当前：列表点"当前"项（make sense，第 2/6）
     await page.getByRole('button', { name: '查看任务列表' }).click();
@@ -207,7 +207,9 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText('回答正确')).toBeVisible();
     await page.getByRole('button', { name: '查看任务列表' }).click();
     const dialog = page.getByRole('dialog', { name: '任务列表' });
-    await dialog.getByRole('button', { name: /give up/ }).click();
+    const giveUpEntry = dialog.getByRole('button', { name: /give up/ });
+    await expect(giveUpEntry).toContainText('对');
+    await giveUpEntry.click();
     await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
 
     // 列表点"当前"项回当前（make sense 反馈仍冻结显示）

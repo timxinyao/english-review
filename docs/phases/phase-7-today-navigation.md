@@ -34,6 +34,10 @@
 - 2026-09-26 SwipeDeck 动态 transform/perspective 用内联样式：交互位移非视觉样式，属"禁止内联 style"的允许例外。
 - 2026-09-26 E2E 端口正式化：playwright.config/vite.config 读 E2E_API_PORT（默认 5174）——生产 API 常驻占用 5174，本机跑 E2E 需 E2E_API_PORT=5175；Task 7/E2E 曾发现 877f678 删除稍后再做按钮后既有 E2E 用例未同步（本迭代已修）。
 
+### 2026-09-26 晚：滑动/键盘导航删除（设计 reversal）
+
+用户验收反馈"左右滑上一题/下一题逻辑乱"，触摸滑动与键盘 ←/→ 导航全删（SwipeDeck 组件移除），**列表点击成为唯一导航入口**（已完成=回看只读；未做=跳做可作答；"当前"=回当前）。`later`（稍后再做）API 保留但暂无 UI/e2e 入口（服务端测试仍覆盖），后续如需再加按钮。规格：`docs/superpowers/specs/2026-09-26-remove-swipe-nav-and-portal-overlay-design.md`。
+
 ## 变更日志
 
 - 2026-09-26：开始（设计/计划见上）。

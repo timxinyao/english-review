@@ -26,6 +26,7 @@
 
 ### 3. 测试改写
 
+- 注：jsdom 下 `fireEvent.click(document.body)` 不会触发 portal 子树 onClick（React 合成事件沿组件树派发，portal 容器无 fiber）——遮罩关闭断言应 fire 在弹层根节点上。
 - 单测 `today-navigation.test.tsx`：swipeBy/键盘导航用例改列表路径；倒计时两用例的"左滑回看/右滑回当前"改为列表跳转与点"当前"项。
 - e2e `today.spec.ts`：删除手势用例与 `touchSwipe` helper；倒计时用例改列表导航；既有"导航"用例（列表回看/跳做）保留。
 

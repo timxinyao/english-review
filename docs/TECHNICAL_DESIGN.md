@@ -186,6 +186,7 @@ POST /api/auth/login
 POST /api/auth/logout
 
 GET  /api/today
+GET  /api/today/tasks
 POST /api/today/start
 POST /api/today/tasks/:id/answer
 POST /api/today/tasks/:id/later

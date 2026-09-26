@@ -53,6 +53,12 @@ server {
         try_files $uri =404;
     }
 
+    # 入口 HTML 不缓存：保证引用最新 hash 的资产（发版即生效）
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
+
     # Service Worker 与注册脚本：禁止缓存（发版后必须立即拿到新版本）
     location = /sw.js {
         add_header Cache-Control "no-cache, must-revalidate";

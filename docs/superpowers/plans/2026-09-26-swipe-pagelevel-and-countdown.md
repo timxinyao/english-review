@@ -14,7 +14,7 @@
 
 - 仓库根：`/var/www/english-review`；所有命令在根目录执行。
 - 单测：`pnpm --filter @el/web run test`（vitest run，全部通过才算过）。
-- 单个 e2e：`pnpm --filter @el/web run e2e -- -g "<名称片段>"`；全量 e2e：`pnpm --filter @el/web run e2e`。
+- 单个 e2e：`E2E_API_PORT=5175 pnpm --filter @el/web run e2e -- -g "<名称片段>"`；全量 e2e：`E2E_API_PORT=5175 pnpm --filter @el/web run e2e`（生产 API 占 5174，必须换端口）。
 - 服务器仅 1.9G 内存：**禁止**单测与 e2e 并发跑；跑 e2e 前确认无其他构建进行；构建一律带 `NODE_OPTIONS=--max-old-space-size=768`。
 - `CORRECT_AUTO_ADVANCE_MS = 4000`（`apps/web/src/lib/questions.ts`），不要改值。
 - 提交信息末尾加：

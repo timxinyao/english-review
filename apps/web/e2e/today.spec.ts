@@ -2,7 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Today 复习全流程（PC viewport；E2E_SEED=1 播种：
- * 4 个到期任务 stable/wear down/raw/make sense + 1 个 New Queue 项 gravity）
+ * 5 个到期任务（give up/make sense/raw/stable/wear down）+ 1 个 New Queue 项 gravity）。
+ * start 后会话为固定序（到期按 next_review_at+item.id，New Queue learn 殿后，混排不改变）：
+ * give up 表达 → make sense 理解 → raw 填空 → stable 理解 → wear down 理解 → gravity learn
  */
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -45,8 +47,8 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText(/^5 items due · \d+ new today$/)).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
-    // active 态：细进度行
-    await expect(page.getByText(/^\d+ \/ \d+$/)).toBeVisible();
+    // active 态：细进度行（批量 entries 未落地时为 "0 / 6"，落地后为 "第 1 / 6"）
+    await expect(page.getByText(/^(第 )?\d+ \/ \d+$/)).toBeVisible();
 
     // 计划：gravity 学对；stable 答错一次看解释；wear down 稍后一次回来再答对；
     // make sense 答对走自动下一题；raw 填空答对；give up 表达题答对（Phase 4 种子）；未知补强卡兜底处理。
@@ -106,7 +108,8 @@ test.describe('Today 复习全流程', () => {
       if (await page.getByRole('button', { name: '逐渐消耗' }).isVisible()) {
         if (!wearDownDeferred) {
           wearDownDeferred = true;
-          await page.getByRole('button', { name: '稍后再做' }).click();
+          // 导航改版（877f678）后无“稍后再做”按钮：未答当前卡右滑 / → 键 = 推到队尾
+          await page.keyboard.press('ArrowRight');
           // 等 later 落库、切换到下一张卡，避免紧接着把同一张卡答掉（与 later 竞态）
           await expect(page.getByRole('button', { name: '逐渐消耗' })).toBeHidden({
             timeout: 5000,
@@ -152,5 +155,41 @@ test.describe('Today 复习全流程', () => {
     expect(doneCount).toBeGreaterThanOrEqual(5);
     await expect(page.getByText(/通过 \d+ · 基础通过 \d+ · 未通过 \d+/)).toBeVisible();
     await expect(page.getByText(/新学 \d+ 项/)).toBeVisible();
+  });
+
+  test('导航：列表回看与跳做未完成任务', async ({ page }) => {
+    test.setTimeout(90_000);
+    await login(page);
+    await resetSeedData(page);
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+
+    // 首卡是 give up 表达题（会话序第 1/6）：提交通过 → 手动下一题，当前推进到第 2/6（make sense）
+    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+    await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+    await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '下一题' }).click();
+
+    // 打开列表：全量任务；点已完成的 give up 回看（只读）
+    await page.getByRole('button', { name: '查看任务列表' }).click();
+    const dialog = page.getByRole('dialog', { name: '任务列表' });
+    await expect(dialog).toBeVisible();
+    const giveUpEntry = dialog.getByRole('button', { name: /give up/ });
+    // 等批量 entries 拿到该题结果（invalidate refetch 落地），否则点进去是可作答视图而非回看
+    await expect(giveUpEntry).toContainText('对');
+    await giveUpEntry.click();
+    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
+    await page.getByRole('button', { name: '返回当前' }).click();
+
+    // 跳做一个未完成任务（stable，会话序第 4/6）：题面出现且可作答
+    await page.getByRole('button', { name: '查看任务列表' }).click();
+    await dialog.getByRole('button', { name: /stable/ }).click();
+    await expect(page.getByText(/^第 4 \/ \d+$/)).toBeVisible();
+    await expect(page.getByText('stable 在这里最接近什么意思？')).toBeVisible();
+    await page.getByRole('button', { name: '稳定的' }).click();
+    await expect(page.getByText('回答正确')).toBeVisible();
+    await continueAfterCorrect(page);
   });
 });

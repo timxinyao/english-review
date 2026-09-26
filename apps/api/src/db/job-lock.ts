@@ -28,18 +28,24 @@ function newHolder(): string {
 }
 
 function tryAcquire(db: AppDatabase, name: string, holder: string, ttlMs: number): boolean {
-  // better-sqlite3 同步事务：SQLite 文件写锁保证跨进程原子性
-  return db.transaction((tx) => {
-    const nowIso = new Date().toISOString();
-    const row = tx.select().from(jobLocks).where(eq(jobLocks.name, name)).get();
-    if (row && row.leaseUntil > nowIso) return false; // 他人持有且未过期
-    const leaseUntil = new Date(Date.now() + ttlMs).toISOString();
-    tx.insert(jobLocks)
-      .values({ name, holder, leaseUntil })
-      .onConflictDoUpdate({ target: jobLocks.name, set: { holder, leaseUntil } })
-      .run();
-    return true;
-  });
+  // better-sqlite3 同步事务；跨进程写锁竞争抛 SQLITE_BUSY 时按未获取处理（下轮 poll 重试）
+  try {
+    return db.transaction((tx) => {
+      const nowIso = new Date().toISOString();
+      const row = tx.select().from(jobLocks).where(eq(jobLocks.name, name)).get();
+      if (row && row.leaseUntil > nowIso) return false; // 他人持有且未过期
+      const leaseUntil = new Date(Date.now() + ttlMs).toISOString();
+      tx.insert(jobLocks)
+        .values({ name, holder, leaseUntil })
+        .onConflictDoUpdate({ target: jobLocks.name, set: { holder, leaseUntil } })
+        .run();
+      return true;
+    });
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    if (e.code === 'SQLITE_BUSY' || e.message?.includes('database is locked')) return false;
+    throw err;
+  }
 }
 
 /**

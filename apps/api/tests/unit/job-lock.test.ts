@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createDatabase, rawSqlite, type AppDatabase } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import { JobLockTimeoutError, withJobLock } from '../../src/db/job-lock.js';
@@ -51,6 +51,20 @@ describe('withJobLock', () => {
       .run(past);
     const out = await withJobLock(db, 'L', async () => 'ok', { pollMs: 20 });
     expect(out).toBe('ok');
+  });
+
+  it('SQLITE_BUSY：事务竞争抛忙按未获取处理，下轮 poll 重试后成功', async () => {
+    const db = makeDb();
+    const spy = vi.spyOn(db, 'transaction');
+    spy.mockImplementationOnce(() => {
+      const err = new Error('database is locked') as Error & { code?: string };
+      err.code = 'SQLITE_BUSY';
+      throw err;
+    });
+    const out = await withJobLock(db, 'L', async () => 'ok', { pollMs: 10 });
+    expect(out).toBe('ok');
+    expect(spy.mock.calls.length).toBeGreaterThan(1); // 首次忙、后续重试成功
+    spy.mockRestore();
   });
 
   it('fn 抛错：锁仍被释放', async () => {

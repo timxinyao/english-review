@@ -68,10 +68,9 @@ export function LearnContent({
             <button
               type="button"
               onClick={() => setRevealed(true)}
-              className="absolute inset-0 flex items-center gap-2 rounded-lg px-1 text-left transition-colors"
+              className="absolute inset-0 flex items-center gap-2 rounded-lg bg-card px-1 text-left"
               aria-label="点击显示释义"
             >
-              <span className="absolute inset-0 -z-10 rounded-lg bg-background/70 backdrop-blur-[6px]" />
               <Eye className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <span className="text-sm text-muted-foreground">点击显示释义</span>
             </button>

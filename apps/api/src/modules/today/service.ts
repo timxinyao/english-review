@@ -690,25 +690,6 @@ function activeResponse(exec: DbExecutor, session: SessionRow): TodayActiveRespo
     session: { id: session.id, sessionDate: session.sessionDate },
     progress: progressOf(exec, session.id),
     currentTask: current ? taskToView(exec, current) : null,
-    sessionTasks: exec
-      .select({
-        taskId: reviewTasks.id,
-        target: learningItems.target,
-        taskType: reviewTasks.taskType,
-        completedAt: reviewTasks.completedAt,
-        sortKey: reviewTasks.sortKey,
-      })
-      .from(reviewTasks)
-      .innerJoin(learningItems, eq(reviewTasks.learningItemId, learningItems.id))
-      .where(eq(reviewTasks.sessionId, session.id))
-      .orderBy(asc(reviewTasks.sortKey))
-      .all()
-      .map((t) => ({
-        taskId: t.taskId,
-        target: t.target,
-        taskType: t.taskType as 'learn' | 'understanding' | 'cloze' | 'production',
-        completed: !!t.completedAt,
-      })),
   };
 }
 

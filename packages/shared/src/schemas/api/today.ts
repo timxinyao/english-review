@@ -81,14 +81,6 @@ export const TodayIdleResponse = z.object({
 });
 export type TodayIdleResponse = z.infer<typeof TodayIdleResponse>;
 
-export const SessionTaskSummary = z.object({
-  taskId: z.string(),
-  target: z.string(),
-  taskType: z.enum(['learn', 'understanding', 'cloze', 'production']),
-  completed: z.boolean(),
-});
-export type SessionTaskSummary = z.infer<typeof SessionTaskSummary>;
-
 export const TodayActiveResponse = z.object({
   status: z.literal('active'),
   session: z.object({
@@ -97,8 +89,6 @@ export const TodayActiveResponse = z.object({
   }),
   progress: TodayProgress,
   currentTask: TodayTaskView.nullable(),
-  /** 本 session 全部任务概要（单词列表弹窗用） */
-  sessionTasks: z.array(SessionTaskSummary),
 });
 export type TodayActiveResponse = z.infer<typeof TodayActiveResponse>;
 
@@ -155,6 +145,20 @@ export const AnswerResponse = z.object({
   completed: TodaySummary.nullable(),
 });
 export type AnswerResponse = z.infer<typeof AnswerResponse>;
+
+// ---------- 会话任务批量视图（GET /api/today/tasks）----------
+
+export const SessionTaskEntry = z.object({
+  task: TodayTaskView,
+  result: AnswerResponse.nullable(),
+  canceled: z.boolean(),
+});
+export type SessionTaskEntry = z.infer<typeof SessionTaskEntry>;
+
+export const TodaySessionTasksResponse = z.object({
+  tasks: z.array(SessionTaskEntry),
+});
+export type TodaySessionTasksResponse = z.infer<typeof TodaySessionTasksResponse>;
 
 // ---------- later / 坏题 / 反馈 ----------
 

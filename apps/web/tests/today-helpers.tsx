@@ -288,3 +288,8 @@ export function makeSessionEntry(
 export function makeTasksResponse(tasks: SessionTaskEntry[]): TodaySessionTasksResponse {
   return { tasks };
 }
+
+/** 已撤销条目（result 不回放） */
+export function makeCanceledEntry(task: TodayTaskView): SessionTaskEntry {
+  return makeSessionEntry(task, null, true);
+}

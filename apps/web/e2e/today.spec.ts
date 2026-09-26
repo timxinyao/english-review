@@ -140,6 +140,12 @@ test.describe('Today 复习全流程', () => {
     expect(doneCount).toBeGreaterThanOrEqual(5);
     await expect(page.getByText(/通过 \d+ · 基础通过 \d+ · 未通过 \d+/)).toBeVisible();
     await expect(page.getByText(/新学 \d+ 项/)).toBeVisible();
+
+    // 今日回顾列表：错题在前，含答错的 stable
+    const reviewList = page.getByRole('list', { name: '今日回顾' });
+    await expect(reviewList).toBeVisible();
+    const firstRow = reviewList.getByRole('listitem').first();
+    await expect(firstRow).toContainText('错');
   });
 
   test('导航：列表回看与未做条目置灰', async ({ page }) => {

@@ -6,7 +6,7 @@ import { cn } from '../../../lib/utils';
 import { TaskCard } from './TaskCard';
 import { useSessionTasks } from '../api';
 
-const TYPE_LABEL: Record<TodayTaskView['taskType'], string> = {
+export const TYPE_LABEL: Record<TodayTaskView['taskType'], string> = {
   learn: 'learn',
   understanding: '理解',
   cloze: '填空',

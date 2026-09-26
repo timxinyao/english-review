@@ -67,5 +67,31 @@ export function buildApp({ config, db, logger = true }: AppOptions): FastifyInst
   // 模型自动发现状态（Settings 只读展示；不暴露 endpoint/密钥）
   app.get('/api/ai/models', async () => buildAiModelsResponse(config));
 
+  // TTS 音频代理：绕过 iOS 静音拨片（speechSynthesis 走系统音效通道，audio 走媒体通道）
+  app.get('/api/tts', async (req, reply) => {
+    const text = (req.query as { text?: string }).text;
+    if (!text || text.length > 200) {
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_ERROR', message: 'text 必填且 ≤200 字符' } });
+    }
+    try {
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+      });
+      if (!res.ok) throw new Error(`upstream ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      return reply
+        .header('content-type', 'audio/mpeg')
+        .header('cache-control', 'public, max-age=86400') // 浏览器缓存 24h
+        .send(buf);
+    } catch {
+      return reply
+        .status(502)
+        .send({ error: { code: 'AI_PROVIDER_ERROR', message: 'TTS 服务暂不可用' } });
+    }
+  });
+
   return app;
 }

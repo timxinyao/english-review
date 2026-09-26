@@ -1,12 +1,12 @@
-import { useCallback, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { TodayTaskView } from '@el/shared';
 import { Eye, Volume2 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { speak, type TtsDebug } from '../../../lib/tts';
+import { speak } from '../../../lib/tts';
 
 /**
- * 发音按钮：词/词块与例句共用（PRODUCT §12.1，优先 en-US voice）。
- * className 用于行内光学对齐：按钮 32px 高于小号文字行时按所在行的行高微调。
+ * 发音按钮：词/词块与例句共用（PRODUCT §12.1）。
+ * 走后端 TTS 代理 + <audio playsinline>——iOS 静音拨片下也能出声。
  */
 export function SpeakButton({
   text,
@@ -17,52 +17,27 @@ export function SpeakButton({
   label?: string;
   className?: string;
 }) {
-  const [debug, setDebug] = useState<TtsDebug | null>(null);
-
-  const onSpeak = useCallback(() => {
-    speak(text, (d) => setDebug(d.ok ? null : d)); // 仅出错时显示
-  }, [text]);
-
   return (
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        aria-label={label ?? `朗读 ${text}`}
-        onClick={onSpeak}
-        className={cn(
-          'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted',
-          className,
-        )}
-      >
-        <Volume2 className="h-4 w-4" aria-hidden />
-      </button>
-      {debug && (
-        <span
-          role="status"
-          className={`absolute left-1/2 top-full z-30 mt-1 -translate-x-1/2 rounded-md px-2 py-1 text-xs whitespace-nowrap ${
-            debug.ok ? 'bg-muted text-muted-foreground' : 'bg-destructive/10 text-destructive'
-          }`}
-        >
-          {debug.message}
-        </span>
+    <button
+      type="button"
+      aria-label={label ?? `朗读 ${text}`}
+      onClick={() => speak(text)}
+      className={cn(
+        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted',
+        className,
       )}
-    </span>
+    >
+      <Volume2 className="h-4 w-4" aria-hidden />
+    </button>
   );
 }
 
 /**
  * Learn 卡内容（两阶段，生成效应优先）：
  * 阶段 1：词 + 例句 + 发音，释义模糊——鼓励从上下文先猜
- * 阶段 2（点击后）：释义展开，题目才出现
+ * 阶段 2（点击后）：释义展开
  */
-export function LearnContent({
-  task,
-  children,
-}: {
-  task: TodayTaskView;
-  /** 题目内容（只在释义展开后渲染） */
-  children?: ReactNode;
-}) {
+export function LearnContent({ task, children }: { task: TodayTaskView; children?: ReactNode }) {
   const { item } = task;
   const supplementary = task.supplementaryExamples.slice(0, 1);
   const [revealed, setRevealed] = useState(false);
@@ -79,7 +54,7 @@ export function LearnContent({
           <SpeakButton text={item.target} className="translate-y-0.5" />
         </div>
 
-        {/* 释义：文字始终占位（零布局抖动），未展开时覆盖模糊层 */}
+        {/* 释义：文字始终占位（零布局抖动），未展开时覆盖不透明层 */}
         <div className="relative">
           <p className="select-none text-base text-foreground">{item.meaning}</p>
           {!revealed && (
@@ -113,7 +88,6 @@ export function LearnContent({
         ))}
       </div>
 
-      {/* 题目始终渲染；释义模糊只影响释义本身 */}
       {children}
     </div>
   );

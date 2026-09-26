@@ -35,41 +35,6 @@ async function continueAfterCorrect(page: Page) {
   }
 }
 
-/** 在页面坐标 (x, y) 以真实 TouchEvent 序列横向滑 dx 像素（冒泡到 React 根） */
-async function touchSwipe(page: Page, x: number, y: number, dx: number) {
-  await page.evaluate(
-    ([sx, sy, d]) => {
-      const target = document.elementFromPoint(sx, sy);
-      if (!target) throw new Error('elementFromPoint 命中为空');
-      const mk = (type: string, cx: number) => {
-        const t = new Touch({
-          identifier: 1,
-          target,
-          clientX: cx,
-          clientY: sy,
-          radiusX: 1,
-          radiusY: 1,
-          rotationAngle: 0,
-          force: 1,
-        });
-        target.dispatchEvent(
-          new TouchEvent(type, {
-            bubbles: true,
-            cancelable: true,
-            touches: type === 'touchend' ? [] : [t],
-            targetTouches: type === 'touchend' ? [] : [t],
-            changedTouches: [t],
-          }),
-        );
-      };
-      mk('touchstart', sx);
-      mk('touchmove', sx + d / 2);
-      mk('touchend', sx + d);
-    },
-    [x, y, dx],
-  );
-}
-
 test.describe('Today 复习全流程', () => {
   test('idle → 开始 → Learn + 选择/填空/稍后/答错 → 完成摘要', async ({ page }) => {
     test.setTimeout(120_000);
@@ -85,10 +50,9 @@ test.describe('Today 复习全流程', () => {
     // active 态：细进度行（批量 entries 未落地时为 "0 / 6"，落地后为 "第 1 / 6"）
     await expect(page.getByText(/^(第 )?\d+ \/ \d+$/)).toBeVisible();
 
-    // 计划：gravity 学对；stable 答错一次看解释；wear down 稍后一次回来再答对；
+    // 计划：gravity 学对；stable 答错一次看解释；wear down 答对；
     // make sense 答对走自动下一题；raw 填空答对；give up 表达题答对（Phase 4 种子）；未知补强卡兜底处理。
     let stableFailed = false;
-    let wearDownDeferred = false;
     let completed = false;
 
     for (let step = 0; step < 30 && !completed; step++) {
@@ -139,20 +103,10 @@ test.describe('Today 复习全流程', () => {
         continue;
       }
 
-      // 4) wear down：第一次稍后再做；队列后部回来时答对
+      // 4) wear down：直接答对（导航简化后无"稍后再做"入口）
       if (await page.getByRole('button', { name: '逐渐消耗' }).isVisible()) {
-        if (!wearDownDeferred) {
-          wearDownDeferred = true;
-          // 导航改版（877f678）后无“稍后再做”按钮：未答当前卡右滑 / → 键 = 推到队尾
-          await page.keyboard.press('ArrowRight');
-          // 等 later 落库、切换到下一张卡，避免紧接着把同一张卡答掉（与 later 竞态）
-          await expect(page.getByRole('button', { name: '逐渐消耗' })).toBeHidden({
-            timeout: 5000,
-          });
-        } else {
-          await page.getByRole('button', { name: '逐渐消耗' }).click();
-          await continueAfterCorrect(page);
-        }
+        await page.getByRole('button', { name: '逐渐消耗' }).click();
+        await continueAfterCorrect(page);
         continue;
       }
 
@@ -233,36 +187,7 @@ test.describe('Today 复习全流程', () => {
     await continueAfterCorrect(page);
   });
 
-  test('手势：卡片外区域起滑可翻页；按钮起滑不翻页', async ({ page }) => {
-    test.setTimeout(90_000);
-    await login(page);
-    await resetSeedData(page);
-    await page.goto('/today');
-    await page.getByRole('button', { name: '开始今日复习' }).click();
-
-    // 首卡 give up 表达题：提交通过 → 手动下一题，当前推进到第 2/6（make sense）
-    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
-    await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
-    await page.getByRole('button', { name: '提交' }).click();
-    await expect(page.getByText('通过', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '下一题' }).click();
-    await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
-
-    // 卡片正上方间隙（进度行与卡片之间的 space-y-4 留白）起左滑 → 回看上一题
-    const card = (await page.locator('[data-swipe-card]').boundingBox())!;
-    await touchSwipe(page, card.x + card.width / 2, card.y - 8, -160);
-    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
-
-    // "查看任务列表"按钮中心起滑 → 手势被防护忽略，仍停留第 1
-    const listBtn = (await page.getByRole('button', { name: '查看任务列表' }).boundingBox())!;
-    await touchSwipe(page, listBtn.x + listBtn.width / 2, listBtn.y + listBtn.height / 2, 160);
-    await page.waitForTimeout(300);
-    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
-    await expect(page.getByRole('dialog', { name: '任务列表' })).toBeHidden();
-  });
-
-  test('倒计时：答对后回看返回当前不自动跳题，手动右滑进下一题', async ({ page }) => {
+  test('倒计时：答对后列表回看返回当前不自动跳题，点反馈进下一题', async ({ page }) => {
     test.setTimeout(90_000);
     await login(page);
     await resetSeedData(page);
@@ -277,16 +202,16 @@ test.describe('Today 复习全流程', () => {
     await page.getByRole('button', { name: '下一题' }).click();
     await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
 
-    // make sense 答对（自动推进型）→ 立即卡片左滑回看 give up
+    // make sense 答对（自动推进型）→ 立即列表回看 give up
     await page.getByRole('button', { name: '讲得通' }).click();
     await expect(page.getByText('回答正确')).toBeVisible();
-    const card = (await page.locator('[data-swipe-card]').boundingBox())!;
-    await touchSwipe(page, card.x + card.width / 2, card.y + card.height / 2, -160);
+    await page.getByRole('button', { name: '查看任务列表' }).click();
+    const dialog = page.getByRole('dialog', { name: '任务列表' });
+    await dialog.getByRole('button', { name: /give up/ }).click();
     await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
 
     // 列表点"当前"项回当前（make sense 反馈仍冻结显示）
     await page.getByRole('button', { name: '查看任务列表' }).click();
-    const dialog = page.getByRole('dialog', { name: '任务列表' });
     await dialog.getByRole('button', { name: /make sense/ }).click();
     await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
@@ -295,8 +220,8 @@ test.describe('Today 复习全流程', () => {
     await page.waitForTimeout(5000);
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
 
-    // 手动右滑 → 进入下一题 raw 填空
-    await page.keyboard.press('ArrowRight');
+    // 点反馈区手动进入下一题 raw 填空
+    await page.getByText('回答正确').click();
     await expect(page.getByLabel('填空答案')).toBeVisible();
   });
 });

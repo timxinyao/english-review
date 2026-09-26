@@ -110,7 +110,7 @@ describe('Today 会话导航', () => {
     });
   });
 
-  it('已撤销任务：弹层置灰不可点，滑动跳过', async () => {
+  it('已撤销任务：弹层置灰不可点', async () => {
     stubApi({
       '/api/today': makeActive(t3, { completed: 2, total: 4 }),
       '/api/today/tasks': makeTasksResponse([

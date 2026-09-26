@@ -69,6 +69,7 @@ export async function runPrefetch(
 ): Promise<PrefetchSummary> {
   // 新词额度按用户本地日期归属 daily_stats；main 传 config.appTimezone，缺省 Asia/Shanghai
   const timezone = deps.timezone ?? DEFAULT_APP_TIMEZONE;
+  // 15 分钟租约：unlimited 大积压时串行生成可达约 60 次调用
   return withJobLock(deps.db, 'question-generation', async () => {
     const due = listUpcomingDue(deps.db, now, horizonDays);
     const summary: PrefetchSummary = {
@@ -157,7 +158,7 @@ export async function runPrefetch(
       }
     }
     return summary;
-  });
+  }, { ttlMs: 15 * 60_000 });
 }
 
 async function main(): Promise<void> {

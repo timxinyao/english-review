@@ -216,11 +216,12 @@ test.describe('Today 复习全流程', () => {
     await giveUpEntry.click();
     await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
+    // 回看态：返回当前按钮已移除（回当前=右滑越过末尾/列表点当前）
+    await expect(page.getByRole('button', { name: '返回当前' })).toHaveCount(0);
     // 返回当前：列表点"当前"项（make sense，第 2/6）
     await page.getByRole('button', { name: '查看任务列表' }).click();
     await dialog.getByRole('button', { name: /make sense/ }).click();
     await expect(page.getByText(/^第 2 \/ \d+$/)).toBeVisible();
-    await expect(page.getByRole('button', { name: '返回当前' })).toHaveCount(0);
 
     // 跳做一个未完成任务（stable，会话序第 4/6）：题面出现且可作答
     await page.getByRole('button', { name: '查看任务列表' }).click();

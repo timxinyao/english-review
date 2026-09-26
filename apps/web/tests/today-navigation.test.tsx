@@ -61,14 +61,6 @@ function stubAnsweredSession() {
   });
 }
 
-function swipeBy(dx: number): void {
-  const el = document.querySelector('[data-swipe-area]');
-  if (!(el instanceof HTMLElement)) throw new Error('deck 未渲染');
-  fireEvent.touchStart(el, { touches: [{ clientX: 200, clientY: 300 }] });
-  fireEvent.touchMove(el, { touches: [{ clientX: 200 + dx / 2, clientY: 300 }] });
-  fireEvent.touchEnd(el, { changedTouches: [{ clientX: 200 + dx, clientY: 300 }] });
-}
-
 describe('Today 会话导航', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -81,18 +73,6 @@ describe('Today 会话导航', () => {
     const current = document.querySelector('[data-current="true"]');
     expect(current).not.toBeNull();
     expect(current!.getAttribute('data-seg')).toBe('todo');
-  });
-
-  it('左滑回看：数字变 第 2 / 4，卡片只读且显示单词行', async () => {
-    stubSession();
-    renderTodayApp();
-    await screen.findByText('第 3 / 4');
-    swipeBy(-120);
-    await screen.findByText('第 2 / 4');
-    expect(screen.getByRole('heading', { name: 'beta' })).toBeVisible();
-    // 只读：选项禁用
-    const option = screen.getByRole('button', { name: '稳定的' });
-    expect(option).toBeDisabled();
   });
 
   it('列表弹层：显示全部 4 个任务与状态；点未完成任务跳去做并可作答', async () => {
@@ -150,32 +130,35 @@ describe('Today 会话导航', () => {
     expect(screen.queryByRole('dialog', { name: '任务列表' })).toBeVisible(); // 未关闭=未跳转
   });
 
-  it('当前题未作答右滑 → 稍后再做（later 调用，回归）', async () => {
-    stubApi({
-      '/api/today': makeActive(t3, { completed: 2, total: 4 }),
-      '/api/today/tasks': makeTasksResponse([
-        makeSessionEntry(t1, makeCorrectAnswer()),
-        makeSessionEntry(t2, makeWrongAnswer()),
-        makeSessionEntry(t3, null),
-        makeSessionEntry(t4, null),
-      ]),
-      '/api/today/tasks/task-3/later': { ok: true, progress: { completed: 2, total: 4 } },
-    });
-    renderTodayApp();
-    await screen.findByText('第 3 / 4');
-    swipeBy(120);
-    await waitFor(() => {
-      expect(apiCalls('/api/today/tasks/task-3/later')).toHaveLength(1);
-    });
-  });
-
-  it('键盘 ← 回看、→ 返回当前', async () => {
+  it('键盘 ←/→ 不再导航（滑动导航已删除）', async () => {
     stubSession();
     renderTodayApp();
     await screen.findByText('第 3 / 4');
     fireEvent.keyDown(window, { key: 'ArrowLeft' });
-    await screen.findByText('第 2 / 4');
     fireEvent.keyDown(window, { key: 'ArrowRight' });
+    await waitFor(() => expect(screen.getByText('第 3 / 4')).toBeVisible());
+    expect(apiCalls('/api/today/tasks/task-3/later')).toHaveLength(0);
+  });
+
+  it('无稍后再做入口：任何键盘操作不产生 later 调用', async () => {
+    stubSession();
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(apiCalls('/api/today/tasks/task-3/later')).toHaveLength(0);
+  });
+
+  it('列表点"当前"项 → 回到当前题 第 3 / 4', async () => {
+    stubSession();
+    renderTodayApp();
+    await screen.findByText('第 3 / 4');
+    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
+    const withinDialog = within(screen.getByRole('dialog', { name: '任务列表' }));
+    fireEvent.click(withinDialog.getByRole('button', { name: /beta/ }));
+    await screen.findByText('第 2 / 4');
+    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '任务列表' })).getByRole('button', { name: /gamma/ }));
     await screen.findByText('第 3 / 4');
   });
 
@@ -224,47 +207,6 @@ describe('Today 会话导航', () => {
     expect(apiCalls('/api/today/tasks/task-4/bad-question')).toHaveLength(0);
   });
 
-  it('回看到最前后继续左滑 → 停留 第 1 / 4（边界回弹）', async () => {
-    stubSession();
-    renderTodayApp();
-    await screen.findByText('第 3 / 4');
-    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
-    const withinDialog = within(screen.getByRole('dialog', { name: '任务列表' }));
-    fireEvent.click(withinDialog.getByRole('button', { name: /alpha/ }));
-    await screen.findByText('第 1 / 4');
-    swipeBy(-120);
-    await waitFor(() => expect(screen.getByText('第 1 / 4')).toBeVisible());
-  });
-
-  it('跳到最后一条后右滑越过末尾 → 回到当前题 第 3 / 4', async () => {
-    stubSession();
-    renderTodayApp();
-    await screen.findByText('第 3 / 4');
-    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
-    const withinDialog = within(screen.getByRole('dialog', { name: '任务列表' }));
-    fireEvent.click(withinDialog.getByRole('button', { name: /delta/ }));
-    await screen.findByText('第 4 / 4');
-    swipeBy(120);
-    await screen.findByText('第 3 / 4');
-  });
-
-  it('左滑回看跳过已撤销条目 → 落在 第 1 / 4', async () => {
-    stubApi({
-      '/api/today': makeActive(t3, { completed: 2, total: 4 }),
-      '/api/today/tasks': makeTasksResponse([
-        makeSessionEntry(t1, makeCorrectAnswer()),
-        makeSessionEntry(t2, makeWrongAnswer(), true), // t2 已撤销：回看路径跳过 2 号位
-        makeSessionEntry(t3, null),
-        makeSessionEntry(t4, null),
-      ]),
-    });
-    renderTodayApp();
-    await screen.findByText('第 3 / 4');
-    swipeBy(-120);
-    await screen.findByText('第 1 / 4');
-    expect(screen.getByRole('heading', { name: 'alpha' })).toBeVisible();
-  });
-
   it('答对不动 → 4s 自动跳题（基线行为）', async () => {
     stubAnsweredSession();
     renderTodayApp();
@@ -281,18 +223,20 @@ describe('Today 会话导航', () => {
     await screen.findByText('第 3 / 4');
     fireEvent.click(screen.getByRole('button', { name: '稳定的' }));
     await screen.findByText('回答正确');
-    // 4s 内左滑回看（取消本次倒计时），再右滑回当前
-    swipeBy(-120);
+    // 4s 内回看（取消本次倒计时），再回当前
+    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '任务列表' })).getByRole('button', { name: /beta/ }));
     await screen.findByText('第 2 / 4');
-    swipeBy(120);
+    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '任务列表' })).getByRole('button', { name: /gamma/ }));
     await screen.findByText('第 3 / 4');
     expect(screen.getByRole('heading', { name: 'gamma' })).toBeVisible();
     // 超过 CORRECT_AUTO_ADVANCE_MS：不得自动跳题（旧代码此处会推进到 delta）
     await new Promise((r) => setTimeout(r, 5000));
     expect(screen.getByRole('heading', { name: 'gamma' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'delta' })).toBeNull();
-    // 手动右滑（冻结反馈态右滑 = onAdvance）仍可进入下一题
-    swipeBy(120);
+    // 手动推进（点击反馈区 = onAdvance）仍可进入下一题
+    fireEvent.click(screen.getByText('回答正确'));
     await screen.findByText('第 4 / 4');
   }, 20_000);
 });

@@ -3,9 +3,8 @@ import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } f
 import { Check, X } from 'lucide-react';
 import { CORRECT_AUTO_ADVANCE_MS } from '../../../lib/questions';
 import { cn } from '../../../lib/utils';
-import { SwipeDeck } from './SwipeDeck';
 import { TaskCard } from './TaskCard';
-import { useLater, useSessionTasks } from '../api';
+import { useSessionTasks } from '../api';
 
 export { CORRECT_AUTO_ADVANCE_MS };
 
@@ -191,7 +190,6 @@ export function ActiveSession({
   useEffect(() => () => {
     armedRef.current = null;
   }, []);
-  const later = useLater();
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? null;
   /** null = 当前题；数字 = 回看/跳做条目索引 */
@@ -244,55 +242,8 @@ export function ActiveSession({
   // 跳做未完成任务 = 可作答；回看已完成 = 只读
   const reviewing = !isCurrent && (entry === null || entry.result !== null);
 
-  // 相邻导航（跳过撤销条目）；返回 false = 边界回弹；右向越过末尾 = 回到当前题
-  const stepCursor = useCallback(
-    (dir: -1 | 1): boolean => {
-      if (!entries || entries.length === 0) return false;
-      const from = cursor ?? currentIdx;
-      if (from === null) return false;
-      let i = from + dir;
-      while (i >= 0 && i < entries.length && entries[i]!.canceled) i += dir;
-      if (i < 0) return false;
-      if (i >= entries.length) {
-        setCursor(null);
-        return true;
-      }
-      setCursor(i === currentIdx ? null : i);
-      return true;
-    },
-    [entries, cursor, currentIdx],
-  );
-
-  const handleSwipeLeft = useCallback((): boolean => stepCursor(-1), [stepCursor]);
-
-  const handleSwipeRight = useCallback((): boolean => {
-    if (cursor !== null) return stepCursor(1);
-    // 当前题：已答 → 下一题；未答 → 稍后再做（推到队尾）
-    if (frozen?.result) {
-      onAdvance();
-      return true;
-    }
-    if (currentTask) {
-      later.mutate(currentTask.taskId);
-      return true;
-    }
-    return false;
-  }, [cursor, stepCursor, frozen, currentTask, later, onAdvance]);
-
-  // 键盘 ←/→ 与滑动同语义（输入框聚焦时忽略）
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const el = document.activeElement;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
-      if (e.key === 'ArrowLeft') handleSwipeLeft();
-      if (e.key === 'ArrowRight') handleSwipeRight();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [handleSwipeLeft, handleSwipeRight]);
-
   return (
-    <SwipeDeck className="space-y-4" onSwipeLeft={handleSwipeLeft} onSwipeRight={handleSwipeRight}>
+    <div className="space-y-4">
       <ProgressRow
         progress={progress}
         entries={entries}
@@ -301,21 +252,19 @@ export function ActiveSession({
         onJump={(i) => setCursor(i)}
       />
 
-      <div data-swipe-card style={{ willChange: 'transform', backfaceVisibility: 'hidden' }}>
-        {shownTask ? (
-          <TaskCard
-            key={shownTask.taskId}
-            task={shownTask}
-            result={shownResult}
-            readOnly={reviewing}
-            onAnswered={reviewing ? undefined : (result) => handleAnswered(shownTask, result)}
-            onAdvance={reviewing ? undefined : onAdvance}
-            onHoldChange={reviewing ? undefined : handleHoldChange}
-          />
-        ) : (
-          <p className="py-16 text-center text-sm text-muted-foreground">正在加载下一题…</p>
-        )}
-      </div>
-    </SwipeDeck>
+      {shownTask ? (
+        <TaskCard
+          key={shownTask.taskId}
+          task={shownTask}
+          result={shownResult}
+          readOnly={reviewing}
+          onAnswered={reviewing ? undefined : (result) => handleAnswered(shownTask, result)}
+          onAdvance={reviewing ? undefined : onAdvance}
+          onHoldChange={reviewing ? undefined : handleHoldChange}
+        />
+      ) : (
+        <p className="py-16 text-center text-sm text-muted-foreground">正在加载下一题…</p>
+      )}
+    </div>
   );
 }

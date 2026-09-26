@@ -9,6 +9,8 @@
  */
 let audioCtx: AudioContext | null = null;
 const bufferCache = new Map<string, AudioBuffer>();
+/** 当前正在播放的音频源——新播放前 stop 旧的，全局互斥（词/例句/任何文本） */
+let currentSource: AudioBufferSourceNode | null = null;
 
 function getCtx(): AudioContext {
   if (!audioCtx) {
@@ -20,20 +22,28 @@ function getCtx(): AudioContext {
   return audioCtx;
 }
 
+/** 停止当前播放（如果有） */
+export function stopSpeaking(): void {
+  if (currentSource) {
+    try {
+      currentSource.stop();
+    } catch {
+      // already stopped
+    }
+    currentSource = null;
+  }
+}
+
 export async function speak(text: string): Promise<void> {
   const key = text.slice(0, 200);
-
-  // 1. 取/建 AudioContext（必须在用户手势调用栈内——按钮 onClick 满足）
   const ctx = getCtx();
 
-  // 2. 缓存命中 → 直接播放（零延迟）
   let buffer = bufferCache.get(key);
   if (buffer) {
     playBuffer(ctx, buffer);
     return;
   }
 
-  // 3. 首次：拉取音频 → 解码 → 缓存 → 播放
   try {
     const res = await fetch(`/api/tts?text=${encodeURIComponent(key)}`);
     if (!res.ok) return;
@@ -42,13 +52,20 @@ export async function speak(text: string): Promise<void> {
     bufferCache.set(key, buffer);
     playBuffer(ctx, buffer);
   } catch {
-    // 静默失败（不打断学习流程）
+    // 静默失败
   }
 }
 
 function playBuffer(ctx: AudioContext, buffer: AudioBuffer): void {
+  stopSpeaking(); // 全局互斥：新播放立即停旧的（无论之前在播什么）
+
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.connect(ctx.destination);
   source.start();
+  currentSource = source;
+
+  source.onended = () => {
+    if (currentSource === source) currentSource = null;
+  };
 }

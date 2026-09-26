@@ -7,6 +7,7 @@ import type {
   TaskFeedbackRequest,
   TaskFeedbackResponse,
   TodayActiveResponse,
+  TodaySessionTasksResponse,
   TodayStatusResponse,
 } from '@el/shared';
 import { api } from '../../lib/api';
@@ -16,12 +17,17 @@ import { api } from '../../lib/api';
 export const todayKeys = {
   all: ['today'] as const,
   status: ['today', 'status'] as const,
+  tasks: ['today', 'tasks'] as const,
 };
 
 // ---------- 请求函数（契约：packages/shared today.ts，已冻结）----------
 
 export function fetchTodayStatus(): Promise<TodayStatusResponse> {
   return api<TodayStatusResponse>('/api/today');
+}
+
+export function fetchSessionTasks(): Promise<TodaySessionTasksResponse> {
+  return api<TodaySessionTasksResponse>('/api/today/tasks');
 }
 
 export function startTodaySession(): Promise<TodayActiveResponse> {
@@ -64,6 +70,10 @@ function useInvalidateToday() {
 
 export function useTodayStatus() {
   return useQuery({ queryKey: todayKeys.status, queryFn: fetchTodayStatus });
+}
+
+export function useSessionTasks() {
+  return useQuery({ queryKey: todayKeys.tasks, queryFn: fetchSessionTasks });
 }
 
 export function useStartSession() {

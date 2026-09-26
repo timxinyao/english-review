@@ -4,9 +4,11 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { vi } from 'vitest';
 import type {
   AnswerResponse,
+  SessionTaskEntry,
   TodayActiveResponse,
   TodayCompletedResponse,
   TodayIdleResponse,
+  TodaySessionTasksResponse,
   TodayTaskView,
 } from '@el/shared';
 import { api } from '../src/lib/api';
@@ -38,6 +40,10 @@ export function renderTodayApp() {
 /** 按 path 桩掉 api()；值可为对象或 () => 对象（用于队列/动态返回） */
 export function stubApi(handlers: Record<string, unknown | (() => unknown)>) {
   vi.mocked(api).mockImplementation(((path: string) => {
+    if (handlers[path] === undefined && path === '/api/today/tasks') {
+      // 默认空批量：ActiveSession 挂载即请求；显式桩见 today-navigation.test
+      return Promise.resolve({ tasks: [] });
+    }
     const handler = handlers[path];
     if (handler === undefined) {
       return Promise.reject(new Error(`stubApi: unexpected api call ${path}`));
@@ -269,4 +275,16 @@ export function makeProductionAnswer(overrides: Partial<AnswerResponse> = {}): A
     completed: null,
     ...overrides,
   };
+}
+
+export function makeSessionEntry(
+  task: TodayTaskView,
+  result: AnswerResponse | null,
+  canceled = false,
+): SessionTaskEntry {
+  return { task, result, canceled };
+}
+
+export function makeTasksResponse(tasks: SessionTaskEntry[]): TodaySessionTasksResponse {
+  return { tasks };
 }

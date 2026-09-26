@@ -31,6 +31,6 @@ test.describe('登录流程', () => {
 
     await page.goto('/settings');
     await expect(page.getByText('每日新学习项上限')).toBeVisible();
-    await expect(page.getByText('10 个/天')).toBeVisible();
+    await expect(page.getByLabel('每日新学习项上限')).toHaveValue('10');
   });
 });

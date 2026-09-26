@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
-const API_PORT = 5174;
+const API_PORT = Number(process.env.E2E_API_PORT ?? 5174);
 const WEB_PORT = 5173;
 
 export default defineConfig({

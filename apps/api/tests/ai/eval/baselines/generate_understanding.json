@@ -1,7 +1,7 @@
 {
-  "promptVersion": 1,
+  "promptVersion": 2,
   "cases": {
-    "gu01-chunk": "2d678f6b59e268fb",
-    "gu02-polysemy-lock": "6d0ca5f1f2d56663"
+    "gu01-chunk": "fd9248f37ae50d2b",
+    "gu02-polysemy-lock": "2108d36cbbca8126"
   }
 }

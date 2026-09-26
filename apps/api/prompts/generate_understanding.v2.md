@@ -1,6 +1,6 @@
 ---
 key: generate_understanding
-version: 1
+version: 2
 task: generateUnderstandingQuestions
 response_schema: GenerateUnderstandingQuestionsResult
 ---
@@ -36,7 +36,7 @@ recent_question_summaries_json: {{recent_question_summaries_json}}
    - `direct_meaning`：直接确认词义；
    - `context_meaning`：在新的自然上下文中理解 target。
 3. 新上下文不能只是 source example 的机械换词或同义改写。
-4. 上下文整体难度接近 {{content_level}}；不要引入大量无关难词、俚语或复杂从句。
+4. 上下文整体难度接近 {{content_level}}；不要引入大量无关难词、俚语或复杂从句。上下文 1-2 句、40 词以内——足够让学习者在语境中自然理解 target，但不要冗长叙事。
 5. 每题固定 4 个选项。只有 1 个正确答案。
 6. 干扰项必须“看起来合理但语义不对”，不能使用：明显荒谬选项、明显语法错误、与其他选项长度差异极大的提示性选项。
 7. 不要让正确答案总出现在同一位置。

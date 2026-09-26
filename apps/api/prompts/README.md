@@ -15,7 +15,7 @@
 
 | key | 文件 |
 | --- | --- |
-| generate_understanding | `generate_understanding.v1.md` |
+| generate_understanding | `generate_understanding.v2.md` |
 | generate_cloze | `generate_cloze.v1.md` |
 | check_cloze | `check_cloze.v1.md` |
 | generate_production_prompt | `generate_production_prompt.v1.md` |

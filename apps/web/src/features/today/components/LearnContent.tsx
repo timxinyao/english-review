@@ -83,7 +83,7 @@ export function LearnContent({ task, children }: { task: TodayTaskView; children
         {supplementary.map((example) => (
           <div key={example} className="border-l-2 border-accent/30 pl-3">
             <p className="mb-0.5 text-xs text-muted-foreground">补充例句</p>
-            <p className="text-base leading-relaxed text-foreground">{example}</p>
+            <p className="text-lg leading-relaxed text-foreground">{example}</p>
           </div>
         ))}
       </div>

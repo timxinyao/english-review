@@ -134,6 +134,7 @@ Expected: 新用例 FAIL（答对态无"下一题"按钮；且 4s 后被自动�
 - 删除 `MANUAL_ADVANCE_TYPES` 常量块。
 - 删除 `const [hold, setHold] = useState(false);`、`armedRef` 声明及其两段注释、unmount 重置 effect、`handleHoldChange`、自动跳题 effect（含"不变量"注释整段）。
 - TaskCard 调用处删除 `onHoldChange={reviewing ? undefined : handleHoldChange}` 一行。
+- `armedRef` 是该文件唯一的 `useRef` 使用——删除后 import 区去掉 `useRef`。
 
 3c. `apps/web/src/features/today/components/TaskCard.tsx`：
 - Props 删除 `onHoldChange?: (hold: boolean) => void;` 及其注释行。

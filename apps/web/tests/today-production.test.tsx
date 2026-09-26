@@ -116,7 +116,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
       // 表达题结果后可标记坏题
       expect(screen.getByRole('button', { name: '坏题' })).toBeVisible();
 
-      // 表达题不自动下一题（PRODUCT §7.6）：越过 2 秒仍在当前卡
+      // 不自动下一题（自动跳题已全删）：时间流逝仍停留当前卡，直到点"下一题"
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3000);
       });

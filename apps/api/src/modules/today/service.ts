@@ -765,7 +765,7 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/today/tasks：会话全部任务批量视图（导航/回看/跳做）
+// GET /api/today/tasks：会话全部任务批量视图（进度/回看/完成页今日回顾）
 // ---------------------------------------------------------------------------
 
 export async function getSessionTasks(

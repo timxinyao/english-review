@@ -207,7 +207,7 @@ export function ActiveSession({
   const shownIdx = cursor ?? currentIdx;
   const entry = entries && shownIdx !== null && shownIdx < entries.length ? entries[shownIdx]! : null;
   const isCurrent = cursor === null;
-  // 当前题视图必须信任 props（frozen/currentTask）：答错/跳做后 invalidate refetch 落地时
+  // 当前题视图必须信任 props（frozen/currentTask）：作答后 invalidate refetch 落地时
   // 批量 entries 已指向新的当前题，取 entry.task 会渲染"新题卡 + 旧题反馈"错配，
   // 坏题等操作也会 mutate 到错误的 taskId
   const shownTask = isCurrent

@@ -1,18 +1,12 @@
 import { pathToFileURL } from 'node:url';
 import { and, asc, eq } from 'drizzle-orm';
-import {
-  DEFAULT_APP_TIMEZONE,
-  DEFAULT_SETTINGS,
-  MAX_NEW_ITEMS_UNLIMITED,
-  QUESTION_TARGET_STOCK,
-  localDateString,
-} from '@el/shared';
+import { QUESTION_TARGET_STOCK } from '@el/shared';
 import { loadConfig } from '../config.js';
 import { initAiRuntime } from '../ai/runtime.js';
 import { createDatabase, rawSqlite, type AppDatabase } from '../db/client.js';
 import { withJobLock } from '../db/job-lock.js';
 import { runMigrations } from '../db/migrate.js';
-import { dailyStats, learningItems, reviewStates, settings as settingsTable } from '../db/schema.js';
+import { learningItems, reviewStates } from '../db/schema.js';
 import type { AiRuntime } from '../ai/runtime.js';
 import {
   countQuestionStock,
@@ -24,8 +18,9 @@ import { listUpcomingDue } from '../modules/review/service.js';
 /** 预生成窗口：未来 48 小时（PHASES phase-3） */
 export const PREFETCH_HORIZON_DAYS = 2;
 
-/** 新词预取上限：unlimited 或额度很大时避免单次生成过多（GLM 串行时长与服务器负载） */
-export const PREFETCH_NEW_ITEMS_CAP = 20;
+/** 新词预取病态上界：防单次导入巨量导致单晚跑不完（超出部分随后续夜晚追平）。
+ *  额度（maxNewItemsPerDay）与备货解耦：额度只决定当天学多少。 */
+export const PREFETCH_NEW_ITEMS_CAP = 100;
 
 export interface PrefetchSummary {
   /** 窗口内到期的 item×维度数 */
@@ -44,32 +39,22 @@ export interface PrefetchSummary {
   newGenerated: number;
 }
 
-/** 剩余新学额度（与 today/start 同式）：maxNew - 今日 newItemsStarted */
-function remainingNewQuota(db: AppDatabase, today: string): number {
-  const maxNew = db.select().from(settingsTable).get()?.maxNewItemsPerDay ?? DEFAULT_SETTINGS.maxNewItemsPerDay;
-  const started =
-    db.select().from(dailyStats).where(eq(dailyStats.date, today)).get()?.newItemsStarted ?? 0;
-  if (maxNew === MAX_NEW_ITEMS_UNLIMITED) return PREFETCH_NEW_ITEMS_CAP;
-  return Math.min(Math.max(0, maxNew - started), PREFETCH_NEW_ITEMS_CAP);
-}
-
 /**
  * 题目预生成核心（TECHNICAL_DESIGN / phase-3 + phase-4）：
  * 扫未来 horizon 天内将到期的（item active + started）item×维度 → 对应题型
  * （U→understanding；P-L1/2→cloze；P-L3+→cloze + production，表达题目标 2）
- * 库存 < QUESTION_TARGET_STOCK 时补足；再按剩余新学额度补 active+new item 的
- * understanding 库存（Today Learn 题盲区，start 不再在线生成）。
+ * 库存 < QUESTION_TARGET_STOCK 时补足；再对整个新队列（active+new，createdAt,id 序）
+ * 补 understanding 库存（Today Learn 题盲区，start 不再在线生成；额度与备货解耦，
+ * 病态上界 PREFETCH_NEW_ITEMS_CAP）。
  * 整体持 question-generation 全局锁（与 today/start、library/practice 互斥）；
  * 单条目失败不中断，最后汇总；退出码处理由入口 main 负责。
  */
 export async function runPrefetch(
-  deps: { db: AppDatabase; runtime: AiRuntime; timezone?: string },
+  deps: { db: AppDatabase; runtime: AiRuntime },
   now: Date,
   horizonDays: number = PREFETCH_HORIZON_DAYS,
 ): Promise<PrefetchSummary> {
-  // 新词额度按用户本地日期归属 daily_stats；main 传 config.appTimezone，缺省 Asia/Shanghai
-  const timezone = deps.timezone ?? DEFAULT_APP_TIMEZONE;
-  // 15 分钟租约：unlimited 大积压时串行生成可达约 60 次调用
+  // 30 分钟租约：全量队列最多约 100 词 × 3 题串行生成
   return withJobLock(deps.db, 'question-generation', async () => {
     const due = listUpcomingDue(deps.db, now, horizonDays);
     const summary: PrefetchSummary = {
@@ -126,39 +111,36 @@ export async function runPrefetch(
       if (!needed) summary.skipped++;
     }
 
-    // ---- 新词队列（Today Learn 题盲区）：按剩余额度补 understanding 库存 ----
-    const quota = remainingNewQuota(deps.db, localDateString(now, timezone));
-    if (quota > 0) {
-      const newItems = deps.db
-        .select()
-        .from(learningItems)
-        .where(and(eq(learningItems.status, 'active'), eq(learningItems.queueState, 'new')))
-        .orderBy(asc(learningItems.createdAt), asc(learningItems.id))
-        .limit(quota)
-        .all();
-      const target = QUESTION_TARGET_STOCK.understanding;
-      for (const item of newItems) {
-        const stock = countQuestionStock(deps.db, item.id, 'understanding');
-        if (stock >= target) continue;
-        try {
-          const rows = await generateQuestionsForItem(
-            { db: deps.db, runtime: deps.runtime },
-            item.id,
-            'understanding',
-            target - stock,
-          );
-          summary.newGenerated += rows.length;
-          summary.newItems++;
-        } catch (err) {
-          summary.failed++;
-          console.error(
-            `[daily-prefetch] 新词 ${item.id}（understanding）生成失败：${(err as Error).message}`,
-          );
-        }
+    // ---- 新词队列全量备货（额度解耦）：按 createdAt,id 补 understanding 库存至目标 ----
+    const newItems = deps.db
+      .select()
+      .from(learningItems)
+      .where(and(eq(learningItems.status, 'active'), eq(learningItems.queueState, 'new')))
+      .orderBy(asc(learningItems.createdAt), asc(learningItems.id))
+      .limit(PREFETCH_NEW_ITEMS_CAP)
+      .all();
+    const target = QUESTION_TARGET_STOCK.understanding;
+    for (const item of newItems) {
+      const stock = countQuestionStock(deps.db, item.id, 'understanding');
+      if (stock >= target) continue;
+      try {
+        const rows = await generateQuestionsForItem(
+          { db: deps.db, runtime: deps.runtime },
+          item.id,
+          'understanding',
+          target - stock,
+        );
+        summary.newGenerated += rows.length;
+        summary.newItems++;
+      } catch (err) {
+        summary.failed++;
+        console.error(
+          `[daily-prefetch] 新词 ${item.id}（understanding）生成失败：${(err as Error).message}`,
+        );
       }
     }
     return summary;
-  }, { ttlMs: 15 * 60_000 });
+  }, { ttlMs: 30 * 60_000 });
 }
 
 async function main(): Promise<void> {
@@ -175,7 +157,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    const summary = await runPrefetch({ db, runtime, timezone: config.appTimezone }, new Date());
+    const summary = await runPrefetch({ db, runtime }, new Date());
     console.info(
       `[daily-prefetch] 到期 ${summary.due}，处理 ${summary.processed}，` +
         `跳过 ${summary.skipped}，失败 ${summary.failed}，生成 ${summary.generated} 题；` +

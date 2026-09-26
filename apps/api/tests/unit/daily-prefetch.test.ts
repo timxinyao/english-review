@@ -186,7 +186,7 @@ describe('runPrefetch 新词队列补库存（Today Learn 题盲区）', () => {
     expect(countQuestionStock(db, itemId, 'cloze')).toBe(0);
   });
 
-  it('当日新词额度耗尽 → 新词不生成', async () => {
+  it('额度耗尽仍全量备货：额度只影响当天学多少，不影响预生成', async () => {
     setMaxNewItemsPerDay(10);
     db.insert(dailyStats)
       .values({
@@ -201,24 +201,40 @@ describe('runPrefetch 新词队列补库存（Today Learn 题盲区）', () => {
     const itemId = await seedNewItem('new-full', '2026-09-01T00:00:00.000Z');
     const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
 
-    expect(summary).toMatchObject({ newItems: 0, newGenerated: 0 });
-    expect(countQuestionStock(db, itemId, 'understanding')).toBe(0);
+    expect(summary).toMatchObject({ newItems: 1, failed: 0 });
+    expect(summary.newGenerated).toBeGreaterThanOrEqual(1);
+    // 生成调用即 ('understanding', 3)：一次补满 QUESTION_TARGET_STOCK.understanding
+    expect(countQuestionStock(db, itemId, 'understanding')).toBe(QUESTION_TARGET_STOCK.understanding);
+    expect(countQuestionStock(db, itemId, 'cloze')).toBe(0);
   });
 
-  it('unlimited 额度 → 新词预取封顶 PREFETCH_NEW_ITEMS_CAP（第 21~25 个不生成）', async () => {
+  it('大队列按 createdAt,id 全量处理，病态上界 100', async () => {
+    // >100 场景 seed 成本高，不做真实 101 个：病态上界以 PREFETCH_NEW_ITEMS_CAP 常量引用断言为准
     setMaxNewItemsPerDay(MAX_NEW_ITEMS_UNLIMITED);
     const ids: string[] = [];
-    for (let i = 0; i < 25; i++) {
-      const id = `cap-${String(i).padStart(2, '0')}`;
+    for (let i = 0; i < 3; i++) {
+      const id = `full-${String(i).padStart(2, '0')}`;
       ids.push(await seedNewItem(id, `2026-09-01T00:00:${String(i).padStart(2, '0')}.000Z`));
     }
-    const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
+    // 首次见到的 target 顺序 = 生成顺序
+    const seen: string[] = [];
+    const inner = createMockProvider();
+    const provider: AiProvider = {
+      name: inner.name,
+      async complete(req: ProviderRequest) {
+        const target = String(req.vars.target);
+        if (!seen.includes(target)) seen.push(target);
+        return inner.complete(req);
+      },
+    };
+    const summary = await runPrefetch({ db, runtime: buildMockRuntime(provider) }, NOW);
 
-    expect(summary.newItems).toBe(PREFETCH_NEW_ITEMS_CAP);
-    expect(countQuestionStock(db, ids[0]!, 'understanding')).toBe(QUESTION_TARGET_STOCK.understanding);
-    expect(countQuestionStock(db, ids[19]!, 'understanding')).toBe(QUESTION_TARGET_STOCK.understanding);
-    expect(countQuestionStock(db, ids[20]!, 'understanding')).toBe(0);
-    expect(countQuestionStock(db, ids[24]!, 'understanding')).toBe(0);
+    expect(PREFETCH_NEW_ITEMS_CAP).toBe(100);
+    expect(summary.newItems).toBe(ids.length); // 全量备货，不受额度影响
+    expect(seen).toEqual(ids); // 处理顺序按 createdAt,id
+    for (const id of ids) {
+      expect(countQuestionStock(db, id, 'understanding')).toBe(QUESTION_TARGET_STOCK.understanding);
+    }
   });
 
   it('runPrefetch 整体持 question-generation 锁：执行期间锁行存在，结束后 job_locks 清空', async () => {

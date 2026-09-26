@@ -20,8 +20,7 @@ export function SpeakButton({
   const [debug, setDebug] = useState<TtsDebug | null>(null);
 
   const onSpeak = useCallback(() => {
-    setDebug({ ok: true, message: '...' });
-    speak(text, (d) => setDebug(d.message ? d : null));
+    speak(text, (d) => setDebug(d.ok ? null : d)); // 仅出错时显示
   }, [text]);
 
   return (

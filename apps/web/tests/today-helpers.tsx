@@ -217,6 +217,8 @@ export function makeCompleted(
 ): TodayCompletedResponse {
   return {
     status: 'completed',
+    totalItems: 57,
+    newQueueCount: 27,
     summary: {
       totalTasks: 6,
       pass: 3,

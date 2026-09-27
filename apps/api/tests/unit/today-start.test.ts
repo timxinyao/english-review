@@ -408,6 +408,8 @@ describe('POST start：session 创建与幂等', () => {
     expect(res.status).toBe('completed');
     if (res.status !== 'completed') return;
     expect(res.remainingNewQuota).toBe(10);
+    expect(res.totalItems).toBeGreaterThan(0);
+    expect(res.newQueueCount).toBeGreaterThanOrEqual(0);
   });
 });
 

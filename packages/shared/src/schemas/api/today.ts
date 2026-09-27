@@ -113,6 +113,10 @@ export const TodayCompletedResponse = z.object({
   summary: TodaySummary,
   /** 剩余新学额度（maxNew − 今日 newItemsStarted）；null=不限制，0=用尽 */
   remainingNewQuota: z.number().int().nullable(),
+  /** 在学词条总数（active，含 New Queue） */
+  totalItems: z.number().int(),
+  /** 待学（New Queue）数量 */
+  newQueueCount: z.number().int(),
 });
 export type TodayCompletedResponse = z.infer<typeof TodayCompletedResponse>;
 

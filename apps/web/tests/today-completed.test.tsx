@@ -26,12 +26,14 @@ describe('Today 完成摘要', () => {
     expect(await screen.findByRole('heading', { name: '今天完成了' })).toBeVisible();
     expect(
       screen.getByText(
-        (_, el) => el?.tagName === 'P' && el.textContent === '共完成 6 个任务 · 新学 1 项',
+        (_, el) =>
+          el?.tagName === 'P' &&
+          el.textContent === '通过 3 · 基础通过 1 · 未通过 1（共 6 个任务，其中新学 1 词）',
       ),
     ).toBeVisible();
     expect(
       screen.getByText(
-        (_, el) => el?.tagName === 'P' && el.textContent === '通过 3 · 基础通过 1 · 未通过 1',
+        (_, el) => el?.tagName === 'P' && el.textContent === '词库剩余 27 词待学 · 共 57 词',
       ),
     ).toBeVisible();
   });

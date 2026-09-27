@@ -173,11 +173,13 @@ test.describe('Today 复习全流程', () => {
     // 完成摘要：种子 5 个任务 + 可能的补强，断言用 ≥
     expect(completed, '会话应在有限步数内完成').toBe(true);
     await expect(page.getByRole('heading', { name: '今天完成了' })).toBeVisible();
-    const summaryText = (await page.getByText(/^共完成 \d+ 个任务/).textContent()) ?? '';
-    const doneCount = Number(summaryText.match(/\d+/)?.[0] ?? 0);
+    const summaryText =
+      (await page
+        .getByText(/通过 \d+ · 基础通过 \d+ · 未通过 \d+（共 \d+ 个任务，其中新学 \d+ 词）/)
+        .textContent()) ?? '';
+    const doneCount = Number(summaryText.match(/共 (\d+) 个任务/)?.[1] ?? 0);
     expect(doneCount).toBeGreaterThanOrEqual(5);
-    await expect(page.getByText(/通过 \d+ · 基础通过 \d+ · 未通过 \d+/)).toBeVisible();
-    await expect(page.getByText(/新学 \d+ 项/)).toBeVisible();
+    await expect(page.getByText(/词库剩余 \d+ 词待学 · 共 \d+ 词/)).toBeVisible();
 
     // 今日回顾列表：错题在前，含 Hint 选错的 stable
     const reviewList = page.getByRole('list', { name: '今日回顾' });

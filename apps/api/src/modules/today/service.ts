@@ -756,16 +756,7 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
       .all();
   }
 
-  const totalItems = db
-    .select({ n: sql<number>`count(*)` })
-    .from(learningItems)
-    .where(eq(learningItems.status, 'active'))
-    .get()?.n as number;
-  const newQueueCount = db
-    .select({ n: sql<number>`count(*)` })
-    .from(learningItems)
-    .where(and(eq(learningItems.status, 'active'), eq(learningItems.queueState, 'new')))
-    .get()?.n as number;
+  const { totalItems, newQueueCount } = libraryCountsOf(db);
 
   return {
     status: 'idle',
@@ -826,6 +817,7 @@ export function getTodayStatus(db: AppDatabase, timezone: string, now: Date): To
       status: 'completed',
       summary: buildSummary(db, session),
       remainingNewQuota: remainingNewQuotaOf(db, today),
+      ...libraryCountsOf(db),
     };
   }
   return activeResponse(db, session);
@@ -945,6 +937,7 @@ async function startTodaySessionInner(
           status: 'completed',
           summary: buildSummary(db, existing),
           remainingNewQuota: remainingNewQuotaOf(db, today),
+          ...libraryCountsOf(db),
         }
       : activeResponse(db, existing);
   }
@@ -1137,6 +1130,7 @@ async function startTodaySessionInner(
           status: 'completed',
           summary: buildSummary(tx, session),
           remainingNewQuota: remainingNewQuotaOf(tx, today),
+          ...libraryCountsOf(tx),
         };
       }
       return activeResponse(tx, session);
@@ -1157,6 +1151,7 @@ async function startTodaySessionInner(
             status: 'completed',
             summary: buildSummary(db, again),
             remainingNewQuota: remainingNewQuotaOf(db, today),
+            ...libraryCountsOf(db),
           }
         : activeResponse(db, again);
     }
@@ -1167,6 +1162,21 @@ async function startTodaySessionInner(
 // ---------------------------------------------------------------------------
 // POST /api/today/extend：同日追加学习
 // ---------------------------------------------------------------------------
+
+/** 词库计数：active 总数与 New Queue 待学数（idle/completed 展示共用） */
+function libraryCountsOf(db: DbExecutor): { totalItems: number; newQueueCount: number } {
+  const totalItems = db
+    .select({ n: sql<number>`count(*)` })
+    .from(learningItems)
+    .where(eq(learningItems.status, 'active'))
+    .get()?.n as number;
+  const newQueueCount = db
+    .select({ n: sql<number>`count(*)` })
+    .from(learningItems)
+    .where(and(eq(learningItems.status, 'active'), eq(learningItems.queueState, 'new')))
+    .get()?.n as number;
+  return { totalItems, newQueueCount };
+}
 
 /** 剩余新学额度（maxNew − 今日 newItemsStarted；不限制返回 null，0=用尽） */
 function remainingNewQuotaOf(db: DbExecutor, sessionDate: string): number | null {

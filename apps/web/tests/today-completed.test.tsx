@@ -28,7 +28,7 @@ describe('Today 完成摘要', () => {
       screen.getByText(
         (_, el) =>
           el?.tagName === 'P' &&
-          el.textContent === '通过 3 · 基础通过 1 · 未通过 1（共 6 个任务，其中新学 1 词）',
+          el.textContent === '通过 3 · 基础通过 1 · 未通过 1',
       ),
     ).toBeVisible();
     expect(

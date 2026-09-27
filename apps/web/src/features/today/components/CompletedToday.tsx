@@ -55,11 +55,10 @@ export function CompletedToday({
       <div className="space-y-3 text-center">
         <h2 className="text-xl font-semibold text-foreground">今天完成了</h2>
         <p className="text-sm text-muted-foreground">
-          通过 {summary.pass} · 基础通过 {summary.basicPass} · 未通过 {summary.fail}（共{' '}
-          {summary.totalTasks} 个任务，其中新学 {summary.newItemsStarted} 词）
+          词库剩余 {data.newQueueCount} 词待学 · 共 {data.totalItems} 词
         </p>
         <p className="text-sm text-muted-foreground">
-          词库剩余 {data.newQueueCount} 词待学 · 共 {data.totalItems} 词
+          通过 {summary.pass} · 基础通过 {summary.basicPass} · 未通过 {summary.fail}
         </p>
         {summary.recommendRead && (
           <p className="text-sm text-muted-foreground">

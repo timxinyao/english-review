@@ -15,6 +15,7 @@ import {
   type LaterResponse,
   type TaskFeedbackResponse,
   type TodayActiveResponse,
+  type TodayCompletedResponse,
   type TodayIdleResponse,
   type TodayProgress,
   type TodaySessionTasksResponse,
@@ -873,12 +874,15 @@ async function mapLimit<T, R>(
 /** 进程内串行化（双击/多标签同进程），跨进程由 uq_review_sessions_date + 全局锁兜底 */
 let startChain: Promise<unknown> = Promise.resolve();
 
+/** start 响应：与 GET /api/today 同契约（completed 必带 remainingNewQuota） */
+type StartResponse = TodayActiveResponse | TodayCompletedResponse;
+
 export async function startTodaySession(
   db: AppDatabase,
   deps: TodayDeps,
   timezone: string,
   now: Date,
-): Promise<TodayActiveResponse | { status: 'completed'; summary: TodaySummary }> {
+): Promise<StartResponse> {
   const run = startChain.then(
     () => startTodaySessionLocked(db, deps, timezone, now),
     () => startTodaySessionLocked(db, deps, timezone, now),
@@ -896,7 +900,7 @@ async function startTodaySessionLocked(
   deps: TodayDeps,
   timezone: string,
   now: Date,
-): Promise<TodayActiveResponse | { status: 'completed'; summary: TodaySummary }> {
+): Promise<StartResponse> {
   try {
     return await withJobLock(db, 'question-generation', () =>
       startTodaySessionInner(db, deps, timezone, now),
@@ -914,7 +918,7 @@ async function startTodaySessionInner(
   deps: TodayDeps,
   timezone: string,
   now: Date,
-): Promise<TodayActiveResponse | { status: 'completed'; summary: TodaySummary }> {
+): Promise<StartResponse> {
   const today = localDateString(now, timezone);
   const existing = db
     .select()
@@ -922,9 +926,13 @@ async function startTodaySessionInner(
     .where(eq(reviewSessions.sessionDate, today))
     .get();
   if (existing) {
-    // 幂等：今日已有 session，直接返回当前状态（active / completed）
+    // 幂等：今日已有 session，直接返回当前状态（active / completed，completed 带剩余额度）
     return existing.completedAt !== null
-      ? { status: 'completed', summary: buildSummary(db, existing) }
+      ? {
+          status: 'completed',
+          summary: buildSummary(db, existing),
+          remainingNewQuota: remainingNewQuotaOf(db, today),
+        }
       : activeResponse(db, existing);
   }
 
@@ -1071,7 +1079,7 @@ async function startTodaySessionInner(
 
   // ---- 4) 混排 + 同步事务落库 ----
   const ordered = interleaveTasks(plans);
-  const create = (): TodayActiveResponse | { status: 'completed'; summary: TodaySummary } =>
+  const create = (): StartResponse =>
     db.transaction((tx) => {
       const sessionId = randomUUID();
       const empty = ordered.length === 0;
@@ -1112,7 +1120,11 @@ async function startTodaySessionInner(
       if (!session) throw appError('INTERNAL', '会话创建失败');
       if (empty) {
         // 空会话直接完成，避免出现永远无法满足完成条件的 0/0 会话
-        return { status: 'completed', summary: buildSummary(tx, session) };
+        return {
+          status: 'completed',
+          summary: buildSummary(tx, session),
+          remainingNewQuota: remainingNewQuotaOf(tx, today),
+        };
       }
       return activeResponse(tx, session);
     });
@@ -1128,7 +1140,11 @@ async function startTodaySessionInner(
       .get();
     if (again) {
       return again.completedAt !== null
-        ? { status: 'completed', summary: buildSummary(db, again) }
+        ? {
+            status: 'completed',
+            summary: buildSummary(db, again),
+            remainingNewQuota: remainingNewQuotaOf(db, today),
+          }
         : activeResponse(db, again);
     }
     throw err;
@@ -1140,7 +1156,7 @@ async function startTodaySessionInner(
 // ---------------------------------------------------------------------------
 
 /** 剩余新学额度（maxNew − 今日 newItemsStarted；不限制返回 null，0=用尽） */
-function remainingNewQuotaOf(db: AppDatabase, sessionDate: string): number | null {
+function remainingNewQuotaOf(db: DbExecutor, sessionDate: string): number | null {
   const maxNew = readMaxNewItemsPerDay(db);
   const started =
     db.select().from(dailyStats).where(eq(dailyStats.date, sessionDate)).get()?.newItemsStarted ??

@@ -210,6 +210,8 @@ export function makeActive(
 
 export function makeCompleted(
   overrides: Partial<TodayCompletedResponse['summary']> = {},
+  /** extend 契约字段（Task 2 完成页消费）；null=不限制 */
+  remainingNewQuota: number | null = null,
 ): TodayCompletedResponse {
   return {
     status: 'completed',
@@ -222,8 +224,7 @@ export function makeCompleted(
       recommendRead: true,
       ...overrides,
     },
-    // extend 契约字段（Task 2 完成页消费）；null=不限制
-    remainingNewQuota: null,
+    remainingNewQuota,
   };
 }
 

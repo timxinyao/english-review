@@ -391,10 +391,12 @@ describe('POST start：session 创建与幂等', () => {
       newItemsStarted: 0,
       recommendRead: false,
     });
+    // 与 getTodayStatus 一致：completed 响应必须带剩余额度（默认额度 10、今日未学）
+    expect(res.remainingNewQuota).toBe(10);
     expect(db.select().from(reviewSessions).all()[0]?.completedAt).not.toBeNull();
   });
 
-  it('已完成的当日 session：start 幂等返回 completed 状态', async () => {
+  it('已完成的当日 session：start 幂等返回 completed 状态（含 remainingNewQuota）', async () => {
     await seedDueItem('item-a', ['understanding']);
     await startTodaySession(db, deps, TZ, NOW);
     const session = sessionOf(TODAY);
@@ -404,6 +406,8 @@ describe('POST start：session 创建与幂等', () => {
       .run();
     const res = await startTodaySession(db, deps, TZ, NOW);
     expect(res.status).toBe('completed');
+    if (res.status !== 'completed') return;
+    expect(res.remainingNewQuota).toBe(10);
   });
 });
 

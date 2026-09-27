@@ -81,6 +81,15 @@ export function useStartSession() {
   return useMutation({ mutationFn: startTodaySession, onSuccess: invalidate });
 }
 
+/** 同日追加学习（PRODUCT §3.4）：POST /api/today/extend 重新激活会话并补一批 Learn */
+export function useExtendSession() {
+  const invalidate = useInvalidateToday();
+  return useMutation({
+    mutationFn: () => api<TodayActiveResponse>('/api/today/extend', { method: 'POST' }),
+    onSuccess: invalidate,
+  });
+}
+
 export function useAnswer() {
   const invalidate = useInvalidateToday();
   return useMutation({

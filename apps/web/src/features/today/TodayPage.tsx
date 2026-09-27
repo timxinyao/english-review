@@ -41,7 +41,9 @@ export function TodayPage() {
           onAdvance={advance}
         />
       )}
-      {data?.status === 'completed' && !frozen && <CompletedToday data={data} />}
+      {data?.status === 'completed' && !frozen && (
+        <CompletedToday data={data} remainingNewQuota={data.remainingNewQuota ?? undefined} />
+      )}
     </section>
   );
 }

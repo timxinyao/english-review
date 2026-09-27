@@ -577,6 +577,86 @@ export function resetE2eData(db: AppDatabase): void {
   seedE2eData(db);
 }
 
+/**
+ * E2E 专用：为「同日追加学习（extend）」播种一个待学新词 delta（含一道 fresh 理解题库存）。
+ * 独立于 reset 种子（避免进入主流程会话改变任务数）；extend 复用题库库存
+ * （AI 生成在 e2e 不可用，故必须预置题目）。幂等：已存在 target='delta' 即跳过。
+ */
+export function seedExtendCandidate(db: AppDatabase): void {
+  const exists = db
+    .select()
+    .from(learningItems)
+    .all()
+    .some((i) => i.target === 'delta');
+  if (exists) return;
+
+  const createdAt = '2026-09-11T00:00:00.000Z';
+  db.insert(learningItems)
+    .values({
+      id: 'e2e-item-delta',
+      type: 'word',
+      target: 'delta',
+      meaning: '三角洲',
+      ipa: null,
+      source: null,
+      sourceUrl: null,
+      tagsJson: '[]',
+      notes: null,
+      status: 'active',
+      queueState: 'new',
+      needsReinforcement: 0,
+      createdAt,
+      updatedAt: createdAt,
+      archivedAt: null,
+    })
+    .run();
+  db.insert(learningExamples)
+    .values({
+      id: 'e2e-ex-e2e-item-delta',
+      learningItemId: 'e2e-item-delta',
+      kind: 'source',
+      text: 'The river delta splits into many channels.',
+      originalText: null,
+      betterText: null,
+      pinned: 0,
+      qualityScore: null,
+      sortOrder: 0,
+      createdAt,
+      updatedAt: createdAt,
+    })
+    .run();
+  db.insert(questions)
+    .values({
+      id: 'e2e-q-delta',
+      learningItemId: 'e2e-item-delta',
+      type: 'understanding',
+      status: 'fresh',
+      meaningSnapshot: '三角洲',
+      promptText: 'delta 最接近什么意思？',
+      contextText: null,
+      payloadJson: JSON.stringify({
+        options: [
+          { id: 'o1', text: '三角洲' },
+          { id: 'o2', text: '第四' },
+          { id: 'o3', text: '数据' },
+          { id: 'o4', text: '增量' },
+        ],
+        explanation: 'delta 表示三角洲。',
+      }),
+      correctOptionId: 'o1',
+      promptKey: 'seed',
+      promptVersion: 1,
+      promptHash: 'seed',
+      model: 'seed',
+      useCount: 0,
+      correctCount: 0,
+      lastUsedAt: null,
+      retiredAt: null,
+      createdAt,
+    })
+    .run();
+}
+
 // ---------------------------------------------------------------------------
 // 服务入口
 // ---------------------------------------------------------------------------
@@ -608,6 +688,11 @@ async function main(): Promise<void> {
     // 测试专用：需登录会话（spec 登录后 page.evaluate 调用）
     app.post('/api/__e2e/reset', async () => {
       resetE2eData(db);
+      return { ok: true as const };
+    });
+    // 测试专用：播种 extend 待学新词（today.spec 同日追加用例）
+    app.post('/api/__e2e/seed-new-item', async () => {
+      seedExtendCandidate(db);
       return { ok: true as const };
     });
   }

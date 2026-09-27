@@ -1,8 +1,13 @@
-import type { SessionTaskEntry, TodayCompletedResponse } from '@el/shared';
+import {
+  EXTEND_BATCH_UNLIMITED,
+  type SessionTaskEntry,
+  type TodayCompletedResponse,
+} from '@el/shared';
 import { Check, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Button } from '../../../components/ui/button';
 import { cn } from '../../../lib/utils';
-import { useSessionTasks } from '../api';
+import { useExtendSession, useSessionTasks } from '../api';
 import { TYPE_LABEL } from './ActiveSession';
 
 /** 排序权重：答错 0 < 答对 1 < 已撤销 2 */
@@ -11,11 +16,39 @@ function reviewWeight(e: SessionTaskEntry): number {
   return e.result && !e.result.correct ? 0 : 1;
 }
 
-/** completed 态：安静完成摘要（PRODUCT §4.3/§5.1）+ 今日回顾列表（错题前置，点击进 Library 可练） */
-export function CompletedToday({ data }: { data: TodayCompletedResponse }) {
+/** completed 态：安静完成摘要（PRODUCT §4.3/§5.1）+ 再学一批（§3.4）+ 今日回顾列表（错题前置，点击进 Library 可练） */
+export function CompletedToday({
+  data,
+  remainingNewQuota,
+}: {
+  data: TodayCompletedResponse;
+  /** 剩余新学额度：null=不限制（不限批默认 10），0=用尽无按钮 */
+  remainingNewQuota?: number | null;
+}) {
   const { summary } = data;
   const { data: sessionTasks } = useSessionTasks();
-  const entries = [...(sessionTasks?.tasks ?? [])].sort((a, b) => reviewWeight(a) - reviewWeight(b));
+  const entries = [...(sessionTasks?.tasks ?? [])].sort(
+    (a, b) => reviewWeight(a) - reviewWeight(b),
+  );
+  const extend = useExtendSession();
+  const extendCount = remainingNewQuota ?? EXTEND_BATCH_UNLIMITED;
+
+  function renderExtend() {
+    if (remainingNewQuota === 0) return null;
+    if (extend.isSuccess) return null; // invalidate 后组件将卸载，双保险
+    return (
+      <div className="space-y-1">
+        <Button size="sm" disabled={extend.isPending} onClick={() => extend.mutate()}>
+          {extend.isPending ? '正在追加…' : `再学 ${extendCount} 个新词`}
+        </Button>
+        {extend.isError && (
+          <p className="text-xs text-destructive">
+            {(extend.error as Error | undefined)?.message || '追加失败，请重试'}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 py-12">
@@ -34,6 +67,7 @@ export function CompletedToday({ data }: { data: TodayCompletedResponse }) {
             </Link>
           </p>
         )}
+        {renderExtend()}
       </div>
 
       {entries.length > 0 && (

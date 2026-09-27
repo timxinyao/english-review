@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Phase 4 表达题与练一下（PC viewport；E2E_SEED=1 播种：
- * Phase 3 的 4 到期 + gravity Learn 之外，新增 give up（P-L4 表达题）：
+ * Phase 3 的 4 到期 + gravity（learn，Recall Card）之外，新增 give up（P-L4 表达题）：
  * zhPrompt “长期的压力让我想放弃。”、mustUse "give up"；
  * fake 批改：答案包含 "give up" → pass（corrected=原句、eligible 入个人例句），否则 fail。）
  */
@@ -69,10 +69,14 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
         continue;
       }
 
-      // 2) Learn 卡（gravity）
+      // 2) Learn 卡（gravity，Recall Card）：显示答案 → 想起来了 → 冻结反馈 → 手动下一题
       if (await page.getByText('I laugh at gravity all the time.').isVisible()) {
-        await page.getByRole('button', { name: '重力' }).click();
-        await continueAfterCorrect(page);
+        await expect(page.getByRole('heading', { name: 'gravity' })).toBeVisible();
+        await page.getByRole('button', { name: '显示答案' }).click();
+        await expect(page.getByText('重力', { exact: true })).toBeVisible();
+        await page.getByRole('button', { name: '想起来了' }).click();
+        await expect(page.getByText('想起来了', { exact: true })).toBeVisible();
+        await page.getByRole('button', { name: '下一题' }).click();
         continue;
       }
 

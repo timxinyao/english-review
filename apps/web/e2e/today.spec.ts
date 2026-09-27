@@ -5,10 +5,10 @@ import { expect, test, type Page } from '@playwright/test';
  * 5 个到期任务（give up/make sense/raw/stable/wear down）+ 1 个 New Queue 项 gravity）。
  * start 后会话为固定序（到期按 next_review_at+item.id，New Queue learn 殿后，混排不改变）：
  * give up 表达 → make sense 理解 → raw 填空 → stable 理解 → wear down 理解 → gravity learn
- * understanding 卡为 Recall Card（PRODUCT §7.1）：主流程覆盖三条路径——
- * make sense/wear down 走 recalled（显示答案→想起来了）、stable 走 hint 选错（给我提示→选错误项
- * → 冻结"没想起来"+正确释义/原句揭示）；assisted（提示后想起）由组件单测覆盖。
- * 第三个用例覆盖同日追加学习（PRODUCT §3.4）：完成页"再学 N 个新词"→ extend → 新 Learn 卡。
+ * understanding 与 learn 卡均为 Recall Card（PRODUCT §7.1"新词初见即回忆"）：主流程覆盖——
+ * gravity（learn）与 make sense/wear down 走 recalled（显示答案→想起来了）、stable 走 hint 选错
+ * （给我提示→选错误项→冻结"没想起来"+正确释义/原句揭示）；assisted（提示后想起）由组件单测覆盖。
+ * 第三个用例覆盖同日追加学习（PRODUCT §3.4）：完成页"再学 N 个新词"→ extend → 新 Learn 卡（同 recall 路径）。
  */
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -48,7 +48,7 @@ async function recallPass(page: Page, meaning: string) {
 
 /**
  * 驱动会话循环直至完成摘要（主流程骨架，会话型用例共用）。返回是否在步数内完成。
- * 计划：gravity 学对；make sense / wear down 走 recall recalled（想起来了）；
+ * 计划：gravity（learn）与 make sense / wear down 走 recall recalled（想起来了）；
  * stable 走 hint 选错（没想起来，错题进回顾列表首位）；raw 填空答对；
  * give up 表达题答对；未知补强卡兜底处理。
  */
@@ -71,11 +71,10 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
       continue;
     }
 
-    // 1) Learn 卡（gravity）：以 source example 识别，答对首道选择题
+    // 1) Learn 卡（gravity，Recall Card）：以 source example 识别 → 显示答案 → 想起来了
     if (await page.getByText('I laugh at gravity all the time.').isVisible()) {
       await expect(page.getByRole('heading', { name: 'gravity' })).toBeVisible();
-      await page.getByRole('button', { name: '重力' }).click();
-      await continueAfterCorrect(page);
+      await recallPass(page, '重力');
       continue;
     }
 
@@ -153,7 +152,7 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
 }
 
 test.describe('Today 复习全流程', () => {
-  test('idle → 开始 → Learn + Recall（想起来了/提示选错）+ 填空/表达 → 完成摘要', async ({
+  test('idle → 开始 → Recall（learn/理解 想起来了、提示选错）+ 填空/表达 → 完成摘要', async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -222,9 +221,8 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText('The river delta splits into many channels.')).toBeVisible();
     await expect(page.getByText(/^第 \d+ \/ \d+$/)).toBeVisible();
 
-    // 做完追加的 Learn 卡 → 回完成摘要
-    await page.getByRole('button', { name: '三角洲' }).click();
-    await continueAfterCorrect(page);
+    // 做完追加的 delta Learn 卡（Recall 路径：显示答案 → 想起来了）→ 回完成摘要
+    await recallPass(page, '三角洲');
     await expect(page.getByRole('heading', { name: '今天完成了' })).toBeVisible();
   });
 

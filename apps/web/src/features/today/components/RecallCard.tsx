@@ -50,25 +50,16 @@ function RecallFeedback({
       {assisted && (
         <p className="text-sm text-muted-foreground">提示后想起（基础通过）</p>
       )}
-      {forgot && (
-        <>
-          <p className="text-sm text-destructive">没想起来</p>
-          <p className="text-sm">
-            <span className="text-muted-foreground">正确释义：</span>
-            <span className="text-success">{task.item.meaning}</span>
-          </p>
-          {task.sourceExample !== null && (
-            <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
-              <span className="mr-1 text-xs text-muted-foreground">原句</span>
-              {task.sourceExample}
-            </p>
-          )}
-        </>
-      )}
-      {neutral && (
-        <p className="text-sm">
-          <span className="text-muted-foreground">释义：</span>
-          {task.item.meaning}
+      {forgot && <p className="text-sm text-destructive">没想起来</p>}
+      {/* 冻结态统一保留学习内容：释义 + 原句（verdict 只作一行判语，2026-09-28 用户改版） */}
+      <p className="text-sm">
+        <span className="text-muted-foreground">{forgot ? '正确释义：' : '释义：'}</span>
+        {forgot ? <span className="text-success">{task.item.meaning}</span> : task.item.meaning}
+      </p>
+      {task.sourceExample !== null && (
+        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+          <span className="mr-1 text-xs text-muted-foreground">原句</span>
+          {task.sourceExample}
         </p>
       )}
       <div className="flex justify-end">

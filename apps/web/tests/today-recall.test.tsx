@@ -160,9 +160,11 @@ describe('Recall Card（understanding）', () => {
       hintUsed: true,
     });
 
-    // 提交后父级立即冻结：选择题不再渲染
+    // 提交后父级立即冻结：选择题不再渲染；释义与原句保留（不能只有一行判语）
     expect(await verdictParagraph('提示后想起（基础通过）')).toBeVisible();
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
+    expect(screen.getByText('释义：')).toBeVisible();
+    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
   });
 
   it('Hint 选错 → 冻结"没想起来"+正确释义揭示', async () => {

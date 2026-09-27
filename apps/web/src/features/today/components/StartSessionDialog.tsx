@@ -26,7 +26,7 @@ export function StartSessionDialog({ pending, errorMessage, onRetry, onDismiss }
           <>
             <p className="text-sm font-medium text-foreground">正在准备今日题目…</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              已等待 <ElapsedTimer since={startedAt} />，首次生成约需一分钟
+              已等待 <ElapsedTimer since={startedAt} />，首次生成约需一分钟，请保持页面打开
             </p>
           </>
         ) : (

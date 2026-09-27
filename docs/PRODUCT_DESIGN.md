@@ -286,7 +286,7 @@ V1.2 使用透明的阶梯式间隔，不引入 FSRS。默认间隔：1 → 3 �
 | P-L3 | 填空 + 表达题混合。 |
 | P-L4 ～ P-L7 | 表达题为主，必要时少量填空。 |
 
-Understanding 到期时使用选择题或上下文理解题；Production 到期时按上表选题。Today 不要求每个 Learning Item 每次做完整套题，只处理真正到期的维度。
+Understanding 到期时使用 Recall Card（主动回忆优先，选择题为 Hint，见 §7.1）；Production 到期时按上表选题。Today 不要求每个 Learning Item 每次做完整套题，只处理真正到期的维度。
 
 ## 6.4 查看原句
 
@@ -306,11 +306,23 @@ Understanding 到期时使用选择题或上下文理解题；Production 到期�
 
 # 7. 题型与 AI 批改设计
 
-## 7.1 理解题
+## 7.1 理解题（2026-09-27 改版：Recall Card 主动回忆优先）
 
-两类混合：直接词义选择 + 新上下文中的词义选择。第一次 Learn 后的首题优先使用 source example；第二次复习开始逐渐增加 AI 生成的新上下文。
+Understanding 复习任务的默认形式是 **Recall Card**：展示 target（+IPA+发音）与 source_example，不展示释义与选项；用户先主动回忆，点"显示答案"后揭示 meaning（notes 保持折叠）并自评 **想起来了 / 没想起来**。
 
-缓存选择题保存 option id 与 correct option id，不保存固定 A/B/C/D 顺序。每次展示时前端重新 shuffle 选项，避免记住选项位置。
+**四选一选择题降级为 Hint**："给我提示"后展示选择题（选项仍为中文释义，不使用错误英文句作干扰项），帮助 recognition 而非替代主动回忆。
+
+### 三档学习证据（复用现有调度，零新算法）
+
+| 证据 | 触发路径 | result | 调度 |
+| --- | --- | --- | --- |
+| recalled | 未用提示，自己想起 | pass | 正常晋升 |
+| assisted | Hint 后选对 | basic_pass | 不升级，更短间隔再现 |
+| forgot | 没想起 / Hint 仍错 | fail | 退 1 级 + 缩短间隔 + 补强 |
+
+- attempts.outcome_source 记录三档来源（历史行为 NULL，回看展示按 result 回退），供未来统计区分"看选项会、主动想不起来"。
+- Recall 卡默认展示 source_example（回忆上下文，不是答案），understanding 不再有"查看原句降档"；forgot 时反馈区突出展示 source_example。
+- Learn 首题不变（认识新词用选择题）；选择题缓存与前端 shuffle 机制保留（即 Hint 题源）。
 
 ## 7.2 填空题
 
@@ -361,7 +373,7 @@ Personal Example 最多 3 条。系统可自动替换 unpinned 低质量项，�
 
 | 题型 | 正确 | 错误 |
 | --- | --- | --- |
-| 选择题 | 显示正确反馈，手动"下一题"按钮（与答错一致）。 | 停留，显示正确答案 + 一句解释；当天后部插入新题，受补强上限约束。 |
+| Recall/选择题 Hint | 想起来了（recalled）/提示后想起（assisted），手动"下一题"。 | 没想起来（forgot）：正确释义 + source_example 突出；当天后部插入补强，受上限约束。 |
 | 填空题 | 显示完整句子，手动下一题。 | 显示正确答案、完整句子和简短解释；当天后部插入新题，受补强上限约束。 |
 | 表达题 | 显示批改结果，手动下一题。 | 显示批改结果；不强制当天重做，只调整后续间隔。 |
 

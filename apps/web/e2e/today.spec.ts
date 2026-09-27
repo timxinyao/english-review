@@ -5,6 +5,9 @@ import { expect, test, type Page } from '@playwright/test';
  * 5 个到期任务（give up/make sense/raw/stable/wear down）+ 1 个 New Queue 项 gravity）。
  * start 后会话为固定序（到期按 next_review_at+item.id，New Queue learn 殿后，混排不改变）：
  * give up 表达 → make sense 理解 → raw 填空 → stable 理解 → wear down 理解 → gravity learn
+ * understanding 卡为 Recall Card（PRODUCT §7.1）：主流程覆盖三条路径——
+ * make sense/wear down 走 recalled（显示答案→想起来了）、stable 走 hint 选错（给我提示→选错误项
+ * → 冻结"没想起来"+正确释义/原句揭示）；assisted（提示后想起）由组件单测覆盖。
  */
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -31,8 +34,21 @@ async function continueAfterCorrect(page: Page) {
   await page.getByRole('button', { name: '下一题' }).click();
 }
 
+/** understanding Recall：recalled 路径——显示答案 → 自评"想起来了" → 冻结反馈 → 下一题 */
+async function recallPass(page: Page, meaning: string) {
+  await page.getByRole('button', { name: '显示答案' }).click();
+  await expect(page.getByText(meaning, { exact: true })).toBeVisible(); // 揭示态展示 meaning
+  await page.getByRole('button', { name: '想起来了' }).click();
+  // 冻结：自评按钮消失，RecallFeedback 文案"想起来了"出现
+  await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
+  await expect(page.getByText('想起来了', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '下一题' }).click();
+}
+
 test.describe('Today 复习全流程', () => {
-  test('idle → 开始 → Learn + 选择/填空/答错 → 完成摘要', async ({ page }) => {
+  test('idle → 开始 → Learn + Recall（想起来了/提示选错）+ 填空/表达 → 完成摘要', async ({
+    page,
+  }) => {
     test.setTimeout(120_000);
     await login(page);
     await resetSeedData(page);
@@ -46,8 +62,9 @@ test.describe('Today 复习全流程', () => {
     // active 态：细进度行（批量 entries 未落地时为 "0 / 6"，落地后为 "第 1 / 6"）
     await expect(page.getByText(/^(第 )?\d+ \/ \d+$/)).toBeVisible();
 
-    // 计划：gravity 学对；stable 答错一次看解释；wear down 答对；
-    // make sense 答对走"下一题"按钮；raw 填空答对；give up 表达题答对（Phase 4 种子）；未知补强卡兜底处理。
+    // 计划：gravity 学对；make sense / wear down 走 recall recalled（想起来了）；
+    // stable 走 hint 选错（没想起来，错题进回顾列表首位）；raw 填空答对；
+    // give up 表达题答对（Phase 4 种子）；未知补强卡兜底处理。
     let stableFailed = false;
     let completed = false;
 
@@ -84,36 +101,48 @@ test.describe('Today 复习全流程', () => {
         continue;
       }
 
-      // 3) stable：第一次出现时故意答错，看到正确答案与解释
-      if (!stableFailed && (await page.getByRole('button', { name: '稳定的' }).isVisible())) {
+      // 3) make sense：Recall recalled 路径（显示答案 → 想起来了 → 冻结"想起来了"）
+      if (await page.getByRole('heading', { name: 'make sense' }).isVisible()) {
+        await recallPass(page, '讲得通');
+        continue;
+      }
+
+      // 4) stable：首次出现走 Hint 选错（给我提示 → 选错误项）
+      //    → 冻结"没想起来" + 正确释义与原句揭示（fail，进回顾列表首位）
+      if (!stableFailed && (await page.getByRole('heading', { name: 'stable' }).isVisible())) {
         stableFailed = true;
+        await page.getByRole('button', { name: '给我提示' }).click();
+        await expect(page.getByText('stable 在这里最接近什么意思？')).toBeVisible();
         await page
           .getByRole('group', { name: '选项' })
           .getByRole('button')
           .filter({ hasNotText: '稳定的' })
           .first()
           .click();
-        await expect(page.getByText('回答错误')).toBeVisible();
-        await expect(page.getByText('正确答案：', { exact: true })).toBeVisible();
+        await expect(page.getByText('没想起来', { exact: true })).toBeVisible();
+        await expect(page.getByText('正确释义：', { exact: true })).toBeVisible();
+        await expect(page.getByText('稳定的', { exact: true })).toBeVisible();
+        await expect(page.getByText('原句', { exact: true })).toBeVisible();
+        await expect(page.getByText('The connection has been stable all week.')).toBeVisible();
         await page.getByRole('button', { name: '下一题' }).click();
         continue;
       }
 
-      // 4) wear down：直接答对（导航简化后无"稍后再做"入口）
-      if (await page.getByRole('button', { name: '逐渐消耗' }).isVisible()) {
-        await page.getByRole('button', { name: '逐渐消耗' }).click();
-        await continueAfterCorrect(page);
+      // 5) wear down：Recall recalled 路径
+      if (await page.getByRole('heading', { name: 'wear down' }).isVisible()) {
+        await recallPass(page, '逐渐消耗');
         continue;
       }
 
-      // 5) make sense：答对，走"下一题"按钮推进
-      if (await page.getByRole('button', { name: '讲得通' }).isVisible()) {
-        await page.getByRole('button', { name: '讲得通' }).click();
-        await continueAfterCorrect(page);
+      // 6) 未知补强卡（答错动态插入）：understanding Recall 卡走 recalled；
+      //    选择题任选一项，对则继续、错则看解释后手动下一题
+      const reveal = page.getByRole('button', { name: '显示答案' });
+      if (await reveal.isVisible()) {
+        await reveal.click();
+        await page.getByRole('button', { name: '想起来了' }).click();
+        await page.getByRole('button', { name: '下一题' }).click();
         continue;
       }
-
-      // 6) 未知补强卡（答错动态插入）：任选一项；对则继续、错则看解释后手动下一题
       const optionButtons = page.getByRole('group', { name: '选项' }).getByRole('button');
       if (await optionButtons.first().isVisible()) {
         await optionButtons.first().click();
@@ -141,7 +170,7 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText(/通过 \d+ · 基础通过 \d+ · 未通过 \d+/)).toBeVisible();
     await expect(page.getByText(/新学 \d+ 项/)).toBeVisible();
 
-    // 今日回顾列表：错题在前，含答错的 stable
+    // 今日回顾列表：错题在前，含 Hint 选错的 stable
     const reviewList = page.getByRole('list', { name: '今日回顾' });
     await expect(reviewList).toBeVisible();
     const firstRow = reviewList.getByRole('listitem').first();
@@ -155,12 +184,16 @@ test.describe('Today 复习全流程', () => {
     await page.goto('/today');
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
-    // 首卡是 give up 表达题（会话序第 1/6）：提交通过 → 手动下一题，当前推进到第 2/6（make sense）
+    // 首卡是 give up 表达题（会话序第 1/6）：提交通过 → 手动下一题，推进到第 2/6（make sense）
     await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
     await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
     await page.getByRole('button', { name: '提交' }).click();
     await expect(page.getByText('通过', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '下一题' }).click();
+
+    // make sense（当前卡）：Recall recalled 路径（显示答案 → 想起来了）
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+    await recallPass(page, '讲得通');
 
     // 打开列表：全量任务；点已完成的 give up 回看（只读）
     await page.getByRole('button', { name: '查看任务列表' }).click();

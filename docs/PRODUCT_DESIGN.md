@@ -290,7 +290,7 @@ Understanding 到期时使用 Recall Card（主动回忆优先，选择题为 Hi
 
 ## 6.4 查看原句
 
-理解题和填空题默认不显示 source example。用户可主动点“查看原句”；一旦查看，本题即使答对也最多记为 basic_pass，不升级。答错时自动展示 source example 作为纠正反馈。
+填空题默认不显示 source example。用户可主动点“查看原句”；一旦查看，本题即使答对也最多记为 basic_pass，不升级。答错时自动展示 source example 作为纠正反馈。（2026-09-27 起：理解题 Recall Card 默认展示 source_example 作为回忆上下文，不再有查看降档，见 §7.1。）
 
 ## 6.5 坏题与作答撤销
 

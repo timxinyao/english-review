@@ -1465,7 +1465,8 @@ export async function answerTodayTask(
         questionId: question.id,
         mode: 'today',
         answerText: body.answerText ?? null,
-        selectedOptionId: body.selectedOptionId ?? null,
+        // recall 直判时归一化丢弃并存选项，避免统计层误读
+        selectedOptionId: isUnderstandingRecall && body.recall ? null : (body.selectedOptionId ?? null),
         result,
         viewedSource: viewedSource ? 1 : 0,
         feedback: null,

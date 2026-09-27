@@ -86,18 +86,17 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
         continue;
       }
 
-      // 4) 已知选择题（stable / wear down / make sense）：直接答对
-      let knownAnswered = false;
-      for (const correct of ['稳定的', '逐渐消耗', '讲得通']) {
-        if (!knownAnswered && (await page.getByRole('button', { name: correct }).isVisible())) {
-          knownAnswered = true;
-          await page.getByRole('button', { name: correct }).click();
-          await continueAfterCorrect(page);
-        }
+      // 4) understanding Recall 卡（stable / wear down / make sense 及理解补强）：
+      //    显示答案 → 想起来了 → 冻结反馈 → 下一题（RecallCard 无默认选项组）
+      const reveal = page.getByRole('button', { name: '显示答案' });
+      if (await reveal.isVisible()) {
+        await reveal.click();
+        await page.getByRole('button', { name: '想起来了' }).click();
+        await page.getByRole('button', { name: '下一题' }).click();
+        continue;
       }
-      if (knownAnswered) continue;
 
-      // 5) 未知补强卡：任选一项，对错都收尾后继续
+      // 5) 未知补强选择题：任选一项，对错都收尾后继续
       const optionButtons = page.getByRole('group', { name: '选项' }).getByRole('button');
       if (await optionButtons.first().isVisible()) {
         await optionButtons.first().click();

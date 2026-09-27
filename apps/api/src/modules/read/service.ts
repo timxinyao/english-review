@@ -130,7 +130,7 @@ export function setReadDepsForTests(deps: ReadDeps | null): void {
 }
 
 // ---------------------------------------------------------------------------
-// 选词（PRODUCT §8.1：focus 3–5 弱项 + old 3–5 稳定项）
+// 选词（PRODUCT §8.1：focus 3 弱项 + old 3–5 稳定项）
 // ---------------------------------------------------------------------------
 
 type ItemRow = typeof learningItems.$inferSelect;
@@ -349,8 +349,11 @@ export async function generateReadArticle(
   try {
     generation = await deps.generate(selection);
   } catch (err) {
-    if (err instanceof AppError) throw err;
-    throw appError('AI_PROVIDER_ERROR', '文章生成失败，请稍后重试');
+    // 失败必落日志：真实原因（如不变式违规详情）只留服务端，客户端只见通用 502 文案
+    console.error('[read/generate] 生成失败：', err instanceof Error ? err.message : err);
+    // AI 类失败（AiStructuredError 等 code=AI_PROVIDER_ERROR）归一化为通用文案；非 AI 的 AppError 原样透传
+    if (err instanceof AppError && err.code !== 'AI_PROVIDER_ERROR') throw err;
+    throw appError('AI_PROVIDER_ERROR', '文章生成失败，请稍候重试');
   }
   const { data, meta, model } = generation;
 

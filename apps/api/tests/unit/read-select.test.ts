@@ -1,10 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AiStructuredError } from '../../src/ai/complete.js';
 import { createDatabase, type AppDatabase } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import { attempts, readArticles } from '../../src/db/schema.js';
 import { AppError } from '../../src/lib/errors.js';
-import { buildReadSelection } from '../../src/modules/read/service.js';
+import {
+  buildReadSelection,
+  generateReadArticle,
+  type ReadDeps,
+} from '../../src/modules/read/service.js';
 import { seedItem, seedReviewState } from '../helpers/seed.js';
 
 const NOW = new Date('2026-09-24T02:00:00.000Z');
@@ -155,10 +160,12 @@ describe('buildReadSelection：focus 弱项排序', () => {
     expect(sel.focusItems.map((f) => f.id)).toEqual(['item-recent', 'item-stale']);
   });
 
-  it('focus 上限 5 个（READ_FOCUS_MAX）', async () => {
+  it('focus 上限 3 个（READ_FOCUS_MAX）：种子多于 3 个弱项时只取 3', async () => {
     for (let i = 0; i < 8; i++) await seedActive(`item-${i}`);
     const sel = buildReadSelection(db, NOW);
-    expect(sel.focusItems).toHaveLength(5);
+    expect(sel.focusItems).toHaveLength(3);
+    // 无 fail 等差异化信号时按 id ASC 兜底，取前 3
+    expect(sel.focusItems.map((f) => f.id)).toEqual(['item-0', 'item-1', 'item-2']);
   });
 
   it('候选池只含 active+started 且至少一行 review_states 的项', async () => {
@@ -253,5 +260,31 @@ describe('buildReadSelection：其他输入', () => {
   it('无历史文章时 recentReadTypes 为空数组', async () => {
     await seedActive('one');
     expect(buildReadSelection(db, NOW).recentReadTypes).toEqual([]);
+  });
+});
+
+describe('generateReadArticle：AI 生成失败', () => {
+  it('生成失败：真实原因落 console.error，再抛通用 502', async () => {
+    await seedActive('weak-one');
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const deps: ReadDeps = {
+        generate: () =>
+          Promise.reject(
+            new AiStructuredError('输出违反不变式：focus item xxx 未出现在 coverage'),
+          ),
+      };
+      await expect(generateReadArticle(db, deps, NOW)).rejects.toThrow(
+        '文章生成失败，请稍候重试',
+      );
+      // 真实原因（不变式违规详情）落服务端日志
+      const last = errSpy.mock.calls.at(-1);
+      expect(last?.[0]).toBe('[read/generate] 生成失败：');
+      expect(String(last?.[1])).toContain('未出现在 coverage');
+      // 失败零写入
+      expect(db.select().from(readArticles).all()).toHaveLength(0);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });

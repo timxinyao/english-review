@@ -35,7 +35,7 @@ recent_read_types_json: {{recent_read_types_json}}
 5. 文章首先要像正常英语短文，其次才是覆盖目标词。
 6. 不要堆砌多个无关场景来强行塞词。
 7. `body` 使用纯文本段落，以 `\n\n` 分段；不要输出 Markdown 标题、粗体或 HTML。
-8. `coverage` 必须列出每个 focus item 实际在 body 中使用的 surface_form。若无法自然使用某个 focus item，不要假装覆盖，应重新组织文章。
+8. `coverage` 必须逐一包含**全部** focus item（每个 focus_items 里的 learning_item_id 都要出现，缺一不可）。写完后自查：coverage 条数 ≥ focus_items 条数，且每个 learning_item_id 都对得上。每个条目列出该词实际在 body 中使用的 surface_form。若无法自然使用某个 focus item，不要假装覆盖，应重新组织文章。
 9. checks 只检查 focus item 的含义/用法，不考日期、人物细节等阅读细节。
 10. 只输出 JSON。
 

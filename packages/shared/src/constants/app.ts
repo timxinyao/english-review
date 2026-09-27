@@ -16,7 +16,8 @@ export const RECENT_READS_ON_HOME = 3;
 export const READ_BODY_MIN_WORDS = 180;
 export const READ_BODY_MAX_WORDS = 400;
 export const READ_FOCUS_MIN = 3;
-export const READ_FOCUS_MAX = 5;
+/** 取 3：coverage 漏报率随词数上升，2026-09-27 实测 5 必漏/3 成功 */
+export const READ_FOCUS_MAX = 3;
 export const READ_OLD_MIN = 3;
 export const READ_OLD_MAX = 5;
 

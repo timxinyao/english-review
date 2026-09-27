@@ -144,7 +144,7 @@ export function RecallCard({
         <div className="space-y-3">
           <p className="text-base text-foreground">{word.meaning}</p>
           {word.notes ? (
-            <details className="text-sm">
+            <details className="text-sm" open>
               <summary className="text-xs text-muted-foreground cursor-pointer">笔记</summary>
               <p className="mt-1 text-muted-foreground">{word.notes}</p>
             </details>

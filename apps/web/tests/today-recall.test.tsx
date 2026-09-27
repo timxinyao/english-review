@@ -64,7 +64,7 @@ describe('Recall Card（understanding）', () => {
   });
 
   it('显示答案：meaning 展示、[没想起来][想起来了]；点想起来了 → POST {recall:"recalled"} → 冻结"想起来了"', async () => {
-    // notes 折叠链路：fixture 带笔记，揭示态默认收起（summary 可见）
+    // notes 链路：fixture 带笔记，揭示态默认展开
     const withNotes = makeChoiceTask({
       item: { id: 'item-1', type: 'word', target: 'stable', meaning: '稳定的', ipa: '/ˈsteɪbl/', notes: '也作名词：马厩' },
     });
@@ -80,11 +80,11 @@ describe('Recall Card（understanding）', () => {
     expect(await screen.findByText('稳定的')).toBeVisible();
     expect(screen.getByRole('button', { name: '没想起来' })).toBeVisible();
     expect(screen.getByRole('button', { name: '想起来了' })).toBeVisible();
-    // notes 折叠渲染：summary「笔记」可见，details 默认收起（内容随展开才显示）
+    // notes 默认展开（2026-09-28 用户改版：揭示即可见，无需手动展开）
     expect(screen.getByText('笔记')).toBeVisible();
     const notesDetails = screen.getByText('笔记').closest('details');
     expect(notesDetails).not.toBeNull();
-    expect(notesDetails).not.toHaveAttribute('open');
+    expect(notesDetails).toHaveAttribute('open');
     expect(notesDetails).toHaveTextContent('也作名词：马厩');
     // 揭示态不再提供提示入口
     expect(screen.queryByRole('button', { name: '给我提示' })).not.toBeInTheDocument();

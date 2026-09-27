@@ -10,9 +10,10 @@ import {
   reviewTasks,
   settings,
 } from '../../src/db/schema.js';
-import type { learningItems } from '../../src/db/schema.js';
+import { learningItems } from '../../src/db/schema.js';
 import {
   answerTodayTask,
+  extendTodaySession,
   getTodayStatus,
   startTodaySession,
   type TodayDeps,
@@ -85,6 +86,36 @@ function setMaxNewItemsPerDay(v: number): void {
 
 function sessionOf(date: string) {
   return db.select().from(reviewSessions).where(eq(reviewSessions.sessionDate, date)).get();
+}
+
+/** 今日已开始学习数（extend / remainingNewQuota 的额度扣减依据） */
+function seedStats(newItemsStarted: number): void {
+  db.insert(dailyStats)
+    .values({
+      date: TODAY,
+      formalTasksCompleted: newItemsStarted,
+      newItemsStarted,
+      productionAttempts: 0,
+      productionPass: 0,
+      updatedAt: NOW.toISOString(),
+    })
+    .run();
+}
+
+/** 构造已完成会话：start（单个到期任务）后把任务与会话一并标记完成（手法同「session 已完成 → completed 摘要」用例） */
+async function seedCompletedSession(): Promise<string> {
+  await seedDueItem('done-item', ['understanding']);
+  await startTodaySession(db, deps, TZ, NOW);
+  const session = sessionOf(TODAY)!;
+  db.update(reviewTasks)
+    .set({ completedAt: NOW.toISOString() })
+    .where(eq(reviewTasks.sessionId, session.id))
+    .run();
+  db.update(reviewSessions)
+    .set({ completedAt: NOW.toISOString() })
+    .where(eq(reviewSessions.id, session.id))
+    .run();
+  return session.id;
 }
 
 describe('GET 状态：三态映射（getTodayStatus）', () => {
@@ -456,5 +487,192 @@ describe('start 并发安全：全局生成锁 + 并发 3 保序取题', () => {
     // 锁释放无残留
     const locks = rawSqlite(db).prepare('SELECT COUNT(*) n FROM job_locks').get() as { n: number };
     expect(locks.n).toBe(0);
+  });
+});
+
+describe('extendTodaySession（同日追加学习）', () => {
+  function learnTasks(): Array<typeof reviewTasks.$inferSelect> {
+    return db
+      .select()
+      .from(reviewTasks)
+      .orderBy(asc(reviewTasks.sortKey))
+      .all()
+      .filter((t) => t.taskType === 'learn');
+  }
+
+  it('成功：已完成会话+剩余额度 → 追加 learn 任务、completedAt 清空、返回 active', async () => {
+    const sessionId = await seedCompletedSession();
+    setMaxNewItemsPerDay(20);
+    seedStats(10); // 剩余额度 10 > 队列 3 → 全取
+    await seedNewItem('new-1', '2026-09-01T00:00:00.000Z');
+    await seedNewItem('new-2', '2026-09-02T00:00:00.000Z');
+    await seedNewItem('new-3', '2026-09-03T00:00:00.000Z');
+
+    const res = await extendTodaySession(db, deps, TZ, NOW);
+    expect(res.status).toBe('active');
+    if (res.status !== 'active') return;
+    expect(res.session.id).toBe(sessionId);
+    expect(res.session.sessionDate).toBe(TODAY);
+    // 原 1 个已完成任务 + 3 个新 learn
+    expect(res.progress).toEqual({ completed: 1, total: 4 });
+    expect(res.currentTask?.taskType).toBe('learn');
+
+    const learn = learnTasks();
+    expect(learn.map((t) => t.learningItemId)).toEqual(['new-1', 'new-2', 'new-3']);
+    // sortKey 接最大值递增（此前唯一任务 sortKey=1）
+    expect(learn.map((t) => t.sortKey)).toEqual([2, 3, 4]);
+    for (const lt of learn) {
+      expect(lt.origin).toBe('base');
+      expect(lt.dimension).toBe('understanding');
+      expect(lt.questionId).not.toBeNull();
+      expect(lt.completedAt).toBeNull();
+      expect(lt.canceledAt).toBeNull();
+    }
+
+    expect(sessionOf(TODAY)!.completedAt).toBeNull();
+    expect(getTodayStatus(db, TZ, NOW).status).toBe('active');
+  });
+
+  it('额度用尽 → CONFLICT "今日新学习额度已用完"，会话保持完成', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(10);
+    seedStats(10);
+    await seedNewItem('new-1', '2026-09-01T00:00:00.000Z');
+
+    await expect(extendTodaySession(db, deps, TZ, NOW)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: '今日新学习额度已用完',
+    });
+    expect(sessionOf(TODAY)!.completedAt).not.toBeNull();
+    expect(db.select().from(reviewTasks).all()).toHaveLength(1);
+  });
+
+  it('会话未完成 → CONFLICT（active 会话无需 extend）', async () => {
+    await seedDueItem('item-a', ['understanding']);
+    await startTodaySession(db, deps, TZ, NOW);
+    await expect(extendTodaySession(db, deps, TZ, NOW)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: '会话尚未完成，无需追加',
+    });
+  });
+
+  it('今日无会话 → CONFLICT', async () => {
+    await expect(extendTodaySession(db, deps, TZ, NOW)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: '今日没有复习会话',
+    });
+  });
+
+  it('不限制模式：批 10 个（队列 12 词只取前 10，其余保持 new）', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(-1);
+    for (let i = 0; i < 12; i += 1) {
+      await seedNewItem(`new-${i}`, `2026-09-01T00:00:${String(i).padStart(2, '0')}.000Z`);
+    }
+
+    const res = await extendTodaySession(db, deps, TZ, NOW);
+    expect(res.status).toBe('active');
+    const learn = learnTasks();
+    expect(learn).toHaveLength(10);
+    expect(learn.map((t) => t.learningItemId)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `new-${i}`),
+    );
+    expect(learn.map((t) => t.sortKey)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    // extend 不改 queue_state（由 Learn 作答结算推进）：12 个词此刻都仍是 new
+    const stillNew = db
+      .select()
+      .from(learningItems)
+      .where(eq(learningItems.queueState, 'new'))
+      .all();
+    expect(stillNew).toHaveLength(12);
+  });
+
+  it('剩余额度小于队列：只取剩余数', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(12);
+    seedStats(10); // 剩 2
+    for (let i = 1; i <= 5; i += 1) {
+      await seedNewItem(`new-${i}`, `2026-09-0${i}T00:00:00.000Z`);
+    }
+
+    const res = await extendTodaySession(db, deps, TZ, NOW);
+    expect(res.status).toBe('active');
+    expect(learnTasks().map((t) => t.learningItemId)).toEqual(['new-1', 'new-2']);
+  });
+
+  it('幂等：extend 后会话重新激活，再次 extend → CONFLICT 且不重复追加', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(20);
+    seedStats(10);
+    await seedNewItem('new-1', '2026-09-01T00:00:00.000Z');
+
+    const first = await extendTodaySession(db, deps, TZ, NOW);
+    expect(first.status).toBe('active');
+    await expect(extendTodaySession(db, deps, TZ, NOW)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    expect(db.select().from(reviewTasks).all()).toHaveLength(2);
+  });
+
+  it('全部新词 Learn 题生成失败 → AI_PROVIDER_ERROR，会话保持完成', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(20);
+    seedStats(10);
+    // 无库存题 → 走 generate 且必失败
+    await seedItem(db, {
+      id: 'new-x',
+      target: 'new-x',
+      queueState: 'new',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    });
+    const failing = createFakeDeps({ generateFailFor: new Set(['new-x:understanding']) });
+
+    await expect(extendTodaySession(db, failing, TZ, NOW)).rejects.toMatchObject({
+      code: 'AI_PROVIDER_ERROR',
+    });
+    expect(sessionOf(TODAY)!.completedAt).not.toBeNull();
+    expect(db.select().from(reviewTasks).all()).toHaveLength(1);
+  });
+
+  it('New Queue 为空 → CONFLICT 没有可学的新词', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(20);
+    seedStats(10);
+
+    await expect(extendTodaySession(db, deps, TZ, NOW)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: '没有可学的新词',
+    });
+  });
+});
+
+describe('completed 响应 remainingNewQuota', () => {
+  it('有限剩余：maxNew=20、今日已学 10 → remainingNewQuota=10', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(20);
+    seedStats(10);
+    const res = getTodayStatus(db, TZ, NOW);
+    expect(res.status).toBe('completed');
+    if (res.status !== 'completed') return;
+    expect(res.remainingNewQuota).toBe(10);
+  });
+
+  it('不限制：maxNew=-1 → remainingNewQuota=null', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(-1);
+    const res = getTodayStatus(db, TZ, NOW);
+    expect(res.status).toBe('completed');
+    if (res.status !== 'completed') return;
+    expect(res.remainingNewQuota).toBeNull();
+  });
+
+  it('用尽：maxNew=10、今日已学 10 → remainingNewQuota=0', async () => {
+    await seedCompletedSession();
+    setMaxNewItemsPerDay(10);
+    seedStats(10);
+    const res = getTodayStatus(db, TZ, NOW);
+    expect(res.status).toBe('completed');
+    if (res.status !== 'completed') return;
+    expect(res.remainingNewQuota).toBe(0);
   });
 });

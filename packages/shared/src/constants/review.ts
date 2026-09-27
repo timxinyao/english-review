@@ -60,6 +60,8 @@ export const REVIEW_TASKS_KEEP_DAYS = 365;
 export const DEFAULT_MAX_NEW_ITEMS_PER_DAY = 10;
 export const MAX_NEW_ITEMS_CHOICES = [5, 10, 15, 20] as const;
 export const MAX_NEW_ITEMS_UNLIMITED = -1;
+/** 同日追加学习（extend）：不限制模式下每批追加数量 */
+export const EXTEND_BATCH_UNLIMITED = 10;
 
 /** 题型按 Production 阶段的映射（PRODUCT_DESIGN 6.3） */
 export const PRODUCTION_STAGE_QUESTION_MIX = {

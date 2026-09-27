@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import {
   DEFAULT_SETTINGS,
+  EXTEND_BATCH_UNLIMITED,
   MAX_NEW_ITEMS_UNLIMITED,
   MAX_REINFORCEMENT_PER_ITEM_PER_SESSION,
   REINFORCEMENT_MIN_GAP,
@@ -807,7 +808,11 @@ export function getTodayStatus(db: AppDatabase, timezone: string, now: Date): To
     .get();
   if (!session) return idleResponse(db, timezone, now);
   if (session.completedAt !== null) {
-    return { status: 'completed', summary: buildSummary(db, session) };
+    return {
+      status: 'completed',
+      summary: buildSummary(db, session),
+      remainingNewQuota: remainingNewQuotaOf(db, today),
+    };
   }
   return activeResponse(db, session);
 }
@@ -1128,6 +1133,109 @@ async function startTodaySessionInner(
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/today/extend：同日追加学习
+// ---------------------------------------------------------------------------
+
+/** 剩余新学额度（maxNew − 今日 newItemsStarted；不限制返回 null，0=用尽） */
+function remainingNewQuotaOf(db: AppDatabase, sessionDate: string): number | null {
+  const maxNew = readMaxNewItemsPerDay(db);
+  const started =
+    db.select().from(dailyStats).where(eq(dailyStats.date, sessionDate)).get()?.newItemsStarted ??
+    0;
+  if (maxNew === MAX_NEW_ITEMS_UNLIMITED) return null;
+  return Math.max(0, maxNew - started);
+}
+
+/**
+ * 同日追加学习（PRODUCT §3.4）：已完成会话 + 额度剩余 → 追加一批 Learn 任务并重新激活。
+ * 调度/统计零改动：追加任务与正常 Learn 同路径（answer 时结算/计数/完成检测）。
+ */
+export async function extendTodaySession(
+  db: AppDatabase,
+  deps: TodayDeps,
+  timezone: string,
+  now: Date,
+): Promise<TodayActiveResponse> {
+  const today = localDateString(now, timezone);
+  const session = db
+    .select()
+    .from(reviewSessions)
+    .where(eq(reviewSessions.sessionDate, today))
+    .get();
+  if (!session) throw appError('CONFLICT', '今日没有复习会话');
+  if (session.completedAt === null) throw appError('CONFLICT', '会话尚未完成，无需追加');
+
+  const remaining = remainingNewQuotaOf(db, today);
+  if (remaining === 0) throw appError('CONFLICT', '今日新学习额度已用完');
+  const count = remaining ?? EXTEND_BATCH_UNLIMITED;
+
+  // 取词与 start 同序（queue_state='new'、active、createdAt,id），按剩余额度截断
+  const candidates = db
+    .select()
+    .from(learningItems)
+    .where(and(eq(learningItems.status, 'active'), eq(learningItems.queueState, 'new')))
+    .orderBy(asc(learningItems.createdAt), asc(learningItems.id))
+    .limit(count)
+    .all();
+  if (candidates.length === 0) throw appError('CONFLICT', '没有可学的新词');
+
+  return withJobLock(db, 'question-generation', async () => {
+    // 题目获取在事务外（库存优先、懒生成兜底）；失败跳过不占额度，全部失败则整体报错
+    const acquired: { itemId: string; questionId: string }[] = [];
+    for (const item of candidates) {
+      const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now);
+      if (q) acquired.push({ itemId: item.id, questionId: q.id });
+      else console.warn(`[today] extend 跳过新项：item=${item.id}（Learn 题生成失败，不占额度）`);
+    }
+    if (acquired.length === 0) throw appError('AI_PROVIDER_ERROR', '题目生成失败，请稍后重试');
+
+    const nowIso = now.toISOString();
+    return db.transaction((tx) => {
+      // 事务内复查：会话仍处于完成态（并发下可能已被重新激活）
+      const fresh = tx.select().from(reviewSessions).where(eq(reviewSessions.id, session.id)).get();
+      if (!fresh) throw appError('INTERNAL', '会话不存在');
+      if (fresh.completedAt === null) throw appError('CONFLICT', '会话已被重新激活');
+      // 追加任务接在当日队列末尾（sortKey 从当前最大值起递增）
+      const maxSort =
+        tx
+          .select({ m: sql<number>`max(${reviewTasks.sortKey})` })
+          .from(reviewTasks)
+          .where(eq(reviewTasks.sessionId, session.id))
+          .get()?.m ?? 0;
+      acquired.forEach((a, index) => {
+        tx.insert(reviewTasks)
+          .values({
+            id: randomUUID(),
+            sessionId: session.id,
+            learningItemId: a.itemId,
+            dimension: 'understanding',
+            questionId: a.questionId,
+            taskType: 'learn',
+            origin: 'base',
+            sortKey: maxSort + index + 1,
+            deferCount: 0,
+            completedAt: null,
+            canceledAt: null,
+            createdAt: nowIso,
+          })
+          .run();
+      });
+      tx.update(reviewSessions)
+        .set({ completedAt: null })
+        .where(eq(reviewSessions.id, session.id))
+        .run();
+      const updated = tx
+        .select()
+        .from(reviewSessions)
+        .where(eq(reviewSessions.id, session.id))
+        .get();
+      if (!updated) throw appError('INTERNAL', '会话不存在');
+      return activeResponse(tx, updated);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1466,7 +1574,8 @@ export async function answerTodayTask(
         mode: 'today',
         answerText: body.answerText ?? null,
         // recall 直判时归一化丢弃并存选项，避免统计层误读
-        selectedOptionId: isUnderstandingRecall && body.recall ? null : (body.selectedOptionId ?? null),
+        selectedOptionId:
+          isUnderstandingRecall && body.recall ? null : (body.selectedOptionId ?? null),
         result,
         viewedSource: viewedSource ? 1 : 0,
         feedback: null,

@@ -222,6 +222,8 @@ export function makeCompleted(
       recommendRead: true,
       ...overrides,
     },
+    // extend 契约字段（Task 2 完成页消费）；null=不限制
+    remainingNewQuota: null,
   };
 }
 

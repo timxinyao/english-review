@@ -6,6 +6,7 @@ import { parseBody } from '../../lib/http.js';
 import {
   answerTodayTask,
   deferTodayTask,
+  extendTodaySession,
   getSessionTasks,
   getTodayStatus,
   reportBadQuestion,
@@ -23,6 +24,11 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
 
   app.post('/api/today/start', async () =>
     startTodaySession(db, await resolveTodayDeps(), tz, new Date()),
+  );
+
+  // 同日追加学习：向已完成会话追加一批 Learn 任务并重新激活
+  app.post('/api/today/extend', async () =>
+    extendTodaySession(db, await resolveTodayDeps(), tz, new Date()),
   );
 
   app.post('/api/today/tasks/:id/answer', async (req) => {

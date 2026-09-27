@@ -107,6 +107,8 @@ export type TodaySummary = z.infer<typeof TodaySummary>;
 export const TodayCompletedResponse = z.object({
   status: z.literal('completed'),
   summary: TodaySummary,
+  /** 剩余新学额度（maxNew − 今日 newItemsStarted）；null=不限制，0=用尽 */
+  remainingNewQuota: z.number().int().nullable(),
 });
 export type TodayCompletedResponse = z.infer<typeof TodayCompletedResponse>;
 

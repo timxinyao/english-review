@@ -93,6 +93,8 @@ describe('GET /api/today 契约（三态）', () => {
     expect(body.status).toBe('idle');
     expect(body.dueItems).toBe(2);
     expect(body.newTodayAvailable).toBe(10);
+    expect(body.totalItems).toBe(14); // 2 started + 12 new（active）
+    expect(body.newQueueCount).toBe(12);
     // 无 Learn 历史时回退为最近创建的 started 项
     expect(body.recentlyLearned.map((x: { id: string }) => x.id).sort()).toEqual(['it-1', 'it-2']);
   });

@@ -188,6 +188,8 @@ export function makeIdle(overrides: Partial<TodayIdleResponse> = {}): TodayIdleR
     status: 'idle',
     dueItems: 4,
     newTodayAvailable: 1,
+    totalItems: 57,
+    newQueueCount: 27,
     recentlyLearned: [
       { id: 'r1', target: 'wear down', type: 'chunk' },
       { id: 'r2', target: 'raw', type: 'word' },

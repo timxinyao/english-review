@@ -756,10 +756,23 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
       .all();
   }
 
+  const totalItems = db
+    .select({ n: sql<number>`count(*)` })
+    .from(learningItems)
+    .where(eq(learningItems.status, 'active'))
+    .get()?.n as number;
+  const newQueueCount = db
+    .select({ n: sql<number>`count(*)` })
+    .from(learningItems)
+    .where(and(eq(learningItems.status, 'active'), eq(learningItems.queueState, 'new')))
+    .get()?.n as number;
+
   return {
     status: 'idle',
     dueItems,
     newTodayAvailable,
+    totalItems,
+    newQueueCount,
     recentlyLearned: recent.map((r) => ({
       id: r.id,
       target: r.target,

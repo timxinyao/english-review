@@ -21,7 +21,9 @@ describe('TodayPage idle 态', () => {
   it('主卡片渲染 due/new 数字、开始按钮与 Recently learned 列表', async () => {
     renderTodayApp();
 
-    expect(await screen.findByText('4 items due · 1 new today')).toBeVisible();
+    expect(
+      await screen.findByText('词汇总数 57 · 待学 27 · 今日到期 4 项 · 可新学 1'),
+    ).toBeVisible();
     expect(screen.getByRole('button', { name: '开始今日复习' })).toBeVisible();
     expect(screen.getByText('Recently learned')).toBeVisible();
     expect(screen.getByText('wear down')).toBeVisible();

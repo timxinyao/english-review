@@ -13,7 +13,8 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
     <div className="space-y-8">
       <div className="rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-sm text-muted-foreground">
-          {data.dueItems} items due · {data.newTodayAvailable} new today
+          词汇总数 {data.totalItems} · 待学 {data.newQueueCount} · 今日到期 {data.dueItems} 项 · 可新学{' '}
+          {data.newTodayAvailable}
         </p>
         <Button
           size="lg"

@@ -79,6 +79,10 @@ export const TodayIdleResponse = z.object({
   dueItems: z.number().int(),
   /** 今日剩余可引入的新学习项数量 */
   newTodayAvailable: z.number().int(),
+  /** 在学词条总数（active，含 New Queue） */
+  totalItems: z.number().int(),
+  /** 待学（New Queue）数量 */
+  newQueueCount: z.number().int(),
   recentlyLearned: z.array(RecentlyLearnedDto),
 });
 export type TodayIdleResponse = z.infer<typeof TodayIdleResponse>;

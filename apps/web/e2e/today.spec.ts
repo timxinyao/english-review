@@ -162,7 +162,7 @@ test.describe('Today 复习全流程', () => {
 
     // idle 主卡片：种子 5 个到期（Phase 4 新增 give up 的 P 任务）；new today 为剩余新学额度
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
-    await expect(page.getByText(/^5 items due · \d+ new today$/)).toBeVisible();
+    await expect(page.getByText(/^词汇总数 \d+ · 待学 \d+ · 今日到期 5 项 · 可新学 \d+$/)).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
     // active 态：细进度行（批量 entries 未落地时为 "0 / 6"，落地后为 "第 1 / 6"）

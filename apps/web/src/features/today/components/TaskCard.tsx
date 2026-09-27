@@ -5,7 +5,6 @@ import { Button } from '../../../components/ui/button';
 import { useBadQuestion } from '../api';
 import { ChoiceQuestionView } from './ChoiceQuestionView';
 import { ClozeQuestionView } from './ClozeQuestionView';
-import { LearnContent } from './LearnContent';
 import { ProductionQuestionView } from './ProductionQuestionView';
 import { RecallCard } from './RecallCard';
 
@@ -19,7 +18,7 @@ interface Props {
   onAdvance?: () => void;
 }
 
-/** 单张任务卡：learn 内容 + 按题型渲染题目；右上操作（稍后再做 / 坏题） */
+/** 单张任务卡：按题型渲染题目；右上操作（稍后再做 / 坏题） */
 export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Props) {
   const badQuestion = useBadQuestion();
   const [confirmBad, setConfirmBad] = useState(false);
@@ -32,7 +31,7 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
 
   return (
     <article className="relative rounded-xl border border-border bg-card p-5 pt-4">
-      {/* 右上角操作：绝对定位，与词行同高（LearnContent 词行 pr-12 让位） */}
+      {/* 右上角操作：绝对定位，与词行同高（词行 pr-12 让位） */}
       <div className="absolute right-3 top-3 z-10">
         {result && (
           <Button
@@ -46,7 +45,7 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
         )}
       </div>
 
-      {/* 回看/已答：顶部显示考的单词（learn 卡已有词行；understanding 由 RecallCard 自带词行，不重复） */}
+      {/* 回看/已答：顶部显示考的单词（learn/understanding 由 RecallCard 自带词行，不重复） */}
       {(result !== null || readOnly) && task.taskType !== 'learn' && task.taskType !== 'understanding' && (
         <div className="mb-3 flex items-baseline gap-2 pr-12">
           <h3 className="text-lg font-semibold text-foreground">{task.item.target}</h3>
@@ -56,60 +55,44 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
         </div>
       )}
 
-      {/* Learn 卡：两阶段交互——释义模糊 → 点击展开 → 题目出现 */}
-      {task.taskType === 'learn' ? (
-        <LearnContent task={task}>
-          {question && 'options' in question ? (
-            <ChoiceQuestionView
-              task={task}
-              question={question}
-              result={result}
-              onAnswered={onAnswered ?? (() => {})}
-              onAdvance={onAdvance ?? (() => {})}
-            />
-          ) : null}
-        </LearnContent>
-      ) : (
-        <>
-          {question && 'options' in question ? (
-            task.taskType === 'understanding' ? (
-              <RecallCard
-                task={task}
-                question={question}
-                result={result}
-                outcomeSource={result?.outcomeSource ?? null}
-                readOnly={readOnly}
-                onAnswered={onAnswered ?? (() => {})}
-                onAdvance={onAdvance ?? (() => {})}
-              />
-            ) : (
-              <ChoiceQuestionView
-                task={task}
-                question={question}
-                result={result}
-                onAnswered={onAnswered ?? (() => {})}
-                onAdvance={onAdvance ?? (() => {})}
-              />
-            )
-          ) : question && 'textWithBlank' in question ? (
-            <ClozeQuestionView
-              task={task}
-              question={question}
-              result={result}
-              onAnswered={onAnswered ?? (() => {})}
-              onAdvance={onAdvance ?? (() => {})}
-            />
-          ) : question && 'zhPrompt' in question ? (
-            <ProductionQuestionView
-              task={task}
-              question={question}
-              result={result}
-              onAnswered={onAnswered ?? (() => {})}
-              onAdvance={onAdvance ?? (() => {})}
-            />
-          ) : null}
-        </>
-      )}
+      {/* 理解题（learn 新词 + understanding 复习）：Recall Card——主动回忆优先，选择题降级为 Hint */}
+      {question && 'options' in question ? (
+        task.taskType === 'understanding' || task.taskType === 'learn' ? (
+          <RecallCard
+            task={task}
+            question={question}
+            result={result}
+            outcomeSource={result?.outcomeSource ?? null}
+            readOnly={readOnly}
+            onAnswered={onAnswered ?? (() => {})}
+            onAdvance={onAdvance ?? (() => {})}
+          />
+        ) : (
+          <ChoiceQuestionView
+            task={task}
+            question={question}
+            result={result}
+            onAnswered={onAnswered ?? (() => {})}
+            onAdvance={onAdvance ?? (() => {})}
+          />
+        )
+      ) : question && 'textWithBlank' in question ? (
+        <ClozeQuestionView
+          task={task}
+          question={question}
+          result={result}
+          onAnswered={onAnswered ?? (() => {})}
+          onAdvance={onAdvance ?? (() => {})}
+        />
+      ) : question && 'zhPrompt' in question ? (
+        <ProductionQuestionView
+          task={task}
+          question={question}
+          result={result}
+          onAnswered={onAnswered ?? (() => {})}
+          onAdvance={onAdvance ?? (() => {})}
+        />
+      ) : null}
 
       {confirmBad && (
         <div

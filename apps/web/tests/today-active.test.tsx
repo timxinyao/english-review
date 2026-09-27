@@ -20,44 +20,15 @@ vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
 
 const apiMock = vi.mocked(api);
 
-describe('Today 任务卡：learn 卡 / 稍后再做 / 坏题', () => {
+describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('learn 卡渲染 target/ipa/meaning/原句与最多 1 条补充例句 + 发音按钮', async () => {
-    stubApi({
-      '/api/today': makeActive(
-        makeLearnTask({
-          supplementaryExamples: ['Gravity is a fundamental force.', 'Gravity keeps us grounded.'],
-        }),
-      ),
-    });
-    renderTodayApp();
-
-    expect(await screen.findByRole('heading', { name: 'gravity' })).toBeVisible();
-    expect(screen.getByText('/ˈɡrævəti/')).toBeVisible();
-    // 阶段 1：释义模糊（点击展开前不可见为 <p>）
-    expect(screen.getByRole('button', { name: '点击显示释义' })).toBeVisible();
-    expect(document.querySelector('mark')).toBeVisible();
-    expect(screen.getByText(/fundamental force/)).toBeVisible();
-    expect(screen.queryByText('Gravity keeps us grounded.')).not.toBeInTheDocument();
-    expect(screen.getByText('补充例句')).toBeVisible();
-    expect(screen.getByRole('button', { name: '朗读 gravity' })).toBeVisible();
-    // 阶段 1：题目未出现
-    expect(screen.queryByText('”gravity” 的意思是？')).not.toBeInTheDocument();
-
-    // 阶段 2：点击展开释义 → 释义可见 + 题目出现
-    fireEvent.click(screen.getByRole('button', { name: '点击显示释义' }));
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '重力' })).toBeVisible();
-    });
-    expect(
-      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '重力'),
-    ).toBeVisible();
-  });
-
   it('稍后再做按钮已移除（右滑替代）', async () => {
+    stubApi({
+      '/api/today': makeActive(makeLearnTask(), { completed: 1, total: 4 }),
+    });
     renderTodayApp();
     await screen.findByRole('heading', { name: 'gravity' });
     expect(screen.queryByRole('button', { name: '稍后再做' })).not.toBeInTheDocument();

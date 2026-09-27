@@ -9,6 +9,7 @@ import {
   makeActive,
   makeChoiceTask,
   makeCorrectAnswer,
+  makeLearnTask,
   makeSessionEntry,
   makeTasksResponse,
   makeWrongAnswer,
@@ -273,5 +274,49 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByText('没想起来')).not.toBeInTheDocument();
     expect(screen.queryByText('提示后想起（基础通过）')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '显示答案' })).not.toBeInTheDocument();
+  });
+});
+
+describe('learn 分派 RecallCard（新词首触即回忆）', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('learn 任务渲染 RecallCard：初始不剧透 meaning/选项；显示答案→想起来了→POST {recall:"recalled"}', async () => {
+    const statusQueue = [makeActive(makeLearnTask(), { completed: 1, total: 4 })];
+    stubApi({
+      '/api/today': () =>
+        statusQueue.shift() ?? makeActive(secondTask(), { completed: 1, total: 2 }),
+      '/api/today/tasks/task-learn/answer': recalledAnswer(),
+    });
+    renderTodayApp();
+
+    // 词行 + 原句（RecallCard 自带）；不剧透：meaning、选择题均不出现
+    expect(await screen.findByRole('heading', { name: 'gravity' })).toBeVisible();
+    expect(screen.getByText('/ˈɡrævəti/')).toBeVisible();
+    expect(screen.getByText('I laugh at gravity all the time.')).toBeVisible();
+    expect(screen.queryByText('重力')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '显示答案' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '给我提示' })).toBeVisible();
+
+    // 显示答案 → 想起来了（recall 直判）
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    expect(await screen.findByText('重力')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '想起来了' }));
+
+    await waitFor(() => {
+      expect(apiCalls('/api/today/tasks/task-learn/answer')).toHaveLength(1);
+    });
+    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-learn/answer')[0])).toEqual({
+      recall: 'recalled',
+    });
+
+    // 冻结反馈 + 词行不重复（learn 与 understanding 一样由 RecallCard 自带词行）
+    expect(await verdictParagraph('想起来了')).toBeVisible();
+    expect(screen.getAllByRole('heading', { name: 'gravity' })).toHaveLength(1);
+
+    // 手动"下一题"推进
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(await screen.findByRole('heading', { name: 'ambitious' })).toBeVisible();
+    expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
   });
 });

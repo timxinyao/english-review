@@ -40,9 +40,14 @@ describe('TaskCard 词行（Recall 卡自带词行；其余已答/回看显示�
     expect(screen.getByRole('heading', { name: 'give up' })).toBeVisible();
   });
 
-  it('learn 卡不重复渲染词行（LearnContent 已有）', () => {
+  it('learn 卡（RecallCard 自带词行）：已答后也不重复渲染词行', () => {
     renderCard(
-      <TaskCard task={makeLearnTask()} result={null} onAnswered={() => {}} onAdvance={() => {}} />,
+      <TaskCard
+        task={makeLearnTask()}
+        result={makeCorrectAnswer()}
+        onAnswered={() => {}}
+        onAdvance={() => {}}
+      />,
     );
     expect(screen.getAllByRole('heading', { name: 'gravity' })).toHaveLength(1);
   });

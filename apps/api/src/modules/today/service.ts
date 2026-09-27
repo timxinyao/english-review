@@ -1152,6 +1152,7 @@ function remainingNewQuotaOf(db: AppDatabase, sessionDate: string): number | nul
 /**
  * 同日追加学习（PRODUCT §3.4）：已完成会话 + 额度剩余 → 追加一批 Learn 任务并重新激活。
  * 调度/统计零改动：追加任务与正常 Learn 同路径（answer 时结算/计数/完成检测）。
+ * 持 question-generation 全局锁执行 extend；等锁超时归一为 CONFLICT（与 start/practice 一致）。
  */
 export async function extendTodaySession(
   db: AppDatabase,
@@ -1182,60 +1183,71 @@ export async function extendTodaySession(
     .all();
   if (candidates.length === 0) throw appError('CONFLICT', '没有可学的新词');
 
-  return withJobLock(db, 'question-generation', async () => {
-    // 题目获取在事务外（库存优先、懒生成兜底）；失败跳过不占额度，全部失败则整体报错
-    const acquired: { itemId: string; questionId: string }[] = [];
-    for (const item of candidates) {
-      const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now);
-      if (q) acquired.push({ itemId: item.id, questionId: q.id });
-      else console.warn(`[today] extend 跳过新项：item=${item.id}（Learn 题生成失败，不占额度）`);
-    }
-    if (acquired.length === 0) throw appError('AI_PROVIDER_ERROR', '题目生成失败，请稍后重试');
+  try {
+    return await withJobLock(db, 'question-generation', async () => {
+      // 题目获取在事务外（库存优先、懒生成兜底）；失败跳过不占额度，全部失败则整体报错
+      const acquired: { itemId: string; questionId: string }[] = [];
+      for (const item of candidates) {
+        const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now);
+        if (q) acquired.push({ itemId: item.id, questionId: q.id });
+        else console.warn(`[today] extend 跳过新项：item=${item.id}（Learn 题生成失败，不占额度）`);
+      }
+      if (acquired.length === 0) throw appError('AI_PROVIDER_ERROR', '题目生成失败，请稍后重试');
 
-    const nowIso = now.toISOString();
-    return db.transaction((tx) => {
-      // 事务内复查：会话仍处于完成态（并发下可能已被重新激活）
-      const fresh = tx.select().from(reviewSessions).where(eq(reviewSessions.id, session.id)).get();
-      if (!fresh) throw appError('INTERNAL', '会话不存在');
-      if (fresh.completedAt === null) throw appError('CONFLICT', '会话已被重新激活');
-      // 追加任务接在当日队列末尾（sortKey 从当前最大值起递增）
-      const maxSort =
-        tx
-          .select({ m: sql<number>`max(${reviewTasks.sortKey})` })
-          .from(reviewTasks)
-          .where(eq(reviewTasks.sessionId, session.id))
-          .get()?.m ?? 0;
-      acquired.forEach((a, index) => {
-        tx.insert(reviewTasks)
-          .values({
-            id: randomUUID(),
-            sessionId: session.id,
-            learningItemId: a.itemId,
-            dimension: 'understanding',
-            questionId: a.questionId,
-            taskType: 'learn',
-            origin: 'base',
-            sortKey: maxSort + index + 1,
-            deferCount: 0,
-            completedAt: null,
-            canceledAt: null,
-            createdAt: nowIso,
-          })
+      const nowIso = now.toISOString();
+      return db.transaction((tx) => {
+        // 事务内复查：会话仍处于完成态（并发下可能已被重新激活）
+        const fresh = tx
+          .select()
+          .from(reviewSessions)
+          .where(eq(reviewSessions.id, session.id))
+          .get();
+        if (!fresh) throw appError('INTERNAL', '会话不存在');
+        if (fresh.completedAt === null) throw appError('CONFLICT', '会话已被重新激活');
+        // 追加任务接在当日队列末尾（sortKey 从当前最大值起递增）
+        const maxSort =
+          tx
+            .select({ m: sql<number>`max(${reviewTasks.sortKey})` })
+            .from(reviewTasks)
+            .where(eq(reviewTasks.sessionId, session.id))
+            .get()?.m ?? 0;
+        acquired.forEach((a, index) => {
+          tx.insert(reviewTasks)
+            .values({
+              id: randomUUID(),
+              sessionId: session.id,
+              learningItemId: a.itemId,
+              dimension: 'understanding',
+              questionId: a.questionId,
+              taskType: 'learn',
+              origin: 'base',
+              sortKey: maxSort + index + 1,
+              deferCount: 0,
+              completedAt: null,
+              canceledAt: null,
+              createdAt: nowIso,
+            })
+            .run();
+        });
+        tx.update(reviewSessions)
+          .set({ completedAt: null })
+          .where(eq(reviewSessions.id, session.id))
           .run();
+        const updated = tx
+          .select()
+          .from(reviewSessions)
+          .where(eq(reviewSessions.id, session.id))
+          .get();
+        if (!updated) throw appError('INTERNAL', '会话不存在');
+        return activeResponse(tx, updated);
       });
-      tx.update(reviewSessions)
-        .set({ completedAt: null })
-        .where(eq(reviewSessions.id, session.id))
-        .run();
-      const updated = tx
-        .select()
-        .from(reviewSessions)
-        .where(eq(reviewSessions.id, session.id))
-        .get();
-      if (!updated) throw appError('INTERNAL', '会话不存在');
-      return activeResponse(tx, updated);
     });
-  });
+  } catch (err) {
+    if (err instanceof JobLockTimeoutError) {
+      throw appError('CONFLICT', '题目正在准备中，请稍候重试');
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

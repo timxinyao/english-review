@@ -23,22 +23,31 @@ interface Props {
 }
 
 /** 冻结反馈：按 outcomeSource 三态——recalled=想起来了 / assisted=提示后想起（基础通过）/
- *  forgot（含历史数据的空值）=没想起来 + 正确释义与原句揭示 */
+ *  forgot=没想起来 + 正确释义与原句揭示；历史数据 outcomeSource 为空时按 result 回退：
+ *  对=想起来了 / 错=没想起来 / 无 result 的只读回看=中性（仅 meaning，不显示判定文案） */
 function RecallFeedback({
   task,
+  result,
   outcomeSource,
+  readOnly,
   onAdvance,
 }: {
   task: TodayTaskView;
+  result: AnswerResponse | null;
   outcomeSource: AnswerResponse['outcomeSource'];
+  readOnly?: boolean;
   onAdvance: () => void;
 }) {
-  const forgot = outcomeSource !== 'recalled' && outcomeSource !== 'assisted';
+  const unknown = outcomeSource !== 'recalled' && outcomeSource !== 'assisted' && outcomeSource !== 'forgot';
+  const neutral = unknown && result === null && readOnly === true;
+  const recalled = outcomeSource === 'recalled' || (unknown && result?.correct === true);
+  const assisted = outcomeSource === 'assisted';
+  const forgot = outcomeSource === 'forgot' || (unknown && result !== null && !result.correct);
 
   return (
     <div className="space-y-3">
-      {outcomeSource === 'recalled' && <p className="text-sm text-success">想起来了</p>}
-      {outcomeSource === 'assisted' && (
+      {recalled && <p className="text-sm text-success">想起来了</p>}
+      {assisted && (
         <p className="text-sm text-muted-foreground">提示后想起（基础通过）</p>
       )}
       {forgot && (
@@ -55,6 +64,12 @@ function RecallFeedback({
             </p>
           )}
         </>
+      )}
+      {neutral && (
+        <p className="text-sm">
+          <span className="text-muted-foreground">释义：</span>
+          {task.item.meaning}
+        </p>
       )}
       <div className="flex justify-end">
         <Button onClick={onAdvance}>下一题</Button>
@@ -103,8 +118,9 @@ export function RecallCard({
         </Button>
       </div>
 
-      {/* 提示态：原句默认展示（understanding 不再有"查看原句"，API 侧也不再因 viewedSource 降档） */}
-      {task.sourceExample !== null && !frozen && (
+      {/* 提示态：原句默认展示（understanding 不再有"查看原句"，API 侧也不再因 viewedSource 降档）；
+          hint 态隐藏——ChoiceQuestionCard 的 context 已带源句，避免同屏重复 */}
+      {task.sourceExample !== null && !frozen && !hint && (
         <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
           <span className="mr-1 text-xs text-muted-foreground">原句</span>
           {task.sourceExample}
@@ -127,6 +143,12 @@ export function RecallCard({
       {!frozen && !hint && revealed && (
         <div className="space-y-3">
           <p className="text-base text-foreground">{word.meaning}</p>
+          {word.notes ? (
+            <details className="text-sm">
+              <summary className="text-xs text-muted-foreground cursor-pointer">笔记</summary>
+              <p className="mt-1 text-muted-foreground">{word.notes}</p>
+            </details>
+          ) : null}
           <div className="flex gap-2">
             <Button
               variant="outline"
@@ -163,7 +185,13 @@ export function RecallCard({
 
       {/* 冻结反馈（作答后/回看） */}
       {frozen && (
-        <RecallFeedback task={task} outcomeSource={outcomeSource} onAdvance={onAdvance} />
+        <RecallFeedback
+          task={task}
+          result={result}
+          outcomeSource={outcomeSource}
+          readOnly={readOnly}
+          onAdvance={onAdvance}
+        />
       )}
     </div>
   );

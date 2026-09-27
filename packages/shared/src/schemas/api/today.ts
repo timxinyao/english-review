@@ -39,6 +39,8 @@ export const TodayTaskView = z.object({
     target: z.string(),
     meaning: z.string(),
     ipa: z.string().nullable(),
+    /** 学习项笔记（Recall Card 揭示态折叠展示） */
+    notes: z.string().nullable(),
   }),
   /** learn 卡展示；理解/填空题默认隐藏，用户点「查看原句」后前端再显示，并随答案提交 viewedSource */
   sourceExample: z.string().nullable(),

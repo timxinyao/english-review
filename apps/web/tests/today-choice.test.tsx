@@ -25,7 +25,7 @@ const apiMock = vi.mocked(api);
 function secondTask() {
   return makeChoiceTask({
     taskId: 'task-2',
-    item: { id: 'item-2', type: 'word', target: 'stable', meaning: '稳定的', ipa: '/ˈsteɪbl/' },
+    item: { id: 'item-2', type: 'word', target: 'stable', meaning: '稳定的', ipa: '/ˈsteɪbl/', notes: null },
   });
 }
 

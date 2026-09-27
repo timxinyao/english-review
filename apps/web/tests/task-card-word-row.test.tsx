@@ -34,7 +34,7 @@ describe('TaskCard 词行（Recall 卡自带词行；其余已答/回看显示�
 
   it('chunk 无 IPA：只显示 target', () => {
     const task = makeChoiceTask({
-      item: { id: 'i', type: 'chunk', target: 'give up', meaning: '放弃', ipa: null },
+      item: { id: 'i', type: 'chunk', target: 'give up', meaning: '放弃', ipa: null, notes: null },
     });
     renderCard(<TaskCard task={task} result={makeCorrectAnswer()} onAnswered={() => {}} onAdvance={() => {}} />);
     expect(screen.getByRole('heading', { name: 'give up' })).toBeVisible();

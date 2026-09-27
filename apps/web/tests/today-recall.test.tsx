@@ -1,5 +1,7 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TaskCard } from '../src/features/today/components/TaskCard';
 import { api } from '../src/lib/api';
 import {
   apiCalls,
@@ -31,7 +33,7 @@ const forgotAnswer = () => makeWrongAnswer({ outcomeSource: 'forgot' });
 function secondTask() {
   return makeChoiceTask({
     taskId: 'task-2',
-    item: { id: 'item-2', type: 'word', target: 'ambitious', meaning: '有雄心的', ipa: '/æmˈbɪʃəs/' },
+    item: { id: 'item-2', type: 'word', target: 'ambitious', meaning: '有雄心的', ipa: '/æmˈbɪʃəs/', notes: null },
   });
 }
 
@@ -61,7 +63,11 @@ describe('Recall Card（understanding）', () => {
   });
 
   it('显示答案：meaning 展示、[没想起来][想起来了]；点想起来了 → POST {recall:"recalled"} → 冻结"想起来了"', async () => {
-    const statusQueue = [makeActive(makeChoiceTask())];
+    // notes 折叠链路：fixture 带笔记，揭示态默认收起（summary 可见）
+    const withNotes = makeChoiceTask({
+      item: { id: 'item-1', type: 'word', target: 'stable', meaning: '稳定的', ipa: '/ˈsteɪbl/', notes: '也作名词：马厩' },
+    });
+    const statusQueue = [makeActive(withNotes)];
     stubApi({
       '/api/today': () =>
         statusQueue.shift() ?? makeActive(secondTask(), { completed: 1, total: 2 }),
@@ -73,6 +79,12 @@ describe('Recall Card（understanding）', () => {
     expect(await screen.findByText('稳定的')).toBeVisible();
     expect(screen.getByRole('button', { name: '没想起来' })).toBeVisible();
     expect(screen.getByRole('button', { name: '想起来了' })).toBeVisible();
+    // notes 折叠渲染：summary「笔记」可见，details 默认收起（内容随展开才显示）
+    expect(screen.getByText('笔记')).toBeVisible();
+    const notesDetails = screen.getByText('笔记').closest('details');
+    expect(notesDetails).not.toBeNull();
+    expect(notesDetails).not.toHaveAttribute('open');
+    expect(notesDetails).toHaveTextContent('也作名词：马厩');
     // 揭示态不再提供提示入口
     expect(screen.queryByRole('button', { name: '给我提示' })).not.toBeInTheDocument();
 
@@ -132,6 +144,8 @@ describe('Recall Card（understanding）', () => {
     // Hint 复用选择题：题面 + 选项；仅答题形态（无查看原句、无反馈 chips）
     expect(await screen.findByText('"stable" 的意思是？')).toBeVisible();
     expect(screen.getByRole('group', { name: '选项' })).toBeVisible();
+    // hint 态原句块隐藏：不与题面重复展示源句
+    expect(screen.queryByText('The ladder feels stable.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '查看原句' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '给我提示' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '显示答案' })).not.toBeInTheDocument();
@@ -176,11 +190,11 @@ describe('Recall Card（understanding）', () => {
   it('readOnly 回看：直接呈现冻结态，无作答按钮', async () => {
     const done = makeChoiceTask({
       taskId: 'task-1',
-      item: { id: 'i1', type: 'word', target: 'alpha', meaning: '甲', ipa: null },
+      item: { id: 'i1', type: 'word', target: 'alpha', meaning: '甲', ipa: null, notes: null },
     });
     const current = makeChoiceTask({
       taskId: 'task-2',
-      item: { id: 'i2', type: 'word', target: 'beta', meaning: '乙', ipa: null },
+      item: { id: 'i2', type: 'word', target: 'beta', meaning: '乙', ipa: null, notes: null },
     });
     stubApi({
       '/api/today': makeActive(current, { completed: 1, total: 2 }),
@@ -206,5 +220,58 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('button', { name: '没想起来' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '想起来了' })).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
+  });
+
+  // 历史数据（outcomeSource=NULL）冻结回退：按 result 渲染
+  it('历史 outcomeSource=NULL：result.correct=true 冻结回退"想起来了"', async () => {
+    stubApi({
+      '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }),
+      '/api/today/tasks/task-1/answer': makeCorrectAnswer(), // 无 outcomeSource
+    });
+    renderTodayApp();
+
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+
+    const verdict = await verdictParagraph('想起来了');
+    expect(verdict.className).toContain('text-success');
+    expect(screen.queryByText('没想起来')).not.toBeInTheDocument();
+  });
+
+  it('历史 outcomeSource=NULL：result.correct=false 冻结回退"没想起来"+释义揭示', async () => {
+    stubApi({
+      '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }),
+      '/api/today/tasks/task-1/answer': makeWrongAnswer(), // 无 outcomeSource
+    });
+    renderTodayApp();
+
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+
+    const verdict = await verdictParagraph('没想起来');
+    expect(verdict.className).toContain('text-destructive');
+    expect(screen.getByText('稳定的')).toBeVisible();
+    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
+  });
+
+  it('历史 outcomeSource=NULL 且 readOnly（result=null）：中性回看——仅 meaning，无判定文案', () => {
+    // 会话内（列表回看）到不了 result=null 的冻结态，直接以 readOnly 渲染 TaskCard
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TaskCard
+          task={makeChoiceTask()}
+          result={null}
+          readOnly
+          onAnswered={() => {}}
+          onAdvance={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText('稳定的')).toBeVisible();
+    expect(screen.queryByText('想起来了')).not.toBeInTheDocument();
+    expect(screen.queryByText('没想起来')).not.toBeInTheDocument();
+    expect(screen.queryByText('提示后想起（基础通过）')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '显示答案' })).not.toBeInTheDocument();
   });
 });

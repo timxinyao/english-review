@@ -589,6 +589,7 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
       target: item.target,
       meaning: item.meaning,
       ipa: item.ipa,
+      notes: item.notes,
     },
     sourceExample,
     supplementaryExamples,
@@ -1299,8 +1300,8 @@ export async function answerTodayTask(
     outcome = { correct: production.result !== 'fail' };
   } else if (isCloze) {
     outcome = await deps.evaluateCloze(db, question, body.answerText!);
-  } else if (body.recall) {
-    // Recall Card 直判：主动回忆（无提示）
+  } else if (isUnderstandingRecall && body.recall) {
+    // Recall Card 直判：主动回忆（无提示）；learn/cloze 误传 recall 不生效，落入 choice/cloze 路径
     outcome = { correct: body.recall === 'recalled' };
   } else {
     outcome = deps.evaluateChoice(question, body.selectedOptionId!);

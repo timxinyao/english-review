@@ -312,7 +312,7 @@ Understanding 到期时使用 Recall Card（主动回忆优先，选择题为 Hi
 
 ## 7.1 理解题（2026-09-27 改版：Recall Card 主动回忆优先）
 
-Understanding 复习任务的默认形式是 **Recall Card**：展示 target（+IPA+发音）与 source_example，不展示释义与选项；用户先主动回忆，点"显示答案"后揭示 meaning（notes 保持折叠）并自评 **想起来了 / 没想起来**。
+Understanding 复习任务的默认形式是 **Recall Card**：展示 target（+IPA+发音）与 source_example，不展示释义与选项；用户先主动回忆，点"显示答案"后揭示 meaning（notes 默认展开，2026-09-28 改版）并自评 **想起来了 / 没想起来**。
 
 **四选一选择题降级为 Hint**："给我提示"后展示选择题（选项仍为中文释义，不使用错误英文句作干扰项），帮助 recognition 而非替代主动回忆。
 

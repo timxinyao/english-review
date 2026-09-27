@@ -28,7 +28,7 @@
 
 - 新 `RecallCard`（understanding 复习任务专用）：
   - 提示态：target + IPA + 🔊（speak 复用 lib/tts）+ source_example（存在时）+ [给我提示] [显示答案]；不显示 meaning/选项。
-  - 显示答案后：meaning + notes 折叠（<details>）+ [没想起来] [想起来了]。
+  - 显示答案后：meaning + notes（<details>，2026-09-28 修订：默认展开）+ [没想起来] [想起来了]。
   - Hint：渲染现有 `ChoiceQuestionCard`（仅答题形态，无反馈 chips），提交 `{selectedOptionId, hintUsed:true}`；提交后进入冻结反馈态。
   - 冻结反馈（TaskCard result 冻结机制不变）：recalled=想起来了 ✓；assisted=提示后想起（基础通过）；forgot=没想起来 ✗ + 正确 meaning + source_example 突出块。
 - `TaskCard` 分派：taskType==='understanding' → RecallCard（hint 题目=任务绑定 question）；learn/cloze/production 不变。understanding 时 TaskCard 顶部词行跳过（RecallCard 自带词行）。

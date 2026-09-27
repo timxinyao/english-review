@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const closedContexts: unknown[] = [];
+
 class FakeAudioContext {
   state = 'running';
+  close = vi.fn(async () => {
+    closedContexts.push(this);
+  });
   decodeAudioData = vi.fn(async () => ({ tag: 'buffer' }) as unknown as AudioBuffer);
   createBufferSource() {
     return {
@@ -49,6 +54,17 @@ describe('tts iOS 静音拨片解锁（手势门控）', () => {
     await speak('world', { userGesture: true });
     await speak('auto');
     expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('冷启动场景：自动朗读先建 ctx，首次手动发音废弃重建（手势内）', async () => {
+    const { speak } = await import('../src/lib/tts');
+    await speak('auto'); // 无手势：创建 ctx#1（模拟 iOS 判死）
+    const ctxCountBefore = closedContexts.length;
+    await speak('hello', { userGesture: true });
+    // 无手势创建的 ctx 被 close，并在手势内重建
+    expect(closedContexts.length).toBe(ctxCountBefore + 1);
+    await speak('again', { userGesture: true }); // 已是手势 ctx：不再重建
+    expect(closedContexts.length).toBe(ctxCountBefore + 1);
   });
 
   it('解锁播放被拒绝不锁定：发音照常，下次手势重试解锁', async () => {

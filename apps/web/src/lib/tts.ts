@@ -15,19 +15,37 @@
  * 短促近无声片段不触发灵动岛。
  */
 let audioCtx: AudioContext | null = null;
+/** AudioContext 是否在用户手势内创建——iOS 对无手势创建的上下文可能永久静音（2026-09-28 实测） */
+let ctxCreatedInGesture = false;
 const bufferCache = new Map<string, AudioBuffer>();
 /** 当前正在播放的音频源——新播放前 stop 旧的，全局互斥（词/例句/任何文本） */
 let currentSource: AudioBufferSourceNode | null = null;
 let sessionUnlocked = false;
 
-function getCtx(): AudioContext {
+function getCtx(inGesture: boolean): AudioContext {
   if (!audioCtx) {
     audioCtx = new AudioContext();
+    ctxCreatedInGesture = inGesture;
   }
   if (audioCtx.state === 'suspended') {
     void audioCtx.resume();
   }
   return audioCtx;
+}
+
+/** 手势内重建上下文：冷启动时自动朗读（无手势）先行创建的 ctx 可能被 iOS 永久静音，
+ *  首次手动发音时废弃重建（AudioBuffer 跨上下文有效，缓存可复用） */
+async function ensureGestureCtx(): Promise<AudioContext> {
+  if (audioCtx && !ctxCreatedInGesture) {
+    const dead = audioCtx;
+    audioCtx = null;
+    try {
+      await dead.close();
+    } catch {
+      // 关闭失败忽略，旧实例交由 GC
+    }
+  }
+  return getCtx(true);
 }
 
 /**
@@ -62,8 +80,9 @@ export function stopSpeaking(): void {
 
 export async function speak(text: string, opts: { userGesture?: boolean } = {}): Promise<void> {
   const key = text.slice(0, 200);
-  await unlockAudioSession(opts.userGesture === true);
-  const ctx = getCtx();
+  const inGesture = opts.userGesture === true;
+  await unlockAudioSession(inGesture);
+  const ctx = inGesture ? await ensureGestureCtx() : getCtx(false);
 
   let buffer = bufferCache.get(key);
   if (buffer) {

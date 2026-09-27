@@ -48,6 +48,17 @@ async function ensureGestureCtx(): Promise<AudioContext> {
   return getCtx(true);
 }
 
+// iOS 后台往返可能重置进程音频会话类别与上下文可用性：
+// 回前台时重置解锁与手势标记，下一次手势发音自动重新解锁/重建（免手动刷新）。
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      sessionUnlocked = false;
+      ctxCreatedInGesture = false;
+    }
+  });
+}
+
 /**
  * iOS 静音拨片解锁：近无声媒体播放一次（进程内）。
  * 必须在用户手势内调用（自动发音的 effect 调用栈无手势，iOS 会拒绝 play()）；

@@ -103,7 +103,7 @@ export function RecallCard({
           size="icon"
           className="h-8 w-8 text-muted-foreground"
           aria-label="发音"
-          onClick={() => void speak(word.target)}
+          onClick={() => void speak(word.target, { userGesture: true })}
         >
           <Volume2 className="h-4 w-4" aria-hidden />
         </Button>

@@ -30,24 +30,34 @@ beforeEach(() => {
   document.querySelectorAll('audio').forEach((a) => a.remove());
 });
 
-describe('tts iOS 静音拨片解锁', () => {
-  it('首次 speak 创建 playsinline 近无声解锁音频并播放一次；二次 speak 不再解锁', async () => {
+describe('tts iOS 静音拨片解锁（手势门控）', () => {
+  it('非手势 speak（自动发音）不尝试解锁', async () => {
     const { speak } = await import('../src/lib/tts');
     await speak('hello');
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+
+  it('首次手势 speak 播放 playsinline 近无声解锁音频一次；后续不再解锁', async () => {
+    const { speak } = await import('../src/lib/tts');
+    await speak('hello', { userGesture: true });
     expect(playSpy).toHaveBeenCalledTimes(1);
     // 解锁元素不挂 DOM（游离播放即可），从 play 调用实例捕获
     const el = playSpy.mock.instances[0] as HTMLAudioElement;
     expect(el).toBeTruthy();
     expect(el.hasAttribute('playsinline')).toBe(true);
     expect(el.src.startsWith('data:audio/wav;base64,')).toBe(true);
-    await speak('world');
+    await speak('world', { userGesture: true });
+    await speak('auto');
     expect(playSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('解锁播放被拒绝不阻塞发音（fetch/播放照常）', async () => {
+  it('解锁播放被拒绝不锁定：发音照常，下次手势重试解锁', async () => {
     playSpy.mockRejectedValueOnce(new Error('not allowed'));
     const { speak } = await import('../src/lib/tts');
-    await expect(speak('hello')).resolves.toBeUndefined();
+    await expect(speak('hello', { userGesture: true })).resolves.toBeUndefined();
     expect(vi.mocked(fetch)).toHaveBeenCalled();
+    // 未锁定：下一次手势再次尝试
+    await speak('world', { userGesture: true });
+    expect(playSpy).toHaveBeenCalledTimes(2);
   });
 });

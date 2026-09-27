@@ -68,7 +68,7 @@ export function ArticleView({ article: initial }: { article: ReadArticleView }) 
           <span>{relativeTime(article.createdAt)}</span>
           <span aria-hidden>·</span>
           <span>{article.contentLevel}</span>
-          <Button variant="ghost" size="sm" onClick={() => speak(article.body)}>
+          <Button variant="ghost" size="sm" onClick={() => speak(article.body, { userGesture: true })}>
             <Volume2 className="h-4 w-4" aria-hidden />
             朗读全文
           </Button>

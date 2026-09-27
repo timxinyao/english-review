@@ -1,4 +1,4 @@
-import { BookOpen, Library, RotateCw, Settings, Sun } from 'lucide-react';
+import { BarChart3, BookOpen, Library, RotateCw, Settings, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -74,6 +74,10 @@ export function AppShell() {
           ))}
         </nav>
         <div className="mt-auto space-y-1">
+          <NavLink to="/stats" className={navLinkClass}>
+            <BarChart3 className="h-4 w-4" aria-hidden />
+            Stats
+          </NavLink>
           <NavLink to="/settings" className={navLinkClass}>
             <Settings className="h-4 w-4" aria-hidden />
             Settings
@@ -96,6 +100,13 @@ export function AppShell() {
             {headerTitle(pathname)}
           </span>
           <div className="flex items-center gap-1">
+            <NavLink
+              to="/stats"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+              aria-label="统计"
+            >
+              <BarChart3 className="h-4 w-4" aria-hidden />
+            </NavLink>
             <Button
               variant="ghost"
               size="icon"

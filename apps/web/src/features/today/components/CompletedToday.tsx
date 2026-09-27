@@ -51,7 +51,7 @@ export function CompletedToday({
   }
 
   return (
-    <div className="space-y-4 py-12">
+    <div className="space-y-4 pt-4 pb-12">
       <div className="space-y-3 text-center">
         <h2 className="text-xl font-semibold text-foreground">今天完成了</h2>
         <p className="text-sm text-muted-foreground">

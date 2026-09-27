@@ -1414,11 +1414,12 @@ export async function answerTodayTask(
   if (isProduction && !body.answerText) {
     throw appError('VALIDATION_ERROR', '表达题必须提交 answerText');
   }
-  const isUnderstandingRecall = task.taskType === 'understanding';
-  if (!isCloze && !isProduction && !isUnderstandingRecall && !body.selectedOptionId) {
+  // Recall 判定契约（understanding 复习与 learn 新学"初见即回忆"共用，判定完全一致）
+  const isRecallTask = task.taskType === 'understanding' || task.taskType === 'learn';
+  if (!isCloze && !isProduction && !isRecallTask && !body.selectedOptionId) {
     throw appError('VALIDATION_ERROR', '选择题必须提交 selectedOptionId');
   }
-  if (isUnderstandingRecall && !body.recall && !body.selectedOptionId) {
+  if (isRecallTask && !body.recall && !body.selectedOptionId) {
     throw appError('VALIDATION_ERROR', 'Recall 题必须提交 recall 或 selectedOptionId');
   }
 
@@ -1436,21 +1437,23 @@ export async function answerTodayTask(
     outcome = { correct: production.result !== 'fail' };
   } else if (isCloze) {
     outcome = await deps.evaluateCloze(db, question, body.answerText!);
-  } else if (isUnderstandingRecall && body.recall) {
-    // Recall Card 直判：主动回忆（无提示）；learn/cloze 误传 recall 不生效，落入 choice/cloze 路径
+  } else if (isRecallTask && body.recall) {
+    // Recall Card 直判：主动回忆（无提示）；understanding 与 learn（新词初见即回忆）共用，
+    // cloze 误传 recall 不生效，落入 cloze 路径
     outcome = { correct: body.recall === 'recalled' };
   } else {
     outcome = deps.evaluateChoice(question, body.selectedOptionId!);
   }
   const correct = outcome.correct === true;
   const viewedSource = body.viewedSource === true;
-  // understanding：recall→pass/fail；hint 选择→对=assisted(basic_pass)/错=forgot(fail)；
-  // 查看原句不再降档（Recall 卡默认展示 source_example）。learn/cloze 旧语义不变。
+  // Recall 判定（understanding 复习与 learn 新学共用）：recall→pass/fail；
+  // hint 选择→对=assisted(basic_pass)/错=forgot(fail)；
+  // 查看原句不再降档（Recall 卡默认展示 source_example）。cloze 旧语义不变。
   let outcomeSource: 'recalled' | 'assisted' | 'forgot' | null = null;
   let result: AnswerResponse['result'];
   if (isProduction) {
     result = production!.result;
-  } else if (isUnderstandingRecall) {
+  } else if (isRecallTask) {
     if (body.recall) {
       outcomeSource = body.recall;
       result = correct ? 'pass' : 'fail';
@@ -1462,11 +1465,13 @@ export async function answerTodayTask(
     result = correct ? (viewedSource ? 'basic_pass' : 'pass') : 'fail';
   }
 
-  // ---- 事务外：补强题预取（仅选择题/填空题；表达题不强制当天重做，PRODUCT §7.6）----
+  // ---- 事务外：补强题预取（仅复习选择题/填空题；表达题不强制当天重做，PRODUCT §7.6；
+  // learn fail 不补强——reveal 已教学，方案 A）----
   const reinforceType: QuestionKind = task.taskType === 'cloze' ? 'cloze' : 'understanding';
   let reinforcementQuestion: QuestionRow | null = null;
   if (
     !isProduction &&
+    task.taskType !== 'learn' &&
     result === 'fail' &&
     reinforcementQuotaLeft(db, task.sessionId, task.learningItemId) > 0
   ) {
@@ -1494,18 +1499,11 @@ export async function answerTodayTask(
     const reinforcementIds: string[] = [];
 
     if (task.taskType === 'learn') {
-      // Learn：答对激活两维（U 初始 + P 激活）；答错不动 U/P 行。
+      // Learn Recall（方案 A）：三路径都完成新学——初始化 U(L1)+P 激活；
+      // forgot/assisted 的揭示即教学时刻，明日以 Recall 短间隔回归。
       // 无论对错都已开始学 → queue_state='started' 且当日额度 +1。
-      if (correct) {
-        writeDimState(
-          tx,
-          itemId,
-          'understanding',
-          deps.initialUnderstandingAfterLearn(now),
-          nowIso,
-        );
-        writeDimState(tx, itemId, 'production', deps.initialProductionActivation(now), nowIso);
-      }
+      writeDimState(tx, itemId, 'understanding', deps.initialUnderstandingAfterLearn(now), nowIso);
+      writeDimState(tx, itemId, 'production', deps.initialProductionActivation(now), nowIso);
       tx.update(learningItems)
         .set({ queueState: 'started', updatedAt: nowIso })
         .where(eq(learningItems.id, itemId))
@@ -1539,9 +1537,9 @@ export async function answerTodayTask(
         .run();
     }
 
-    // 补强任务插入（fail；题目已事务外预取；配额事务内复核）
+    // 补强任务插入（fail；题目已事务外预取；配额事务内复核；learn fail 不插——reveal 已教学）
     let reinforcementAdded = false;
-    if (result === 'fail' && reinforcementQuestion) {
+    if (result === 'fail' && task.taskType !== 'learn' && reinforcementQuestion) {
       if (reinforcementQuotaLeft(tx, task.sessionId, task.learningItemId) > 0) {
         const reinforcementId = randomUUID();
         tx.insert(reviewTasks)
@@ -1602,8 +1600,7 @@ export async function answerTodayTask(
         mode: 'today',
         answerText: body.answerText ?? null,
         // recall 直判时归一化丢弃并存选项，避免统计层误读
-        selectedOptionId:
-          isUnderstandingRecall && body.recall ? null : (body.selectedOptionId ?? null),
+        selectedOptionId: isRecallTask && body.recall ? null : (body.selectedOptionId ?? null),
         result,
         viewedSource: viewedSource ? 1 : 0,
         feedback: null,

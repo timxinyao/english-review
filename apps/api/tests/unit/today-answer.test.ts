@@ -67,6 +67,26 @@ async function seedDueClozeItem(itemId: string, accepted: string[]): Promise<str
   return itemId;
 }
 
+async function seedLearnItem(itemId: string, withExample = true): Promise<void> {
+  await seedItem(db, {
+    id: itemId,
+    target: itemId,
+    queueState: 'new',
+    createdAt: '2026-09-01T00:00:00.000Z',
+  });
+  if (withExample) {
+    await seedExample(db, itemId, 'source', `Source of ${itemId}.`);
+    await seedExample(db, itemId, 'extra', `Extra of ${itemId}.`);
+  }
+  await seedQuestion(db, itemId, {
+    type: 'understanding',
+    payloadJson: choicePayload(DEFAULT_OPTIONS),
+    correctOptionId: 'o1',
+    contextText: '____ fills the blank.',
+    promptText: `${itemId} 最接近什么意思？`,
+  });
+}
+
 async function startSession(): Promise<string> {
   const res = await startTodaySession(db, deps, TZ, NOW);
   if (res.status !== 'active') throw new Error(`start 失败：${res.status}`);
@@ -300,33 +320,14 @@ describe('answer：填空题（cloze）', () => {
 });
 
 describe('answer：Learn 任务', () => {
-  async function seedLearnItem(itemId: string, withExample = true): Promise<void> {
-    await seedItem(db, {
-      id: itemId,
-      target: itemId,
-      queueState: 'new',
-      createdAt: '2026-09-01T00:00:00.000Z',
-    });
-    if (withExample) {
-      await seedExample(db, itemId, 'source', `Source of ${itemId}.`);
-      await seedExample(db, itemId, 'extra', `Extra of ${itemId}.`);
-    }
-    await seedQuestion(db, itemId, {
-      type: 'understanding',
-      payloadJson: choicePayload(DEFAULT_OPTIONS),
-      correctOptionId: 'o1',
-      contextText: '____ fills the blank.',
-      promptText: `${itemId} 最接近什么意思？`,
-    });
-  }
-
-  it('答对 → 激活 U/P 两维初始状态、queue_state=started、额度+1', async () => {
+  it('答对（recall=recalled）→ 激活 U/P 两维初始状态、queue_state=started、额度+1', async () => {
     await seedLearnItem('new-1');
     await startSession();
     const learn = taskByItem('new-1', { type: 'learn' })!;
 
-    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { selectedOptionId: 'o1' });
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { recall: 'recalled' });
     expect(res.result).toBe('pass');
+    expect(res.outcomeSource).toBe('recalled');
 
     const u = dim('new-1', 'understanding')!;
     const p = dim('new-1', 'production')!;
@@ -346,25 +347,29 @@ describe('answer：Learn 任务', () => {
     expect(session.newItemsStarted).toBe(1);
   });
 
-  it('答错 → 不建 U/P 行，但仍算已开始学（占额度），并走补强', async () => {
+  it('答错（forgot）→ 同样初始化 U/P 两维、queue_state=started、额度+1、不插补强（揭示即教学）', async () => {
     await seedLearnItem('new-1');
     await startSession();
     const learn = taskByItem('new-1', { type: 'learn' })!;
 
-    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { selectedOptionId: 'o9' });
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { recall: 'forgot' });
     expect(res.result).toBe('fail');
+    expect(res.outcomeSource).toBe('forgot');
 
-    expect(db.select().from(reviewStates).all()).toHaveLength(0);
+    // 方案 A：三路径都完成新学 → U/P 两维行均初始化
+    expect(db.select().from(reviewStates).all()).toHaveLength(2);
+    expect(dim('new-1', 'understanding')!.level).toBe(1);
+    expect(dim('new-1', 'production')!.level).toBe(0);
     expect(
       db.select().from(learningItems).where(eq(learningItems.id, 'new-1')).get()?.queueState,
     ).toBe('started');
     expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 1 });
+    const session = db.select().from(reviewSessions).get()!;
+    expect(session.newItemsStarted).toBe(1);
 
-    // learn 答错 → 同 item 同维度补强（fake generate 会补题）
-    expect(res.reinforcementAdded).toBe(true);
-    const rf = tasks().find((t) => t.origin === 'reinforcement')!;
-    expect(rf.learningItemId).toBe('new-1');
-    expect(rf.taskType).toBe('understanding');
+    // learn fail 不再插入同会话补强（reveal 已教学）
+    expect(res.reinforcementAdded).toBe(false);
+    expect(tasks().filter((t) => t.origin === 'reinforcement')).toHaveLength(0);
   });
 });
 
@@ -632,31 +637,6 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(dim('item-a', 'understanding')!.level).toBe(2);
   });
 
-  it('learn 首题路径不变：选对且无 recall/hintUsed → pass、outcome_source 为空', async () => {
-    await seedItem(db, {
-      id: 'new-1',
-      target: 'new-1',
-      queueState: 'new',
-      createdAt: '2026-09-01T00:00:00.000Z',
-    });
-    await seedQuestion(db, 'new-1', {
-      type: 'understanding',
-      payloadJson: choicePayload(DEFAULT_OPTIONS),
-      correctOptionId: 'o1',
-      contextText: '____ fills the blank.',
-    });
-    await startSession();
-    const learn = taskByItem('new-1', { type: 'learn' })!;
-
-    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { selectedOptionId: 'o1' });
-    expect(res.result).toBe('pass');
-    expect(res.outcomeSource).toBeNull();
-
-    const attempt = db.select().from(attempts).all()[0]!;
-    expect(attempt.outcomeSource).toBeNull();
-    expect(attempt.result).toBe('pass');
-  });
-
   it('幂等回放：重复提交返回首次 outcomeSource', async () => {
     await seedDueChoiceItem('item-a');
     await startSession();
@@ -671,5 +651,128 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(replay.alreadyCompleted).toBe(true);
     expect(replay.result).toBe('pass');
     expect(replay.outcomeSource).toBe('recalled');
+  });
+});
+
+describe('learn Recall（初见即回忆，方案 A）', () => {
+  /** 断言两维行均按新学初始化：U=L1、P=L0，next_review_at 均为明日 */
+  function expectInitializedDims(itemId: string): void {
+    const u = dim(itemId, 'understanding')!;
+    const p = dim(itemId, 'production')!;
+    expect(u.level).toBe(1);
+    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + DAY_MS)));
+    expect(p.level).toBe(0);
+    expect(p.nextReviewAt).toBe(iso(new Date(NOW.getTime() + DAY_MS)));
+  }
+
+  it('recalled：初始化 U+P、result=pass、outcomeSource=recalled、额度+1', async () => {
+    await seedLearnItem('new-1');
+    await startSession();
+    const learn = taskByItem('new-1', { type: 'learn' })!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { recall: 'recalled' });
+    expect(res.result).toBe('pass');
+    expect(res.outcomeSource).toBe('recalled');
+    expect(res.correct).toBe(true);
+
+    expectInitializedDims('new-1');
+    expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 1 });
+    const session = db.select().from(reviewSessions).get()!;
+    expect(session.newItemsStarted).toBe(1);
+  });
+
+  it('forgot：同样初始化 U+P、result=fail、outcomeSource=forgot、额度+1（揭示即教学）', async () => {
+    await seedLearnItem('new-1');
+    await startSession();
+    const learn = taskByItem('new-1', { type: 'learn' })!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { recall: 'forgot' });
+    expect(res.result).toBe('fail');
+    expect(res.outcomeSource).toBe('forgot');
+    expect(res.correct).toBe(false);
+    expect(res.correctOptionId).toBe('o1'); // 揭示正确项 = 揭示即教学
+
+    expectInitializedDims('new-1');
+    expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 1 });
+  });
+
+  it('hint 选对：初始化、result=basic_pass、outcomeSource=assisted', async () => {
+    await seedLearnItem('new-1');
+    await startSession();
+    const learn = taskByItem('new-1', { type: 'learn' })!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, {
+      selectedOptionId: 'o1',
+      hintUsed: true,
+    });
+    expect(res.result).toBe('basic_pass');
+    expect(res.outcomeSource).toBe('assisted');
+    expect(res.correct).toBe(true);
+
+    expectInitializedDims('new-1');
+  });
+
+  it('hint 选错：初始化、result=fail、outcomeSource=forgot', async () => {
+    await seedLearnItem('new-1');
+    await startSession();
+    const learn = taskByItem('new-1', { type: 'learn' })!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, {
+      selectedOptionId: 'o2',
+      hintUsed: true,
+    });
+    expect(res.result).toBe('fail');
+    expect(res.outcomeSource).toBe('forgot');
+    expect(res.correct).toBe(false);
+    expect(res.correctOptionId).toBe('o1');
+
+    expectInitializedDims('new-1');
+  });
+
+  it('learn fail 不插入同会话补强任务', async () => {
+    await seedLearnItem('new-1');
+    await startSession();
+    const learn = taskByItem('new-1', { type: 'learn' })!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { recall: 'forgot' });
+    expect(res.result).toBe('fail');
+    expect(res.reinforcementAdded).toBe(false);
+    expect(tasks().filter((t) => t.origin === 'reinforcement')).toHaveLength(0);
+    expect(res.progress).toEqual({ completed: 1, total: 1 });
+    // 会话直接完成：fail 仍计入摘要（recommendRead）
+    expect(res.completed).toMatchObject({ totalTasks: 1, fail: 1, newItemsStarted: 1 });
+  });
+
+  it('learn 旧式纯 selectedOptionId（无 hintUsed）按 hint 语义结算', async () => {
+    await seedLearnItem('new-1');
+    await seedLearnItem('new-2');
+    await startSession();
+
+    // 选对：无 hintUsed 也按 hint 语义 → basic_pass/assisted（不再走旧 correct→pass）
+    const right = await answerTodayTask(
+      db,
+      deps,
+      TZ,
+      NOW,
+      taskByItem('new-1', { type: 'learn' })!.id,
+      { selectedOptionId: 'o1' },
+    );
+    expect(right.result).toBe('basic_pass');
+    expect(right.outcomeSource).toBe('assisted');
+
+    // 选错：→ fail/forgot
+    const wrong = await answerTodayTask(
+      db,
+      deps,
+      TZ,
+      NOW,
+      taskByItem('new-2', { type: 'learn' })!.id,
+      { selectedOptionId: 'o9' },
+    );
+    expect(wrong.result).toBe('fail');
+    expect(wrong.outcomeSource).toBe('forgot');
+
+    expectInitializedDims('new-1');
+    expectInitializedDims('new-2');
   });
 });

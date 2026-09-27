@@ -14,6 +14,8 @@ import {
 
 afterEach(cleanup);
 
+// ActiveSession 切卡会自动 speak：mock 掉真实 tts（jsdom 无 AudioContext，真实调用会产生未处理 rejection）
+vi.mock('../src/lib/tts', () => ({ speak: vi.fn(), stopSpeaking: vi.fn() }));
 vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
 
 /** 会话 fixture：t1 对、t2 错、t3 当前未做（与 /api/today.currentTask 一致）、t4 未做 */

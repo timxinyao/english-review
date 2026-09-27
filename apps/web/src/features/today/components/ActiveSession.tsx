@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
-import { Check, X } from 'lucide-react';
+import { Check, Volume2, VolumeX, X } from 'lucide-react';
 import { cn } from '../../../lib/utils';
+import { speak } from '../../../lib/tts';
 import { TaskCard } from './TaskCard';
 import { useSessionTasks } from '../api';
 
@@ -24,12 +25,16 @@ function ProgressRow({
   entries,
   currentIdx,
   shownIdx,
+  autoSpeak,
+  onToggleAutoSpeak,
   onJump,
 }: {
   progress: TodayProgress | null;
   entries: SessionTaskEntry[] | null;
   currentIdx: number | null;
   shownIdx: number | null;
+  autoSpeak: boolean;
+  onToggleAutoSpeak: () => void;
   onJump: (index: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -38,21 +43,38 @@ function ProgressRow({
 
   return (
     <div className="space-y-1.5">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between"
-        onClick={() => setOpen(true)}
-        aria-label="查看任务列表"
-      >
-        <p className="text-xs text-muted-foreground">
-          {position !== null
-            ? `第 ${position} / ${entries!.length}`
-            : progress
-              ? `${progress.completed} / ${progress.total}`
-              : ''}
-        </p>
-        <p className="text-xs text-muted-foreground/60">列表 ▾</p>
-      </button>
+      {/* 音量开关与列表按钮为兄弟节点：button 内嵌 button 是非法嵌套
+          （React validateDOMNesting 报错，且点击会冒泡误开列表弹层） */}
+      <div className="flex w-full items-center justify-between">
+        <button
+          type="button"
+          className="flex flex-1 items-center justify-between"
+          onClick={() => setOpen(true)}
+          aria-label="查看任务列表"
+        >
+          <p className="text-xs text-muted-foreground">
+            {position !== null
+              ? `第 ${position} / ${entries!.length}`
+              : progress
+                ? `${progress.completed} / ${progress.total}`
+                : ''}
+          </p>
+          <p className="text-xs text-muted-foreground/60">列表 ▾</p>
+        </button>
+        <button
+          type="button"
+          aria-label="自动发音"
+          aria-pressed={autoSpeak}
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+          onClick={onToggleAutoSpeak}
+        >
+          {autoSpeak ? (
+            <Volume2 className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <VolumeX className="h-3.5 w-3.5" aria-hidden />
+          )}
+        </button>
+      </div>
       {hasEntries ? (
         <div className="flex gap-0.5" aria-hidden>
           {entries!.map((e, i) => (
@@ -183,6 +205,8 @@ export function ActiveSession({
   const entries = sessionTasks?.tasks ?? null;
   /** null = 当前题；数字 = 回看条目索引（列表仅已完成条目可点） */
   const [cursor, setCursor] = useState<number | null>(null);
+  /** 切卡自动读词（设备本地偏好）：缺省开，'0'=关 */
+  const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('el:auto-pronounce') !== '0');
 
   // 当前题在会话序列中的索引（以 currentTask/frozen 的 taskId 定位；兜底第一个未完成）
   const currentIdx = useMemo(() => {
@@ -217,6 +241,13 @@ export function ActiveSession({
   // 回看（列表只点已完成条目或"当前"）：cursor 只指向已完成条目
   const reviewing = cursor !== null;
 
+  // 切到某词（到达/回看/回当前）自动读一次；关闭时不读。
+  // 依赖 taskId 而非对象：只在换卡时读，不随 refetch（对象身份变化）或 result 变化重读
+  useEffect(() => {
+    if (!autoSpeak || !shownTask) return;
+    void speak(shownTask.item.target);
+  }, [shownTask?.taskId, autoSpeak]);
+
   return (
     <div className="space-y-4">
       <ProgressRow
@@ -224,6 +255,14 @@ export function ActiveSession({
         entries={entries}
         currentIdx={currentIdx}
         shownIdx={shownIdx}
+        autoSpeak={autoSpeak}
+        onToggleAutoSpeak={() => {
+          setAutoSpeak((v) => {
+            const next = !v;
+            localStorage.setItem('el:auto-pronounce', next ? '1' : '0');
+            return next;
+          });
+        }}
         onJump={(i) => setCursor(i)}
       />
 

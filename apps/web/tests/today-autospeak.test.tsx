@@ -86,6 +86,9 @@ describe('会话自动发音', () => {
     // 点 gamma（当前）条目——within(dialog) 正规定位
     fireEvent.click(within(screen.getByRole('dialog', { name: '任务列表' })).getByRole('button', { name: /gamma/ }));
     await screen.findByText('第 3 / 4');
-    await waitFor(() => expect(vi.mocked(speak)).toHaveBeenCalledWith('gamma'));
+    // 重开开关即刻读当前停留的词（alpha），随后切回 gamma 再读——共 3 次
+    await waitFor(() => expect(vi.mocked(speak)).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(speak).mock.calls[1]?.[0]).toBe('alpha');
+    expect(vi.mocked(speak).mock.calls[2]?.[0]).toBe('gamma');
   });
 });

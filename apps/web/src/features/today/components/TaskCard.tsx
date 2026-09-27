@@ -7,6 +7,7 @@ import { ChoiceQuestionView } from './ChoiceQuestionView';
 import { ClozeQuestionView } from './ClozeQuestionView';
 import { LearnContent } from './LearnContent';
 import { ProductionQuestionView } from './ProductionQuestionView';
+import { RecallCard } from './RecallCard';
 
 interface Props {
   task: TodayTaskView;
@@ -45,8 +46,8 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
         )}
       </div>
 
-      {/* 回看/已答：顶部显示考的单词（learn 卡已有词行，不重复） */}
-      {(result !== null || readOnly) && task.taskType !== 'learn' && (
+      {/* 回看/已答：顶部显示考的单词（learn 卡已有词行；understanding 由 RecallCard 自带词行，不重复） */}
+      {(result !== null || readOnly) && task.taskType !== 'learn' && task.taskType !== 'understanding' && (
         <div className="mb-3 flex items-baseline gap-2 pr-12">
           <h3 className="text-lg font-semibold text-foreground">{task.item.target}</h3>
           {task.item.type === 'word' && task.item.ipa !== null && (
@@ -71,13 +72,25 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
       ) : (
         <>
           {question && 'options' in question ? (
-            <ChoiceQuestionView
-              task={task}
-              question={question}
-              result={result}
-              onAnswered={onAnswered ?? (() => {})}
-              onAdvance={onAdvance ?? (() => {})}
-            />
+            task.taskType === 'understanding' ? (
+              <RecallCard
+                task={task}
+                question={question}
+                result={result}
+                outcomeSource={result?.outcomeSource ?? null}
+                readOnly={readOnly}
+                onAnswered={onAnswered ?? (() => {})}
+                onAdvance={onAdvance ?? (() => {})}
+              />
+            ) : (
+              <ChoiceQuestionView
+                task={task}
+                question={question}
+                result={result}
+                onAnswered={onAnswered ?? (() => {})}
+                onAdvance={onAdvance ?? (() => {})}
+              />
+            )
           ) : question && 'textWithBlank' in question ? (
             <ClozeQuestionView
               task={task}

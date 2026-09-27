@@ -96,6 +96,25 @@ describe('Today 填空题任务卡', () => {
     }
   });
 
+  it('查看原句：答题前揭示 source example 并随答案提交 viewedSource', async () => {
+    renderTodayApp();
+
+    // 答题前不显示原句
+    expect(screen.queryByText('Raw sugar is less sweet.')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '查看原句' }));
+    expect(screen.getByText('Raw sugar is less sweet.')).toBeVisible();
+
+    fireEvent.change(screen.getByLabelText('填空答案'), { target: { value: 'raw' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    await waitFor(() => {
+      expect(apiCalls('/api/today/tasks/task-cloze/answer')).toHaveLength(1);
+    });
+    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-cloze/answer')[0])).toEqual({
+      answerText: 'raw',
+      viewedSource: true,
+    });
+  });
+
   it('答错：显示可接受答案、完整句子、解释并自动揭示原句（含最后一题：反馈先于完成页）', async () => {
     // 状态序列：初始填空卡 → 答错后 refetch 已完成 → 冻结反馈展示 → 手动下一题进完成页
     const statusQueue = [makeActive(makeClozeTask())];

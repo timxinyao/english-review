@@ -152,8 +152,10 @@ describe('Today 会话导航', () => {
     });
     renderTodayApp();
     await screen.findByText('第 3 / 4');
-    fireEvent.click(screen.getByRole('button', { name: '摇晃的' }));
-    await screen.findByText('回答错误');
+    // understanding Recall：显示答案 → 没想起来
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === '没想起来');
     // 等 invalidate refetch 落地（t3 变为已完成段），反馈仍冻结在 t3 的题面上
     await waitFor(() => expect(document.querySelectorAll('[data-seg="done"]')).toHaveLength(3));
     expect(screen.getByRole('heading', { name: 'gamma' })).toBeVisible();
@@ -188,16 +190,18 @@ describe('Today 会话导航', () => {
             ]),
       '/api/today/tasks/task-3/answer': () => {
         answered = true;
-        return makeCorrectAnswer();
+        return makeCorrectAnswer({ outcomeSource: 'recalled' });
       },
     });
     renderTodayApp();
     await screen.findByText('第 3 / 4');
-    fireEvent.click(screen.getByRole('button', { name: '稳定的' }));
-    await screen.findByText('回答正确');
+    // understanding Recall：显示答案 → 想起来了
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+    await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === '想起来了');
     // 不自动跳：超过原 4s 窗口仍停留本题反馈
     await new Promise((r) => setTimeout(r, 5000));
-    expect(screen.getByText('回答正确')).toBeVisible();
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '想起来了')).toBeVisible();
     expect(screen.queryByText('第 4 / 4')).toBeNull();
     // 统一手动下一题按钮
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));

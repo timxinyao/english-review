@@ -129,7 +129,8 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(screen.getByText('"stable" 的意思是？')).toBeVisible();
+      // 下一张卡：understanding → Recall Card 提示态
+      expect(screen.getByRole('heading', { name: 'stable' })).toBeVisible();
     } finally {
       vi.useRealTimers();
     }

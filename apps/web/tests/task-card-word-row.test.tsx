@@ -15,20 +15,21 @@ function renderCard(ui: React.ReactElement) {
   return render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>);
 }
 
-describe('TaskCard 词行（已答/回看显示单词）', () => {
-  it('已答的非 learn 卡显示 target + IPA', () => {
+describe('TaskCard 词行（Recall 卡自带词行；其余已答/回看显示单词）', () => {
+  it('understanding（Recall 卡）：词行始终由 RecallCard 渲染，已答后不重复', () => {
     renderCard(
       <TaskCard task={makeChoiceTask()} result={makeCorrectAnswer()} onAnswered={() => {}} onAdvance={() => {}} />,
     );
-    expect(screen.getByRole('heading', { name: 'stable' })).toBeVisible();
+    expect(screen.getAllByRole('heading', { name: 'stable' })).toHaveLength(1);
     expect(screen.getByText('/ˈsteɪbl/')).toBeVisible();
   });
 
-  it('未作答的非 learn 卡不显示词行（避免剧透）', () => {
+  it('understanding 未作答也显示词行（Recall：看词忆义；不剧透的是 meaning）', () => {
     renderCard(
       <TaskCard task={makeChoiceTask()} result={null} onAnswered={() => {}} onAdvance={() => {}} />,
     );
-    expect(screen.queryByRole('heading', { name: 'stable' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'stable' })).toBeVisible();
+    expect(screen.queryByText('稳定的')).not.toBeInTheDocument();
   });
 
   it('chunk 无 IPA：只显示 target', () => {

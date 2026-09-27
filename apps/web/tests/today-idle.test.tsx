@@ -61,7 +61,8 @@ describe('TodayPage idle 态', () => {
     expect(apiMock.mock.calls.find(([p]) => p === '/api/today/start')?.[1]).toMatchObject({
       method: 'POST',
     });
-    // refetch 后进入 active 态渲染任务卡
-    expect(await screen.findByText('"stable" 的意思是？')).toBeVisible();
+    // refetch 后进入 active 态渲染任务卡（understanding → Recall Card 提示态）
+    expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '给我提示' })).toBeVisible();
   });
 });

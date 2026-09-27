@@ -94,8 +94,12 @@ describe('Today 任务卡：learn 卡 / 稍后再做 / 坏题', () => {
     // 答题前没有坏题入口
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole('button', { name: '摇晃的' }));
-    expect(await screen.findByText('回答错误')).toBeVisible();
+    // understanding Recall：显示答案 → 没想起来（fail 冻结反馈）
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    expect(
+      await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === '没想起来'),
+    ).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: '坏题' }));
     const dialog = screen.getByRole('dialog', { name: '标记坏题' });

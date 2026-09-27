@@ -567,9 +567,10 @@ const RESET_TABLES = [
   'review_states',
   'learning_items',
   'daily_stats',
+  'settings',
 ];
 
-/** 清空业务数据并重新播种（settings 保留） */
+/** 清空业务数据并重新播种（含 settings 归默认：ensureRow 按需重建，消灭跨轮污染） */
 export function resetE2eData(db: AppDatabase): void {
   for (const table of RESET_TABLES) {
     db.run(sql.raw(`DELETE FROM ${table}`));

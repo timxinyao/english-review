@@ -104,6 +104,15 @@ export async function loadRealReadDeps(): Promise<ReadDeps> {
           focus_items: input.focusItems,
           old_items: input.oldItems,
           recent_read_types: input.recentReadTypes,
+          focus_list: input.focusItems
+            .map((f) => `- learning_item_id: ${f.id} | word: ${f.target} | meaning: ${f.meaning}`)
+            .join('\n'),
+          old_list:
+            input.oldItems.length > 0
+              ? input.oldItems
+                  .map((f) => `- ${f.target}（${f.meaning}）`)
+                  .join('\n')
+              : '（无）',
         },
       )) as {
         data: GenerateReadResult;
@@ -130,7 +139,7 @@ export function setReadDepsForTests(deps: ReadDeps | null): void {
 }
 
 // ---------------------------------------------------------------------------
-// 选词（PRODUCT §8.1：focus 3 弱项 + old 3–5 稳定项）
+// 选词（PRODUCT §8.1：focus 3～5 弱项 + old 3–5 稳定项）
 // ---------------------------------------------------------------------------
 
 type ItemRow = typeof learningItems.$inferSelect;

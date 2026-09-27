@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AiStructuredError } from '../../src/ai/complete.js';
+import type { AiProvider } from '../../src/ai/provider/index.js';
+import { initAiRuntime } from '../../src/ai/runtime.js';
 import { createDatabase, type AppDatabase } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import { attempts, readArticles } from '../../src/db/schema.js';
@@ -8,8 +10,10 @@ import { AppError } from '../../src/lib/errors.js';
 import {
   buildReadSelection,
   generateReadArticle,
+  loadRealReadDeps,
   type ReadDeps,
 } from '../../src/modules/read/service.js';
+import { testAiConfig } from '../helpers/ai.js';
 import { seedItem, seedReviewState } from '../helpers/seed.js';
 
 const NOW = new Date('2026-09-24T02:00:00.000Z');
@@ -160,12 +164,18 @@ describe('buildReadSelection：focus 弱项排序', () => {
     expect(sel.focusItems.map((f) => f.id)).toEqual(['item-recent', 'item-stale']);
   });
 
-  it('focus 上限 3 个（READ_FOCUS_MAX）：种子多于 3 个弱项时只取 3', async () => {
+  it('focus 上限 5 个（READ_FOCUS_MAX）：种子多于 5 个弱项时只取 5', async () => {
     for (let i = 0; i < 8; i++) await seedActive(`item-${i}`);
     const sel = buildReadSelection(db, NOW);
-    expect(sel.focusItems).toHaveLength(3);
-    // 无 fail 等差异化信号时按 id ASC 兜底，取前 3
-    expect(sel.focusItems.map((f) => f.id)).toEqual(['item-0', 'item-1', 'item-2']);
+    expect(sel.focusItems).toHaveLength(5);
+    // 无 fail 等差异化信号时按 id ASC 兜底，取前 5
+    expect(sel.focusItems.map((f) => f.id)).toEqual([
+      'item-0',
+      'item-1',
+      'item-2',
+      'item-3',
+      'item-4',
+    ]);
   });
 
   it('候选池只含 active+started 且至少一行 review_states 的项', async () => {
@@ -286,5 +296,70 @@ describe('generateReadArticle：AI 生成失败', () => {
     } finally {
       errSpy.mockRestore();
     }
+  });
+});
+
+describe('loadRealReadDeps：generate 变量组装', () => {
+  it('vars 携带逐行 focus_list/old_list（契约前置的回抄载体）及 focus_items/old_items 对象', async () => {
+    // mock provider（无 GLM key 不走真实调用）；包装 runtime 单例 provider 记录 completeStructured 收到的 vars
+    const runtime = initAiRuntime(testAiConfig());
+    const inner = runtime.provider;
+    const seen: Array<Record<string, unknown>> = [];
+    (runtime as unknown as { provider: AiProvider }).provider = {
+      name: inner.name,
+      async complete(req) {
+        seen.push(req.vars);
+        return inner.complete(req);
+      },
+    };
+
+    const deps = await loadRealReadDeps();
+    const focus = [
+      { id: 'focus-1', target: 'wear down', meaning: '逐渐消耗' },
+      { id: 'focus-2', target: 'raw', meaning: '未经处理的' },
+    ];
+    const old = [{ id: 'old-1', target: 'make sense', meaning: '讲得通' }];
+    await deps.generate({
+      focusItems: focus,
+      oldItems: old,
+      contentLevel: 'B1',
+      recentReadTypes: ['story'],
+    });
+
+    expect(seen).toHaveLength(1);
+    const vars = seen[0]!;
+    // 逐行列表变量（提示词契约前置的回抄载体）
+    expect(String(vars.focus_list)).toContain(focus[0]!.id);
+    expect(String(vars.focus_list)).toContain(focus[0]!.target);
+    expect(String(vars.focus_list)).toContain(focus[0]!.meaning);
+    // old_list 逐行词条（target（meaning）格式）
+    expect(String(vars.old_list)).toContain('make sense');
+    // invariants 消费的对象变量仍随 vars 传递（模板不引用）
+    expect(vars.focus_items).toEqual(focus);
+    expect(vars.old_items).toEqual(old);
+    expect(vars.content_level).toBe('B1');
+    expect(vars.recent_read_types).toEqual(['story']);
+  });
+
+  it('old 为空时 old_list 渲染占位（无）而非空串', async () => {
+    const runtime = initAiRuntime(testAiConfig());
+    const inner = runtime.provider;
+    const seen: Array<Record<string, unknown>> = [];
+    (runtime as unknown as { provider: AiProvider }).provider = {
+      name: inner.name,
+      async complete(req) {
+        seen.push(req.vars);
+        return inner.complete(req);
+      },
+    };
+
+    const deps = await loadRealReadDeps();
+    await deps.generate({
+      focusItems: [{ id: 'focus-1', target: 'wear down', meaning: '逐渐消耗' }],
+      oldItems: [],
+      contentLevel: 'B1',
+      recentReadTypes: [],
+    });
+    expect(String(seen[0]!.old_list)).toBe('（无）');
   });
 });

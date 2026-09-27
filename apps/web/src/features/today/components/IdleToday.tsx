@@ -25,12 +25,15 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
         </Button>
       </div>
 
-      <StartSessionDialog
-        pending={start.isPending}
-        errorMessage={start.isError ? ((start.error as Error | undefined)?.message ?? '请稍候重试') : null}
-        onRetry={() => start.mutate()}
-        onDismiss={() => start.reset()}
-      />
+      {/* 条件挂载（非常驻 return null）：计时起点 useState 初值取挂载时刻才不失真 */}
+      {(start.isPending || start.isError) && (
+        <StartSessionDialog
+          pending={start.isPending}
+          errorMessage={start.isError ? ((start.error as Error | undefined)?.message ?? '请稍候重试') : null}
+          onRetry={() => start.mutate()}
+          onDismiss={() => start.reset()}
+        />
+      )}
 
       {data.recentlyLearned.length > 0 && (
         <div className="space-y-1">

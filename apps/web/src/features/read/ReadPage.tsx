@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ReadGenerateResponse } from '@el/shared';
+import { ElapsedTimer } from '../../components/elapsed-timer';
 import { Button } from '../../components/ui/button';
 import { READ_RECENT_PAGE_SIZE, useGenerateRead, useReadArticle, useReadHistory } from './api';
 import { ArticleView } from './components/ArticleView';
@@ -17,6 +18,13 @@ type ReadView =
  */
 export function ReadPage() {
   const [view, setView] = useState<ReadView>({ kind: 'home' });
+  // 本次会话内最近一次生成耗时（秒）；仅由生成成功写入，从历史/最近进入文章时清空
+  const [lastElapsed, setLastElapsed] = useState<number | null>(null);
+
+  function openArticle(articleId: string, from: 'home' | 'history', elapsedSeconds?: number): void {
+    setLastElapsed(elapsedSeconds ?? null);
+    setView({ kind: 'article', articleId, from });
+  }
 
   if (view.kind === 'history') {
     return (
@@ -28,9 +36,7 @@ export function ReadPage() {
         >
           ← 返回 Read
         </button>
-        <ReadHistoryView
-          onOpenArticle={(articleId) => setView({ kind: 'article', articleId, from: 'history' })}
-        />
+        <ReadHistoryView onOpenArticle={(articleId) => openArticle(articleId, 'history')} />
       </section>
     );
   }
@@ -46,6 +52,9 @@ export function ReadPage() {
         >
           {view.from === 'history' ? '← 返回历史' : '← 返回 Read'}
         </button>
+        {lastElapsed !== null && (
+          <p className="text-xs text-muted-foreground/60">生成耗时 {lastElapsed}s</p>
+        )}
         <ReadArticle articleId={view.articleId} />
       </section>
     );
@@ -53,8 +62,8 @@ export function ReadPage() {
 
   return (
     <ReadHome
-      onGenerated={(articleId) => setView({ kind: 'article', articleId, from: 'home' })}
-      onOpenArticle={(articleId) => setView({ kind: 'article', articleId, from: 'home' })}
+      onGenerated={(articleId, elapsedSeconds) => openArticle(articleId, 'home', elapsedSeconds)}
+      onOpenArticle={(articleId) => openArticle(articleId, 'home')}
       onOpenHistory={() => setView({ kind: 'history' })}
     />
   );
@@ -82,7 +91,7 @@ function ReadHome({
   onOpenArticle,
   onOpenHistory,
 }: {
-  onGenerated: (articleId: string) => void;
+  onGenerated: (articleId: string, genElapsedSeconds: number) => void;
   onOpenArticle: (articleId: string) => void;
   onOpenHistory: () => void;
 }) {
@@ -92,11 +101,18 @@ function ReadHome({
     pageSize: READ_RECENT_PAGE_SIZE,
     favorite: 'all',
   });
+  const [genStart, setGenStart] = useState<number | null>(null);
 
   function generateOnce(): void {
     if (generate.isPending) return; // 生成中禁用重复点击
+    // mutate 前记录局部起点：onSuccess 闭包拿不到最新 genStart state（避免竞态）
+    const startedAt = Date.now();
+    setGenStart(startedAt);
     generate.mutate(undefined, {
-      onSuccess: (article: ReadGenerateResponse) => onGenerated(article.id),
+      onSuccess: (article: ReadGenerateResponse) => {
+        setGenStart(null);
+        onGenerated(article.id, Math.max(0, Math.round((Date.now() - startedAt) / 1000)));
+      },
     });
   }
 
@@ -109,8 +125,10 @@ function ReadHome({
         <Button size="lg" className="mt-5" disabled={generate.isPending} onClick={generateOnce}>
           生成阅读
         </Button>
-        {generate.isPending && (
-          <p className="mt-3 text-xs text-muted-foreground">生成中，约需十几秒…</p>
+        {generate.isPending && genStart !== null && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            生成中 <ElapsedTimer since={genStart} />…
+          </p>
         )}
         {generate.isError && (
           <div className="mt-3 space-y-2">

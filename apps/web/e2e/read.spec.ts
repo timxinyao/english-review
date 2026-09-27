@@ -36,18 +36,19 @@ test.describe('Phase 5：Read 生成、高亮、检查题、收藏与历史', ()
     await expect(page.getByRole('button', { name: '生成阅读' })).toBeEnabled();
     await expect(page.getByRole('button', { name: '查看全部历史' })).toBeVisible();
 
-    // 生成：loading 或文章标题出现（种子数据即时返回，避免竞态）
+    // 生成：正计时或文章标题出现（种子数据即时返回，避免竞态）
     await page.getByRole('button', { name: '生成阅读' }).click();
     await expect(
       page
-        .getByText('生成中，约需十几秒…')
+        .locator('[data-elapsed]')
         .or(page.getByRole('heading', { name: 'A Quiet Morning' })),
     ).toBeVisible({ timeout: 30_000 });
 
-    // 文章视图：标题 / 高亮 / focus 词列表
+    // 文章视图：标题 / 生成耗时 / 高亮 / focus 词列表
     await expect(page.getByRole('heading', { name: 'A Quiet Morning' })).toBeVisible({
       timeout: 30_000,
     });
+    await expect(page.getByText(/生成耗时 \d+s/)).toBeVisible();
     const marks = page.locator('mark');
     await expect(marks.first()).toBeVisible();
     expect(await marks.count()).toBeGreaterThan(0);

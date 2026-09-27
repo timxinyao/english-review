@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ElapsedTimer } from '../../../components/elapsed-timer';
 import { Button } from '../../../components/ui/button';
 
 interface Props {
@@ -10,6 +12,8 @@ interface Props {
 
 /** 开始会话期间的全屏等待/失败弹窗（DEVELOPMENT §7：portal 到 body + z-overlay） */
 export function StartSessionDialog({ pending, errorMessage, onRetry, onDismiss }: Props) {
+  // 计时起点 = 组件挂载时刻（IdleToday 已改为条件挂载，挂载即等待开始）
+  const [startedAt] = useState(() => Date.now());
   if (!pending && !errorMessage) return null;
   return createPortal(
     <div
@@ -21,8 +25,8 @@ export function StartSessionDialog({ pending, errorMessage, onRetry, onDismiss }
         {pending ? (
           <>
             <p className="text-sm font-medium text-foreground">正在准备今日题目…</p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              首次生成约需一分钟，请保持页面打开
+            <p className="mt-1 text-xs text-muted-foreground">
+              已等待 <ElapsedTimer since={startedAt} />，首次生成约需一分钟
             </p>
           </>
         ) : (

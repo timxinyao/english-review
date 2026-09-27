@@ -47,7 +47,7 @@ describe('Read 首页', () => {
     expect(screen.getByRole('button', { name: '查看全部历史' })).toBeVisible();
   });
 
-  it('点击生成调用 POST /api/read/generate；pending 时显示“生成中，约需十几秒…”且按钮禁用', async () => {
+  it('点击生成调用 POST /api/read/generate；pending 时显示“生成中 + 正计时”且按钮禁用', async () => {
     stubApi({
       [RECENT_URL]: makeHistoryResponse([]),
       // 挂起的 Promise：保持 pending 态
@@ -57,7 +57,10 @@ describe('Read 首页', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '生成阅读' }));
 
-    expect(await screen.findByText('生成中，约需十几秒…')).toBeVisible();
+    const pending = await screen.findByText(/^\d{2}:\d{2}$/, { selector: '[data-elapsed]' });
+    const line = pending.closest('p');
+    expect(line?.textContent ?? '').toMatch(/^生成中 \d{2}:\d{2}…$/);
+    expect(line).toBeVisible();
     expect(screen.getByRole('button', { name: '生成阅读' })).toBeDisabled();
 
     expect(apiCalls('/api/read/generate').length).toBe(1);
@@ -96,6 +99,8 @@ describe('Read 首页', () => {
     expect(await screen.findByRole('heading', { name: 'A Quiet Morning' })).toBeVisible();
     // 生成响应直接作为文章数据（契约：响应即文章视图）
     expect(apiCalls('/api/read/article-1').length).toBe(0);
+    // 完成耗时：文章视图顶部显示本次生成耗时
+    expect(screen.getByText(/^生成耗时 \d+s$/)).toBeVisible();
   });
 
   it('点击最近列表项进入文章（GET /api/read/:id 加载详情）', async () => {
@@ -109,5 +114,7 @@ describe('Read 首页', () => {
 
     expect(await screen.findByRole('heading', { name: 'A Quiet Morning' })).toBeVisible();
     expect(apiCalls('/api/read/article-1').length).toBe(1);
+    // 从历史/最近进入的文章不是本次生成：不显示生成耗时
+    expect(screen.queryByText(/^生成耗时 /)).toBeNull();
   });
 });

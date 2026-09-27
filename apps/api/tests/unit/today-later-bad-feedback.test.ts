@@ -170,7 +170,7 @@ describe('bad-question（坏题撤销）', () => {
     await seedDueChoiceItem('item-b');
     await startSession();
     const a = taskByItem('item-a')!;
-    await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' }); // L3→L4
+    await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' }); // 提交选项 = hint 语义 → basic_pass
 
     const res = reportBadQuestion(db, a.id, T1);
     expect(res.ok).toBe(true);
@@ -267,7 +267,7 @@ describe('feedback（答题反馈调整）', () => {
     await seedDueChoiceItem('item-a');
     await startSession();
     const a = taskByItem('item-a')!;
-    await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' }); // L3→L4
+    await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' }); // hint 语义 → basic_pass
 
     const res = submitTaskFeedback(db, deps, TZ, a.id, 'guessed', T1);
     expect(res.ok).toBe(true);
@@ -292,7 +292,7 @@ describe('feedback（答题反馈调整）', () => {
     await seedDueChoiceItem('item-a'); // L3
     await startSession();
     const a = taskByItem('item-a')!;
-    await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' }); // → L4
+    await answerTodayTask(db, deps, TZ, NOW, a.id, { recall: 'recalled' }); // → L4
 
     const res = submitTaskFeedback(db, deps, TZ, a.id, 'too_easy', T1);
     expect(res.adjustedResult).toBe('pass');

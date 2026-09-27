@@ -29,6 +29,13 @@
       "when": 1790461986951,
       "tag": "0003_perfect_guardsmen",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790472783251,
+      "tag": "0004_light_doomsday",
+      "breakpoints": true
     }
   ]
 }

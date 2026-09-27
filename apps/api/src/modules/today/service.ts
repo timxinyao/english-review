@@ -1226,6 +1226,7 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
   const post = parseSnapshot(attempt?.postStateJson ?? null);
   return {
     result,
+    outcomeSource: (attempt?.outcomeSource as AnswerResponse['outcomeSource']) ?? null,
     correct: result !== 'fail',
     alreadyCompleted: true,
     explanation: attempt?.explanation ?? null,
@@ -1276,8 +1277,12 @@ export async function answerTodayTask(
   if (isProduction && !body.answerText) {
     throw appError('VALIDATION_ERROR', '表达题必须提交 answerText');
   }
-  if (!isCloze && !isProduction && !body.selectedOptionId) {
+  const isUnderstandingRecall = task.taskType === 'understanding';
+  if (!isCloze && !isProduction && !isUnderstandingRecall && !body.selectedOptionId) {
     throw appError('VALIDATION_ERROR', '选择题必须提交 selectedOptionId');
+  }
+  if (isUnderstandingRecall && !body.recall && !body.selectedOptionId) {
+    throw appError('VALIDATION_ERROR', 'Recall 题必须提交 recall 或 selectedOptionId');
   }
 
   // ---- 事务外：评估（表达题走 check_production 实时批改）----
@@ -1294,19 +1299,31 @@ export async function answerTodayTask(
     outcome = { correct: production.result !== 'fail' };
   } else if (isCloze) {
     outcome = await deps.evaluateCloze(db, question, body.answerText!);
+  } else if (body.recall) {
+    // Recall Card 直判：主动回忆（无提示）
+    outcome = { correct: body.recall === 'recalled' };
   } else {
     outcome = deps.evaluateChoice(question, body.selectedOptionId!);
   }
   const correct = outcome.correct === true;
   const viewedSource = body.viewedSource === true;
-  // 表达题三档判定由批改器决定（pass/basic_pass/fail）；查看原句只影响选择题/填空题
-  const result: AnswerResponse['result'] = isProduction
-    ? production!.result
-    : correct
-      ? viewedSource
-        ? 'basic_pass'
-        : 'pass'
-      : 'fail';
+  // understanding：recall→pass/fail；hint 选择→对=assisted(basic_pass)/错=forgot(fail)；
+  // 查看原句不再降档（Recall 卡默认展示 source_example）。learn/cloze 旧语义不变。
+  let outcomeSource: 'recalled' | 'assisted' | 'forgot' | null = null;
+  let result: AnswerResponse['result'];
+  if (isProduction) {
+    result = production!.result;
+  } else if (isUnderstandingRecall) {
+    if (body.recall) {
+      outcomeSource = body.recall;
+      result = correct ? 'pass' : 'fail';
+    } else {
+      outcomeSource = correct ? 'assisted' : 'forgot';
+      result = correct ? 'basic_pass' : 'fail';
+    }
+  } else {
+    result = correct ? (viewedSource ? 'basic_pass' : 'pass') : 'fail';
+  }
 
   // ---- 事务外：补强题预取（仅选择题/填空题；表达题不强制当天重做，PRODUCT §7.6）----
   const reinforceType: QuestionKind = task.taskType === 'cloze' ? 'cloze' : 'understanding';
@@ -1451,6 +1468,7 @@ export async function answerTodayTask(
         result,
         viewedSource: viewedSource ? 1 : 0,
         feedback: null,
+        outcomeSource,
         correctionJson: production
           ? JSON.stringify({
               segments: production.segments,
@@ -1501,6 +1519,7 @@ export async function answerTodayTask(
 
     return {
       result,
+      outcomeSource,
       correct,
       explanation,
       correctOptionId: !isCloze && !isProduction ? question.correctOptionId : null,

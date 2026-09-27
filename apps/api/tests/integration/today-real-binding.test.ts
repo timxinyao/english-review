@@ -64,11 +64,12 @@ describe.skipIf(realDeps === null)('today 与 review/questions 真实模块绑�
       method: 'POST',
       url: `/api/today/tasks/${taskId}/answer`,
       headers: { cookie },
-      payload: { selectedOptionId: 'o1' },
+      payload: { recall: 'recalled' },
     });
     expect(answer.statusCode).toBe(200);
     const body = AnswerResponse.parse(answer.json());
     expect(body.result).toBe('pass');
+    expect(body.outcomeSource).toBe('recalled');
     expect(body.correct).toBe(true);
     // 真实 review 状态机应推进了等级（L3 → L4）
     const { reviewStates } = await import('../../src/db/schema.js');

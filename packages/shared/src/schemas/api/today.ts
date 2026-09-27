@@ -121,11 +121,17 @@ export const AnswerRequest = z.object({
   selectedOptionId: z.string().min(1).optional(),
   answerText: z.string().min(1).max(500).optional(),
   viewedSource: z.boolean().optional(),
+  /** Understanding Recall Card：主动回忆直判（与 selectedOptionId 二选一） */
+  recall: z.enum(['recalled', 'forgot']).optional(),
+  /** Understanding Hint 模式提交的选择题标识 */
+  hintUsed: z.boolean().optional(),
 });
 export type AnswerRequest = z.infer<typeof AnswerRequest>;
 
 export const AnswerResponse = z.object({
   result: z.enum(['pass', 'basic_pass', 'fail']),
+  /** understanding 三档证据：recalled=自答想起 / assisted=提示后对 / forgot=未想起或提示仍错；其余题型 null */
+  outcomeSource: z.enum(['recalled', 'assisted', 'forgot']).nullable().optional(),
   correct: z.boolean(),
   /** 幂等重复提交时为 true，并返回首次结算的结果摘要 */
   alreadyCompleted: z.boolean().optional(),

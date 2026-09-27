@@ -184,6 +184,8 @@ export const attempts = sqliteTable(
     result: text('result').notNull(), // pass | basic_pass | fail | void
     viewedSource: integer('viewed_source').notNull().default(0),
     feedback: text('feedback'), // guessed | too_easy
+    /** understanding 证据来源：recalled | assisted | forgot；其余题型与历史行为 NULL */
+    outcomeSource: text('outcome_source'),
     correctionJson: text('correction_json'),
     explanation: text('explanation'),
     betterVersion: text('better_version'),

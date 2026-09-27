@@ -106,14 +106,15 @@ function stats(): typeof dailyStats.$inferSelect | null {
   return db.select().from(dailyStats).get() ?? null;
 }
 
-describe('answer：理解题（choice）', () => {
-  it('答对 → pass：状态升级、attempt 快照、任务结算、daily_stats 计数', async () => {
+describe('answer：理解题（understanding 复习）', () => {
+  it('recall=recalled 答对 → pass：状态升级、attempt 快照、任务结算、daily_stats 计数', async () => {
     await seedDueChoiceItem('item-a');
     await startSession();
     const task = taskByItem('item-a')!;
 
-    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { selectedOptionId: 'o1' });
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'recalled' });
     expect(res.result).toBe('pass');
+    expect(res.outcomeSource).toBe('recalled');
     expect(res.correct).toBe(true);
     expect(res.alreadyCompleted).toBeUndefined();
     expect(res.explanation).toBeNull(); // 答对不揭示解释
@@ -143,7 +144,8 @@ describe('answer：理解题（choice）', () => {
     // attempt：pre/post 快照 + result
     const attempt = db.select().from(attempts).all()[0]!;
     expect(attempt.result).toBe('pass');
-    expect(attempt.selectedOptionId).toBe('o1');
+    expect(attempt.outcomeSource).toBe('recalled');
+    expect(attempt.selectedOptionId).toBeNull();
     expect(attempt.mode).toBe('today');
     const pre = JSON.parse(attempt.preStateJson!) as {
       reviewStates: { understanding: { level: number } };
@@ -159,7 +161,7 @@ describe('answer：理解题（choice）', () => {
     expect(post.reinforcementTaskIds).toEqual([]);
   });
 
-  it('答错 → fail：降级、揭示正确项与解释、插入补强任务', async () => {
+  it('hint 选错 → fail：降级、揭示正确项与解释、插入补强任务', async () => {
     await seedDueChoiceItem('item-a');
     await seedDueChoiceItem('item-b');
     await seedDueChoiceItem('item-c');
@@ -167,8 +169,12 @@ describe('answer：理解题（choice）', () => {
     await startSession();
     const task = taskByItem('item-a')!; // sortKey 1
 
-    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { selectedOptionId: 'o2' });
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, {
+      selectedOptionId: 'o2',
+      hintUsed: true,
+    });
     expect(res.result).toBe('fail');
+    expect(res.outcomeSource).toBe('forgot');
     expect(res.correct).toBe(false);
     expect(res.explanation).toBe('解释文本');
     expect(res.correctOptionId).toBe('o1');
@@ -195,16 +201,18 @@ describe('answer：理解题（choice）', () => {
     expect(post.reinforcementTaskIds).toEqual([rf.id]);
   });
 
-  it('查看原句后答对 → basic_pass：不升级、半间隔', async () => {
+  it('hint 选对 → basic_pass：不升级、半间隔（viewedSource 不再影响档位）', async () => {
     await seedDueChoiceItem('item-a');
     await startSession();
     const task = taskByItem('item-a')!;
 
     const res = await answerTodayTask(db, deps, TZ, NOW, task.id, {
       selectedOptionId: 'o1',
+      hintUsed: true,
       viewedSource: true,
     });
     expect(res.result).toBe('basic_pass');
+    expect(res.outcomeSource).toBe('assisted');
     expect(res.correct).toBe(true);
     const u = dim('item-a', 'understanding')!;
     expect(u.level).toBe(3); // 不升级
@@ -212,9 +220,10 @@ describe('answer：理解题（choice）', () => {
     const attempt = db.select().from(attempts).all()[0]!;
     expect(attempt.viewedSource).toBe(1);
     expect(attempt.result).toBe('basic_pass');
+    expect(attempt.outcomeSource).toBe('assisted');
   });
 
-  it('选择题必须提交 selectedOptionId，否则 400', async () => {
+  it('Recall 题必须提交 recall 或 selectedOptionId，否则 400', async () => {
     await seedDueChoiceItem('item-a');
     await startSession();
     const task = taskByItem('item-a')!;
@@ -366,13 +375,14 @@ describe('answer：幂等', () => {
     await startSession();
     const task = taskByItem('item-a')!;
 
-    const first = await answerTodayTask(db, deps, TZ, NOW, task.id, { selectedOptionId: 'o1' });
+    const first = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'recalled' });
     const second = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 60_000), task.id, {
-      selectedOptionId: 'o2', // 即使换了答案也回放首次结果
+      recall: 'forgot', // 即使换了答案也回放首次结果
     });
 
     expect(second.alreadyCompleted).toBe(true);
     expect(second.result).toBe('pass');
+    expect(second.outcomeSource).toBe('recalled');
     expect(second.correct).toBe(true);
     expect(second.progress).toEqual({ completed: 1, total: 2 });
     expect(db.select().from(attempts).all()).toHaveLength(1);
@@ -465,7 +475,7 @@ describe('answer：完成检测与摘要', () => {
 
     const a = taskByItem('item-a')!;
     const b = taskByItem('item-b')!;
-    const resA = await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' });
+    const resA = await answerTodayTask(db, deps, TZ, NOW, a.id, { recall: 'recalled' });
     expect(resA.completed).toBeNull();
     const resB = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 60_000), b.id, {
       answerText: 'wrong',
@@ -499,8 +509,8 @@ describe('answer：完成检测与摘要', () => {
     await startSession();
     const a = taskByItem('item-a')!;
     const b = taskByItem('item-b')!;
-    await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' });
-    const res = await answerTodayTask(db, deps, TZ, NOW, b.id, { selectedOptionId: 'o1' });
+    await answerTodayTask(db, deps, TZ, NOW, a.id, { recall: 'recalled' });
+    const res = await answerTodayTask(db, deps, TZ, NOW, b.id, { recall: 'recalled' });
     expect(res.completed?.recommendRead).toBe(false);
     expect(res.completed?.pass).toBe(2);
   });
@@ -528,12 +538,138 @@ describe('answer：L7 stable 与 mastered', () => {
     await startSession();
 
     const u = tasks().find((t) => t.taskType === 'understanding')!;
-    const res = await answerTodayTask(db, deps, TZ, NOW, u.id, { selectedOptionId: 'o1' });
+    const res = await answerTodayTask(db, deps, TZ, NOW, u.id, { recall: 'recalled' });
     expect(res.result).toBe('pass');
 
     const item = db.select().from(learningItems).where(eq(learningItems.id, 'item-a')).get()!;
     expect(item.status).toBe('mastered');
     expect(dim('item-a', 'understanding')!.stable).toBe(1);
     expect(dim('item-a', 'understanding')!.level).toBe(7);
+  });
+});
+
+describe('answer：understanding Recall 判定（三档证据）', () => {
+  it('recalled：body.recall=recalled → result=pass、advance kind=pass（升级）、attempt.outcome_source=recalled', async () => {
+    await seedDueChoiceItem('item-a');
+    await startSession();
+    const task = taskByItem('item-a')!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'recalled' });
+    expect(res.result).toBe('pass');
+    expect(res.outcomeSource).toBe('recalled');
+    expect(res.correct).toBe(true);
+    // kind=pass：L3 → L4
+    expect(dim('item-a', 'understanding')!.level).toBe(4);
+
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.outcomeSource).toBe('recalled');
+    expect(attempt.result).toBe('pass');
+    expect(attempt.selectedOptionId).toBeNull();
+  });
+
+  it('forgot：body.recall=forgot → result=fail、补强插入（quota 允许时）、attempt.outcome_source=forgot', async () => {
+    await seedDueChoiceItem('item-a');
+    await seedDueChoiceItem('item-b'); // 保持会话未完成
+    await startSession();
+    const task = taskByItem('item-a')!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'forgot' });
+    expect(res.result).toBe('fail');
+    expect(res.outcomeSource).toBe('forgot');
+    expect(res.reinforcementAdded).toBe(true);
+    // kind=fail：L3 → L2
+    expect(dim('item-a', 'understanding')!.level).toBe(2);
+
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.outcomeSource).toBe('forgot');
+    expect(attempt.result).toBe('fail');
+  });
+
+  it('assisted：hintUsed+选对 → result=basic_pass、outcome_source=assisted；不因 viewedSource 变化（false 同样 basic_pass）', async () => {
+    await seedDueChoiceItem('item-a');
+    await seedDueChoiceItem('item-b');
+    await startSession();
+    const a = taskByItem('item-a')!; // sortKey 1
+    const b = taskByItem('item-b')!; // sortKey 2
+
+    const withViewed = await answerTodayTask(db, deps, TZ, NOW, a.id, {
+      selectedOptionId: 'o1',
+      hintUsed: true,
+      viewedSource: true,
+    });
+    expect(withViewed.result).toBe('basic_pass');
+    expect(withViewed.outcomeSource).toBe('assisted');
+
+    const withoutViewed = await answerTodayTask(db, deps, TZ, NOW, b.id, {
+      selectedOptionId: 'o1',
+      hintUsed: true,
+      viewedSource: false,
+    });
+    expect(withoutViewed.result).toBe('basic_pass');
+    expect(withoutViewed.outcomeSource).toBe('assisted');
+
+    // kind=basic_pass：不升级
+    expect(dim('item-a', 'understanding')!.level).toBe(3);
+    expect(dim('item-b', 'understanding')!.level).toBe(3);
+  });
+
+  it('hint 后选错 → result=fail、outcome_source=forgot、揭示正确项', async () => {
+    await seedDueChoiceItem('item-a', 3, '解释文本');
+    await seedDueChoiceItem('item-b');
+    await startSession();
+    const task = taskByItem('item-a')!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, {
+      selectedOptionId: 'o2',
+      hintUsed: true,
+    });
+    expect(res.result).toBe('fail');
+    expect(res.outcomeSource).toBe('forgot');
+    expect(res.correct).toBe(false);
+    expect(res.correctOptionId).toBe('o1');
+    expect(res.explanation).toBe('解释文本');
+    // kind=fail：L3 → L2
+    expect(dim('item-a', 'understanding')!.level).toBe(2);
+  });
+
+  it('learn 首题路径不变：选对且无 recall/hintUsed → pass、outcome_source 为空', async () => {
+    await seedItem(db, {
+      id: 'new-1',
+      target: 'new-1',
+      queueState: 'new',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    });
+    await seedQuestion(db, 'new-1', {
+      type: 'understanding',
+      payloadJson: choicePayload(DEFAULT_OPTIONS),
+      correctOptionId: 'o1',
+      contextText: '____ fills the blank.',
+    });
+    await startSession();
+    const learn = taskByItem('new-1', { type: 'learn' })!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { selectedOptionId: 'o1' });
+    expect(res.result).toBe('pass');
+    expect(res.outcomeSource).toBeNull();
+
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.outcomeSource).toBeNull();
+    expect(attempt.result).toBe('pass');
+  });
+
+  it('幂等回放：重复提交返回首次 outcomeSource', async () => {
+    await seedDueChoiceItem('item-a');
+    await startSession();
+    const task = taskByItem('item-a')!;
+
+    const first = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'recalled' });
+    expect(first.outcomeSource).toBe('recalled');
+
+    const replay = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 60_000), task.id, {
+      recall: 'forgot', // 换答案仍回放首次结算
+    });
+    expect(replay.alreadyCompleted).toBe(true);
+    expect(replay.result).toBe('pass');
+    expect(replay.outcomeSource).toBe('recalled');
   });
 });

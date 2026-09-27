@@ -147,9 +147,13 @@ describe('POST /api/today/tasks/:id/answer 契约', () => {
       if (status.status !== 'active' || status.currentTask === null) break;
       const task = status.currentTask;
       const isChoice = task.question !== null && 'options' in task.question;
-      const res = await post(ctx, `/api/today/tasks/${task.taskId}/answer`, {
-        ...(isChoice ? { selectedOptionId: 'o1' } : { answerText: 'raw' }),
-      });
+      // understanding 复习任务走 Recall 直判；learn 首题/填空题维持旧提交形态
+      const payload = task.taskType === 'understanding'
+        ? { recall: 'recalled' }
+        : isChoice
+          ? { selectedOptionId: 'o1' }
+          : { answerText: 'raw' };
+      const res = await post(ctx, `/api/today/tasks/${task.taskId}/answer`, payload);
       expect(res.statusCode).toBe(200);
       const parsed = AnswerResponse.parse(res.json());
       expect(parsed.alreadyCompleted).toBeUndefined();
@@ -168,6 +172,7 @@ describe('POST /api/today/tasks/:id/answer 契约', () => {
     const replayBody = AnswerResponse.parse(replay.json());
     expect(replayBody.alreadyCompleted).toBe(true);
     expect(replayBody.result).toBe('pass');
+    expect(replayBody.outcomeSource).toBe('recalled');
     expect(replayBody.completed?.totalTasks).toBe(2);
 
     // 会话完成态
@@ -196,6 +201,7 @@ describe('POST /api/today/tasks/:id/answer 契约', () => {
     });
     const failBody = AnswerResponse.parse(fail.json());
     expect(failBody.result).toBe('fail');
+    expect(failBody.outcomeSource).toBe('forgot');
     expect(failBody.reinforcementAdded).toBe(true);
     expect(failBody.explanation).toBe('解释');
     expect(failBody.correctOptionId).toBe('o1');
@@ -209,6 +215,8 @@ describe('POST /api/today/tasks/:id/answer 契约', () => {
       selectedOptionId: 'g1', // fake generate 产题的正确项
     });
     const rfBody = AnswerResponse.parse(rf.json());
+    expect(rfBody.result).toBe('basic_pass'); // 提交选项 = hint 语义 → basic_pass
+    expect(rfBody.outcomeSource).toBe('assisted');
     expect(rfBody.completed).not.toBeNull();
     expect(rfBody.completed?.recommendRead).toBe(true);
   });

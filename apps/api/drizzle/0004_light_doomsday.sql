@@ -1,0 +1,1 @@
+ALTER TABLE `attempts` ADD `outcome_source` text;

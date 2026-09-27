@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { HeatmapCell } from '@el/shared';
 import { buildHeatmapLayout, heatmapCellClass, heatmapCellTitle } from '../heatmap';
 
@@ -22,10 +22,17 @@ function MonthLabels({ labels }: { labels: (string | null)[] }) {
 export function HeatmapGrid({ heatmap }: { heatmap: HeatmapCell[] }) {
   const { weeks, monthLabels } = useMemo(() => buildHeatmapLayout(heatmap), [heatmap]);
   const allZero = heatmap.length > 0 && heatmap.every((c) => c.count === 0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 移动端初始滚动定位到最近（当前周在最后一列）——对齐 GitHub：打开即见当前区间而非一年前
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [weeks.length]);
 
   return (
     <div className="space-y-2">
-      <div className="overflow-x-auto">
+      <div ref={scrollRef} className="overflow-x-auto">
         <div className="min-w-max space-y-1">
           <MonthLabels labels={monthLabels} />
           <div className="flex gap-0.5">

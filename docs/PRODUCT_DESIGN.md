@@ -154,13 +154,13 @@ Today 从 New Queue 取出新项
   ↓
 Learn 页面
   ↓
-target + 中文释义 + source example + 最多 1 条补充/个人例句 + 发音
+target + IPA + source example（回忆上下文，不展示释义）——初见即 Recall Card（2026-09-28 起用）
   ↓
-首道 Understanding 题（优先使用 source example）
+自己回忆 → 显示答案 → 想起来了 / 没想起来（Hint 四选一可用）
   ↓
-首道题通过：建立 Understanding 状态，并激活 Production 初始状态
+三路径都完成新学（消耗额度）：recalled=pass / assisted=basic_pass / forgot=fail，均建立 Understanding 初始状态并激活 Production
   ↓
-Production 从下一次到期开始以填空为主
+Production 从下一次到期开始以填空为主；forgot/assisted 明日以 Recall 短间隔回归
 ```
 
 ## 4.3 日常复习
@@ -326,7 +326,7 @@ Understanding 复习任务的默认形式是 **Recall Card**：展示 target（+
 
 - attempts.outcome_source 记录三档来源（历史行为 NULL，回看展示按 result 回退），供未来统计区分"看选项会、主动想不起来"。
 - Recall 卡默认展示 source_example（回忆上下文，不是答案），understanding 不再有"查看原句降档"；forgot 时反馈区突出展示 source_example。
-- Learn 首题不变（认识新词用选择题）；选择题缓存与前端 shuffle 机制保留（即 Hint 题源）。
+- 新词首触同 为 Recall Card（2026-09-28"初见即回忆"：导入词已在 ChatGPT 理解过，首触检验回忆；三路径都完成新学，forgot 揭示即教学、明日短间隔回归，learn 不再插同会话补强）。选择题缓存与前端 shuffle 机制保留（即 Hint 题源）。
 
 ## 7.2 填空题
 

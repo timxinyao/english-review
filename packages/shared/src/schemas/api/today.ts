@@ -129,15 +129,37 @@ export type TodayStatusResponse = z.infer<typeof TodayStatusResponse>;
 
 // ---------- 作答 ----------
 
-export const AnswerRequest = z.object({
-  selectedOptionId: z.string().min(1).optional(),
-  answerText: z.string().min(1).max(500).optional(),
-  viewedSource: z.boolean().optional(),
-  /** Understanding Recall Card：主动回忆直判（与 selectedOptionId 二选一） */
-  recall: z.enum(['recalled', 'forgot']).optional(),
-  /** Understanding Hint 模式提交的选择题标识 */
-  hintUsed: z.boolean().optional(),
-});
+export const AnswerRequest = z
+  .object({
+    selectedOptionId: z.string().min(1).optional(),
+    answerText: z.string().min(1).max(500).optional(),
+    viewedSource: z.boolean().optional(),
+    /** Understanding Recall Card：主动回忆直判（与 selectedOptionId 二选一） */
+    recall: z.enum(['recalled', 'forgot']).optional(),
+    /** Understanding Hint 模式提交的选择题标识 */
+    hintUsed: z.boolean().optional(),
+    /**
+     * 主动不会（PRODUCT §7.6）：独立的作答动作，后端直接按 fail 结算。
+     * 与选项/文本/自评/Hint 互斥（TECHNICAL_DESIGN §7.5）。
+     */
+    giveUp: z.literal(true).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.giveUp !== true) return;
+    const conflicts = Object.entries({
+      selectedOptionId: val.selectedOptionId,
+      answerText: val.answerText,
+      recall: val.recall,
+      hintUsed: val.hintUsed,
+    }).filter(([, v]) => v !== undefined);
+    for (const [key] of conflicts) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: 'giveUp 与作答内容互斥，不能同时提交',
+      });
+    }
+  });
 export type AnswerRequest = z.infer<typeof AnswerRequest>;
 
 export const AnswerResponse = z.object({
@@ -145,6 +167,16 @@ export const AnswerResponse = z.object({
   /** understanding 三档证据：recalled=自答想起 / assisted=提示后对 / forgot=未想起或提示仍错；其余题型 null */
   outcomeSource: z.enum(['recalled', 'assisted', 'forgot']).nullable().optional(),
   correct: z.boolean(),
+  /** 本次作答是否为主动不会（giveUp=true，按 fail 结算且未提交任何答案） */
+  gaveUp: z.boolean().optional(),
+  /** 本次提交的选项（recall 直判归一丢弃时为 null；giveUp 为 null）；仅作答后返回 */
+  selectedOptionId: z.string().nullable().optional(),
+  /** 本次提交的文本（giveUp 为 null）；仅作答后返回 */
+  submittedAnswerText: z.string().nullable().optional(),
+  /** 表达题主动不会时揭示的参考句（来自绑定题目 payload；绝不随未作答任务下发） */
+  referenceAnswer: z.string().nullable().optional(),
+  /** 表达题主动不会时揭示的目标用法说明（payload acceptance_notes） */
+  answerNote: z.string().nullable().optional(),
   /** 幂等重复提交时为 true，并返回首次结算的结果摘要 */
   alreadyCompleted: z.boolean().optional(),
   explanation: z.string().nullable(),

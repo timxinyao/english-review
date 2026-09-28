@@ -7,8 +7,8 @@ export type ReviewDimension = z.infer<typeof ReviewDimension>;
 export const AnswerResult = z.enum(['pass', 'basic_pass', 'fail', 'void']);
 export type AnswerResult = z.infer<typeof AnswerResult>;
 
-/** 用户附加反馈 */
-export const AnswerFeedback = z.enum(['guessed', 'too_easy']);
+/** 用户附加反馈（`gave_up`=主动不会的作答动作，与事后人工反馈互斥，DATABASE.md §8） */
+export const AnswerFeedback = z.enum(['guessed', 'too_easy', 'gave_up']);
 export type AnswerFeedback = z.infer<typeof AnswerFeedback>;
 
 export const ReviewState = z.object({

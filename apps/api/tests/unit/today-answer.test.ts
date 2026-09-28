@@ -5,6 +5,7 @@ import { runMigrations } from '../../src/db/migrate.js';
 import {
   attempts,
   dailyStats,
+  learningExamples,
   learningItems,
   reviewSessions,
   reviewStates,
@@ -63,6 +64,26 @@ async function seedDueClozeItem(itemId: string, accepted: string[]): Promise<str
     payloadJson: JSON.stringify({ acceptedAnswers: accepted, explanation: 'cloze 解释' }),
     correctOptionId: null,
     contextText: `We need the ____ ${itemId} before processing.`,
+  });
+  return itemId;
+}
+
+async function seedDueProductionItem(itemId: string, mustUse: string): Promise<string> {
+  await seedItem(db, { id: itemId, target: mustUse, queueState: 'started' });
+  await seedReviewState(db, itemId, 'production', {
+    level: 4,
+    nextReviewAt: '2026-09-23T00:00:00.000Z',
+  });
+  await seedQuestion(db, itemId, {
+    id: `${itemId}-prod`,
+    type: 'production',
+    promptText: `请使用 ${mustUse} 表达这个意思。`,
+    payloadJson: JSON.stringify({
+      mustUse,
+      referenceAnswer: `They ${mustUse} naturally.`,
+      acceptanceNotes: '允许正常时态变化。',
+    }),
+    correctOptionId: null,
   });
   return itemId;
 }
@@ -774,5 +795,201 @@ describe('learn Recall（初见即回忆，方案 A）', () => {
 
     expectInitializedDims('new-1');
     expectInitializedDims('new-2');
+  });
+});
+
+describe('answer：主动不会（giveUp）', () => {
+  /** 统计生产批改调用次数的 deps（验证 give-up 零批改） */
+  function countingDeps(base: TodayDeps = createFakeDeps()): {
+    deps: TodayDeps;
+    calls: { production: number };
+  } {
+    const calls = { production: 0 };
+    const deps: TodayDeps = {
+      ...base,
+      evaluateProduction: async (db, question, answerText) => {
+        calls.production += 1;
+        return base.evaluateProduction(db, question, answerText);
+      },
+    };
+    return { deps, calls };
+  }
+
+  it('understanding give-up → fail/forgot：走既有 fail 结算（降级+补强），feedback=gave_up，零判定调用', async () => {
+    const { deps, calls } = countingDeps();
+    await seedDueChoiceItem('item-a');
+    await startTodaySession(db, deps, TZ, NOW);
+    const task = taskByItem('item-a')!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { giveUp: true });
+    expect(res.result).toBe('fail');
+    expect(res.correct).toBe(false);
+    expect(res.gaveUp).toBe(true);
+    expect(res.outcomeSource).toBe('forgot');
+    // 选择题揭示：正确选项 + 解释（揭示即教学）
+    expect(res.correctOptionId).toBe('o1');
+    expect(res.explanation).toBe('解释文本');
+    // give-up 无提交答案，也不携带表达题参考字段
+    expect(res.selectedOptionId ?? null).toBeNull();
+    expect(res.submittedAnswerText ?? null).toBeNull();
+    expect(res.referenceAnswer ?? null).toBeNull();
+    expect(res.answerNote ?? null).toBeNull();
+    expect(res.correction).toBeNull();
+    // 既有 fail 结算：L3 → L2 + 补强
+    expect(res.reinforcementAdded).toBe(true);
+    expect(dim('item-a', 'understanding')!.level).toBe(2);
+    expect(stats()).toMatchObject({ formalTasksCompleted: 1 });
+
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.feedback).toBe('gave_up');
+    expect(attempt.result).toBe('fail');
+    expect(attempt.answerText).toBeNull();
+    expect(attempt.selectedOptionId).toBeNull();
+    expect(attempt.aiPromptKey).toBeNull();
+    expect(calls.production).toBe(0);
+  });
+
+  it('cloze give-up → fail：揭示完整句/可接受答案/解释，attempt 不含提交文本', async () => {
+    await seedDueClozeItem('item-a', ['raw']);
+    await startTodaySession(db, deps, TZ, NOW);
+    const task = taskByItem('item-a')!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { giveUp: true });
+    expect(res.result).toBe('fail');
+    expect(res.gaveUp).toBe(true);
+    expect(res.outcomeSource ?? null).toBeNull();
+    expect(res.completeSentence).toBe('We need the raw item-a before processing.');
+    expect(res.acceptedAnswer).toBe('raw');
+    expect(res.explanation).toBe('cloze 解释');
+    expect(res.correctOptionId ?? null).toBeNull();
+    expect(res.submittedAnswerText ?? null).toBeNull();
+    // 既有 fail 结算：填空 fail 插补强
+    expect(res.reinforcementAdded).toBe(true);
+
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.feedback).toBe('gave_up');
+    expect(attempt.answerText).toBeNull();
+  });
+
+  it('production give-up → fail：referenceAnswer/answerNote 来自题目 payload，零批改、无 diff、无沉淀', async () => {
+    const { deps, calls } = countingDeps();
+    await seedDueProductionItem('item-a', 'wear down');
+    await startTodaySession(db, deps, TZ, NOW);
+    const task = taskByItem('item-a')!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { giveUp: true });
+    expect(res.result).toBe('fail');
+    expect(res.correct).toBe(false);
+    expect(res.gaveUp).toBe(true);
+    expect(res.referenceAnswer).toBe('They wear down naturally.');
+    expect(res.answerNote).toBe('允许正常时态变化。');
+    expect(res.correction).toBeNull();
+    expect(res.explanation ?? null).toBeNull();
+    expect(res.submittedAnswerText ?? null).toBeNull();
+    expect(res.reinforcementAdded).toBe(false);
+    expect(res.completed).toMatchObject({ totalTasks: 1, fail: 1, recommendRead: true });
+
+    // 统计沿用既有 fail 规则：计作答、不计通过；未写句子不沉淀 Personal Example
+    expect(stats()).toMatchObject({ productionAttempts: 1, productionPass: 0 });
+    expect(
+      db
+        .select()
+        .from(learningExamples)
+        .all()
+        .filter((e) => e.kind === 'personal'),
+    ).toHaveLength(0);
+
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.feedback).toBe('gave_up');
+    expect(attempt.answerText).toBeNull();
+    expect(attempt.correctionJson).toBeNull();
+    expect(attempt.aiPromptKey).toBeNull();
+    expect(calls.production).toBe(0);
+  });
+
+  it('learn give-up → 新学照常（U/P 初始化、started、额度+1）、outcomeSource=forgot、不插补强', async () => {
+    await seedLearnItem('new-1');
+    await startTodaySession(db, deps, TZ, NOW);
+    const learn = taskByItem('new-1', { type: 'learn' })!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { giveUp: true });
+    expect(res.result).toBe('fail');
+    expect(res.outcomeSource).toBe('forgot');
+    expect(res.correctOptionId).toBe('o1'); // 揭示即教学
+    expect(res.reinforcementAdded).toBe(false);
+
+    expect(dim('new-1', 'understanding')!.level).toBe(1);
+    expect(dim('new-1', 'production')!.level).toBe(0);
+    expect(
+      db.select().from(learningItems).where(eq(learningItems.id, 'new-1')).get()?.queueState,
+    ).toBe('started');
+    expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 1 });
+  });
+
+  it('giveUp 与 option/text/recall/hint 互斥 → VALIDATION_ERROR 且零写入', async () => {
+    await seedDueChoiceItem('item-a');
+    await startTodaySession(db, deps, TZ, NOW);
+    const task = taskByItem('item-a')!;
+
+    for (const extra of [
+      { selectedOptionId: 'o1' },
+      { answerText: 'x' },
+      { recall: 'recalled' as const },
+      { hintUsed: true },
+    ]) {
+      await expect(
+        answerTodayTask(db, deps, TZ, NOW, task.id, { giveUp: true, ...extra }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    expect(db.select().from(attempts).all()).toHaveLength(0);
+    expect(tasks()[0]!.completedAt).toBeNull();
+  });
+
+  it('缺答案且无 giveUp（含 giveUp=false）→ 仍按缺答案拒绝', async () => {
+    await seedDueChoiceItem('item-a');
+    await startTodaySession(db, deps, TZ, NOW);
+    const task = taskByItem('item-a')!;
+    await expect(answerTodayTask(db, deps, TZ, NOW, task.id, {})).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+  });
+
+  it('幂等回放保留 giveUp 与已提交答案：揭示/提交字段与首次结算一致', async () => {
+    await seedDueChoiceItem('item-a');
+    await seedDueProductionItem('item-b', 'wear down');
+    await startTodaySession(db, deps, TZ, NOW);
+    const choice = taskByItem('item-a')!;
+    const prod = taskByItem('item-b')!;
+
+    const giveUp = await answerTodayTask(db, deps, TZ, NOW, choice.id, { giveUp: true });
+    const genuine = await answerTodayTask(db, deps, TZ, NOW, prod.id, {
+      answerText: 'I wear down easily.',
+    });
+    expect(genuine.gaveUp).toBe(false);
+    expect(genuine.submittedAnswerText).toBe('I wear down easily.');
+    expect(genuine.referenceAnswer ?? null).toBeNull();
+    expect(genuine.answerNote ?? null).toBeNull();
+
+    const later = new Date(NOW.getTime() + 60_000);
+    const replayGiveUp = await answerTodayTask(db, deps, TZ, later, choice.id, {
+      selectedOptionId: 'o2',
+    });
+    expect(replayGiveUp.alreadyCompleted).toBe(true);
+    expect(replayGiveUp.gaveUp).toBe(true);
+    expect(replayGiveUp.result).toBe(giveUp.result);
+    expect(replayGiveUp.correctOptionId).toBe(giveUp.correctOptionId);
+    expect(replayGiveUp.explanation).toBe(giveUp.explanation);
+    expect(replayGiveUp.selectedOptionId ?? null).toBeNull();
+    expect(replayGiveUp.submittedAnswerText ?? null).toBeNull();
+
+    const replayGenuine = await answerTodayTask(db, deps, TZ, later, prod.id, {});
+    expect(replayGenuine.alreadyCompleted).toBe(true);
+    expect(replayGenuine.gaveUp).toBe(false);
+    expect(replayGenuine.submittedAnswerText).toBe('I wear down easily.');
+    expect(replayGenuine.selectedOptionId ?? null).toBeNull();
+    expect(replayGenuine.referenceAnswer ?? null).toBeNull();
+    expect(replayGenuine.answerNote ?? null).toBeNull();
+    expect(replayGenuine.correction).toEqual(genuine.correction);
+    expect(replayGenuine.personalExampleSaved).toBe(genuine.personalExampleSaved);
   });
 });

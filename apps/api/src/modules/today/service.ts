@@ -481,6 +481,8 @@ interface QuestionPayload {
   acceptedAnswers?: string[];
   explanation?: string;
   mustUse?: string;
+  referenceAnswer?: string;
+  acceptanceNotes?: string;
 }
 
 function safePayload(question: QuestionRow): QuestionPayload {
@@ -521,6 +523,28 @@ function clozeReveal(question: QuestionRow): {
 function revealExplanation(question: QuestionRow, correct: boolean): string | null {
   if (correct) return null;
   return safePayload(question).explanation ?? null;
+}
+
+/**
+ * 表达题主动不会揭示（TECHNICAL_DESIGN §7.5）：参考句与目标用法说明
+ * 全部来自绑定题目 payload（reference_answer / acceptance_notes），不伪造批改结果。
+ * 仅在作答后返回——TodayTaskView 等未作答视图绝不调用本函数。
+ */
+function productionReveal(question: QuestionRow): {
+  referenceAnswer: string | null;
+  answerNote: string | null;
+} {
+  const payload = safePayload(question);
+  return {
+    referenceAnswer:
+      typeof payload.referenceAnswer === 'string' && payload.referenceAnswer
+        ? payload.referenceAnswer
+        : null,
+    answerNote:
+      typeof payload.acceptanceNotes === 'string' && payload.acceptanceNotes
+        ? payload.acceptanceNotes
+        : null,
+  };
 }
 
 function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
@@ -1359,7 +1383,7 @@ function parseCorrectionView(json: string | null): CorrectionView | null {
   }
 }
 
-/** 幂等回放：已结算任务返回首次结算结果摘要 */
+/** 幂等回放：已结算任务返回首次结算结果摘要（字段与首次结算完全一致） */
 function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
   const attempt = exec
     .select()
@@ -1381,6 +1405,9 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
   const result: AnswerResponse['result'] =
     stored === 'pass' || stored === 'basic_pass' ? stored : 'fail';
   const reveal = question && isCloze ? clozeReveal(question) : null;
+  // 主动不会：feedback='gave_up'（无提交答案），表达题从绑定题目 payload 重建参考句揭示
+  const gaveUp = attempt?.feedback === 'gave_up';
+  const production = gaveUp && question && isProduction ? productionReveal(question) : null;
   // 表达题：回放首次批改 correction 与首次 personalExampleSaved（post 快照 exampleId）
   const correction = isProduction ? parseCorrectionView(attempt?.correctionJson ?? null) : null;
   const post = parseSnapshot(attempt?.postStateJson ?? null);
@@ -1388,6 +1415,11 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
     result,
     outcomeSource: (attempt?.outcomeSource as AnswerResponse['outcomeSource']) ?? null,
     correct: result !== 'fail',
+    gaveUp,
+    selectedOptionId: attempt?.selectedOptionId ?? null,
+    submittedAnswerText: attempt?.answerText ?? null,
+    referenceAnswer: production?.referenceAnswer ?? null,
+    answerNote: production?.answerNote ?? null,
     alreadyCompleted: true,
     explanation: attempt?.explanation ?? null,
     correctOptionId: question && !isCloze && !isProduction ? question.correctOptionId : null,
@@ -1431,25 +1463,41 @@ export async function answerTodayTask(
 
   const isCloze = question.type === 'cloze';
   const isProduction = question.type === 'production';
-  if (isCloze && !body.answerText) {
-    throw appError('VALIDATION_ERROR', '填空题必须提交 answerText');
-  }
-  if (isProduction && !body.answerText) {
-    throw appError('VALIDATION_ERROR', '表达题必须提交 answerText');
-  }
   // Recall 判定契约（understanding 复习与 learn 新学"初见即回忆"共用，判定完全一致）
   const isRecallTask = task.taskType === 'understanding' || task.taskType === 'learn';
-  if (!isCloze && !isProduction && !isRecallTask && !body.selectedOptionId) {
-    throw appError('VALIDATION_ERROR', '选择题必须提交 selectedOptionId');
-  }
-  if (isRecallTask && !body.recall && !body.selectedOptionId) {
-    throw appError('VALIDATION_ERROR', 'Recall 题必须提交 recall 或 selectedOptionId');
+  // 主动不会（PRODUCT §7.6）：独立的作答动作，与任何作答内容互斥（服务层兜底，路由层 Zod 已拦截）
+  const giveUp = body.giveUp === true;
+  if (giveUp) {
+    if (
+      body.selectedOptionId !== undefined ||
+      body.answerText !== undefined ||
+      body.recall !== undefined ||
+      body.hintUsed !== undefined
+    ) {
+      throw appError('VALIDATION_ERROR', 'giveUp 与作答内容互斥，不能同时提交');
+    }
+  } else {
+    if (isCloze && !body.answerText) {
+      throw appError('VALIDATION_ERROR', '填空题必须提交 answerText');
+    }
+    if (isProduction && !body.answerText) {
+      throw appError('VALIDATION_ERROR', '表达题必须提交 answerText');
+    }
+    if (!isCloze && !isProduction && !isRecallTask && !body.selectedOptionId) {
+      throw appError('VALIDATION_ERROR', '选择题必须提交 selectedOptionId');
+    }
+    if (isRecallTask && !body.recall && !body.selectedOptionId) {
+      throw appError('VALIDATION_ERROR', 'Recall 题必须提交 recall 或 selectedOptionId');
+    }
   }
 
-  // ---- 事务外：评估（表达题走 check_production 实时批改）----
+  // ---- 事务外：评估（giveUp 不调用任何判定/批改；表达题走 check_production 实时批改）----
   let production: ProductionEvaluation | null = null;
   let outcome: EvaluateOutcome;
-  if (isProduction) {
+  if (giveUp) {
+    // 主动不会：直接按 fail 结算，零生产/填空/选择判定调用（TECHNICAL_DESIGN §7.5）
+    outcome = { correct: false };
+  } else if (isProduction) {
     try {
       production = await deps.evaluateProduction(db, question, body.answerText!);
     } catch (err) {
@@ -1472,9 +1520,13 @@ export async function answerTodayTask(
   // Recall 判定（understanding 复习与 learn 新学共用）：recall→pass/fail；
   // hint 选择→对=assisted(basic_pass)/错=forgot(fail)；
   // 查看原句不再降档（Recall 卡默认展示 source_example）。cloze 旧语义不变。
+  // 主动不会按 fail 结算：理解题证据为 forgot（PRODUCT §6.2），其余题型无证据档。
   let outcomeSource: 'recalled' | 'assisted' | 'forgot' | null = null;
   let result: AnswerResponse['result'];
-  if (isProduction) {
+  if (giveUp) {
+    result = 'fail';
+    outcomeSource = isRecallTask ? 'forgot' : null;
+  } else if (isProduction) {
     result = production!.result;
   } else if (isRecallTask) {
     if (body.recall) {
@@ -1611,9 +1663,16 @@ export async function answerTodayTask(
     }
 
     const reveal = isCloze ? clozeReveal(question) : null;
-    const explanation = isProduction
-      ? production!.explanation
-      : revealExplanation(question, correct);
+    // 主动不会的表达题揭示：参考句/用法说明取自绑定题目 payload（仅作答后返回）
+    const giveUpProductionReveal = giveUp && isProduction ? productionReveal(question) : null;
+    const explanation = giveUp
+      ? // 主动不会：表达题无批改说明（揭示走 payload 参考句/用法说明）；选择/填空揭示解释
+        isProduction
+        ? null
+        : revealExplanation(question, false)
+      : isProduction
+        ? production!.explanation
+        : revealExplanation(question, correct);
     tx.insert(attempts)
       .values({
         id: randomUUID(),
@@ -1626,7 +1685,8 @@ export async function answerTodayTask(
         selectedOptionId: isRecallTask && body.recall ? null : (body.selectedOptionId ?? null),
         result,
         viewedSource: viewedSource ? 1 : 0,
-        feedback: null,
+        // 主动不会持久化为 gave_up（与事后人工反馈互斥，DATABASE.md §8）
+        feedback: giveUp ? 'gave_up' : null,
         outcomeSource,
         correctionJson: production
           ? JSON.stringify({
@@ -1680,6 +1740,12 @@ export async function answerTodayTask(
       result,
       outcomeSource,
       correct,
+      gaveUp: giveUp,
+      // 真实作答回传提交内容（与 attempt 落库一致：recall 直判的选项已归一丢弃）；giveUp 为 null
+      selectedOptionId: isRecallTask && body.recall ? null : (body.selectedOptionId ?? null),
+      submittedAnswerText: body.answerText ?? null,
+      referenceAnswer: giveUpProductionReveal?.referenceAnswer ?? null,
+      answerNote: giveUpProductionReveal?.answerNote ?? null,
       explanation,
       correctOptionId: !isCloze && !isProduction ? question.correctOptionId : null,
       completeSentence: reveal?.completeSentence ?? null,

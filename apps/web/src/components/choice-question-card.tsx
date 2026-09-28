@@ -32,6 +32,8 @@ interface ChoiceQuestionCardProps {
   variant?: 'today';
   /** 冻结判语交由外部（Recall 反馈）呈现时隐藏（Today 专用） */
   hideVerdict?: boolean;
+  /** 隐藏行内「下一题」行（外部自停靠 dock 时用，如 Recall hint 冻结态） */
+  hideAdvanceRow?: boolean;
 }
 
 /** 选择题渲染与作答交互（PRODUCT §7.1/§7.6）；Today 与 Library 练一下共用 */
@@ -47,6 +49,7 @@ export function ChoiceQuestionCard({
   onGiveUp,
   variant,
   hideVerdict,
+  hideAdvanceRow,
 }: ChoiceQuestionCardProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewedSource, setViewedSource] = useState(false);
@@ -71,6 +74,7 @@ export function ChoiceQuestionCard({
   }
 
   // 题干头部（context + 题目）：Today 滚动区与练一下版式共用
+  // Today 短屏弹性：题干保底可读高度；选项 dock 可收缩（选项组内部滚动），操作行不裁切
   const head = (
     <>
       {question.context && (
@@ -122,7 +126,14 @@ export function ChoiceQuestionCard({
   );
 
   const optionGroup = (
-    <div role="group" aria-label="选项" className={cn('space-y-2', variant === 'today' && 'max-h-[40vh] overflow-y-auto')}>
+    <div
+      role="group"
+      aria-label="选项"
+      className={cn(
+        'space-y-2',
+        variant === 'today' && 'max-h-[40vh] min-h-0 flex-1 overflow-y-auto',
+      )}
+    >
       {options.map((option) => {
         const isChosen = chosenId === option.id;
         const isCorrect = result?.correct ? isChosen : result?.correctOptionId === option.id;
@@ -150,15 +161,18 @@ export function ChoiceQuestionCard({
   if (variant === 'today') {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto" data-slot="body">
+        <div className="min-h-[4.5rem] flex-1 space-y-4 overflow-y-auto" data-slot="body">
           {head}
           {sourceBlock}
           {feedback}
         </div>
-        <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
+        <div
+          className="mt-3 flex min-h-0 shrink flex-col gap-2 border-t border-border pt-3"
+          data-slot="dock"
+        >
           {optionGroup}
           {phase === 'answering' && (
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex shrink-0 items-center justify-between gap-2">
               {canRevealSource && !viewedSource ? (
                 <Button variant="ghost" size="sm" onClick={() => setViewedSource(true)}>
                   查看原句
@@ -179,8 +193,8 @@ export function ChoiceQuestionCard({
               )}
             </div>
           )}
-          {phase !== 'answering' && (
-            <div className="flex justify-end">
+          {phase !== 'answering' && !hideAdvanceRow && (
+            <div className="flex shrink-0 justify-end">
               <Button onClick={onAdvance}>下一题</Button>
             </div>
           )}
@@ -211,7 +225,7 @@ export function ChoiceQuestionCard({
 
       {feedback}
 
-      {phase !== 'answering' && (
+      {phase !== 'answering' && !hideAdvanceRow && (
         <div className="flex items-center justify-between gap-2">
           <Button onClick={onAdvance}>下一题</Button>
         </div>

@@ -24,9 +24,12 @@ vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
 const apiMock = vi.mocked(api);
 
 // Task 1 判定映射：recalled→pass / assisted→basic_pass / forgot→fail
+// （hint 选择题路径的冻结勾选回放依赖服务端 selectedOptionId，与 API 契约一致）
 const recalledAnswer = () => makeCorrectAnswer({ outcomeSource: 'recalled' });
-const assistedAnswer = () => makeCorrectAnswer({ result: 'basic_pass', outcomeSource: 'assisted' });
-const forgotAnswer = () => makeWrongAnswer({ outcomeSource: 'forgot' });
+const assistedAnswer = () =>
+  makeCorrectAnswer({ result: 'basic_pass', outcomeSource: 'assisted', selectedOptionId: 'o1' });
+const forgotAnswer = () =>
+  makeWrongAnswer({ outcomeSource: 'forgot', selectedOptionId: 'o2' });
 
 /** 第 2 张卡（用于断言"下一题"确实切换了任务） */
 function secondTask() {

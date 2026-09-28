@@ -106,16 +106,36 @@ export function RecallCard({
   );
 
   if (hint) {
-    // Hint 态：词行置顶，选择题（today 版式）自带滚动题干与底部选项停靠；
-    // 冻结时判语/释义/原句由 RecallFeedback 呈现，选项勾选纠错由选择题统一版式呈现
+    // Hint 态：词行置顶。作答中用选择题 today 版式（题干滚动 + 选项/不会停靠底部 dock）；
+    // 冻结时判语/释义/原句（RecallFeedback）+ 统一纠错（练习版式行内渲染，勾选回放走
+    // 服务端 selectedOptionId/correctOptionId）合并进单一滚动区，下一题停靠底部 dock——
+    // 短屏（375x480）三段内容叠加超出卡高时整体可滚，dock 不被导航遮挡。
+    if (frozen) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 pb-3">{wordRow}</div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto" data-slot="body">
+            <RecallFeedback task={task} result={result} outcomeSource={outcomeSource} />
+            <ChoiceQuestionCard
+              question={question}
+              target={word.target}
+              result={result}
+              pending={answer.isPending}
+              hideVerdict={choiceFrozen}
+              hideAdvanceRow
+              onSubmitOption={(optionId) => submit({ selectedOptionId: optionId, hintUsed: true })}
+              onAdvance={onAdvance}
+            />
+          </div>
+          <div className="mt-3 flex shrink-0 justify-end border-t border-border pt-3" data-slot="dock">
+            <Button onClick={onAdvance}>下一题</Button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 pb-3">{wordRow}</div>
-        {frozen && (
-          <div className="shrink-0 space-y-4 pb-3">
-            <RecallFeedback task={task} result={result} outcomeSource={outcomeSource} />
-          </div>
-        )}
         <ChoiceQuestionCard
           variant="today"
           question={question}

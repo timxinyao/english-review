@@ -208,7 +208,7 @@ function fmtExamples(d: LibraryItemDetail): string {
 async function cmdShow(apiBase: string, cookie: string, id: string): Promise<void> {
   const { data } = await callJson<LibraryItemDetail>(apiBase, cookie, 'GET', `/api/library/${id}`);
   const i = data.item;
-  console.log(`${i.target}（${i.type}${i.ipa ? ` /${i.ipa}/` : ''}）`);
+  console.log(`${i.target}（${i.type}${i.ipa ? ` ${i.ipa}` : ''}）`);
   console.log(`释义: ${i.meaning}`);
   if (i.source) console.log(`来源: ${i.source}${i.sourceUrl ? ` · ${i.sourceUrl}` : ''}`);
   if (i.tags.length) console.log(`标签: ${i.tags.join(', ')}`);

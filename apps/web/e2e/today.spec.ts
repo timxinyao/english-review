@@ -42,6 +42,8 @@ async function recallPass(page: Page, meaning: string) {
   await page.getByRole('button', { name: '想起来了' }).click();
   // 自动前进：等自评按钮消失（冻结瞬态或已切卡）
   await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
+  // 判语收起 = 已真正切卡（防冻结瞬态重入循环分支）
+  await expect(page.getByText('想起来了', { exact: true })).toBeHidden();
 }
 
 /**

@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 
 describe('E2E 播种（seedE2eData）', () => {
-  it('播种确定性数据：6 个 item、6 道题、7 行 review_states、文案符合规格', () => {
+  it('播种确定性数据：6 个 item、7 道题（含撤销替换题）、7 行 review_states、文案符合规格', () => {
     const seeded = seedE2eData(db, NOW);
     expect(seeded).toBe(true);
 
@@ -32,9 +32,8 @@ describe('E2E 播种（seedE2eData）', () => {
     expect(items.filter((i) => i.queueState === 'started')).toHaveLength(5);
 
     const qs = db.select().from(questions).all();
-    expect(qs).toHaveLength(6);
+    expect(qs).toHaveLength(7);
     for (const q of qs) {
-      expect(q.status).toBe('fresh');
       expect([q.promptKey, String(q.promptVersion), q.promptHash, q.model]).toEqual([
         'seed',
         '1',
@@ -42,6 +41,8 @@ describe('E2E 播种（seedE2eData）', () => {
         'seed',
       ]);
     }
+    // 除撤销替换题（active、lastUsedAt 置旧）外均为 fresh
+    expect(qs.filter((q) => q.status === 'fresh')).toHaveLength(6);
 
     const stable = qs.find((q) => q.id === 'e2e-q-stable')!;
     expect(stable.contextText).toBe('The connection is finally ____.');
@@ -141,13 +142,26 @@ describe('E2E 播种（seedE2eData）', () => {
       referenceAnswer: 'The constant stress makes me want to give up.',
       acceptanceNotes: '允许正常时态和人称变化。',
     });
+
+    // 撤销重练替换题（Phase 8）：active + lastUsedAt 置旧 → 主流程仍先取原题，撤销排除原题后才轮到它
+    const q2 = db.select().from(questions).all().find((x) => x.id === 'e2e-q-give-up-2')!;
+    expect(q2.type).toBe('production');
+    expect(q2.learningItemId).toBe(giveUp.id);
+    expect(q2.status).toBe('active');
+    expect(q2.promptText).toBe('他去年决定放弃吸烟。');
+    expect(q2.lastUsedAt).toBe('2026-09-01T00:00:00.000Z');
+    expect(JSON.parse(q2.payloadJson)).toEqual({
+      mustUse: 'give up',
+      referenceAnswer: 'He decided to give up smoking last year.',
+      acceptanceNotes: '允许正常时态和人称变化。',
+    });
   });
 
-  it('播种幂等：重复执行跳过，不产生重复行（含 give up）', () => {
+  it('播种幂等：重复执行跳过，不产生重复行（含 give up 及替换题）', () => {
     expect(seedE2eData(db, NOW)).toBe(true);
     expect(seedE2eData(db, new Date('2026-09-25T00:00:00.000Z'))).toBe(false);
     expect(db.select().from(learningItems).all()).toHaveLength(6);
-    expect(db.select().from(questions).all()).toHaveLength(6);
+    expect(db.select().from(questions).all()).toHaveLength(7);
     expect(db.select().from(reviewStates).all()).toHaveLength(7);
   });
 });

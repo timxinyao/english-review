@@ -70,7 +70,8 @@ export function ChoiceQuestionCard({
     onSubmitOption(optionId, { viewedSource });
   }
 
-  const body = (
+  // 题干头部（context + 题目）：Today 滚动区与练一下版式共用
+  const head = (
     <>
       {question.context && (
         <p className="text-sm italic text-muted-foreground">
@@ -78,14 +79,19 @@ export function ChoiceQuestionCard({
         </p>
       )}
       <p className="text-base text-foreground">{question.question}</p>
+    </>
+  );
 
-      {showSource && (
-        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
-          <span className="mr-1 text-xs text-muted-foreground">原句</span>
-          {sourceExample}
-        </p>
-      )}
+  const sourceBlock = showSource && (
+    <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+      <span className="mr-1 text-xs text-muted-foreground">原句</span>
+      {sourceExample}
+    </p>
+  );
 
+  // 冻结反馈（判语 + 纠错 + 反馈按钮）：Today 在滚动区内、练一下在选项之后（保持原版式顺序）
+  const feedback = (
+    <>
       {phase !== 'answering' && !hideVerdict && (
         <p className={cn('text-sm', gaveUp || phase === 'wrong' ? 'text-destructive' : 'text-success')}>
           {gaveUp ? '主动不会' : phase === 'correct' ? '回答正确' : '回答错误'}
@@ -145,7 +151,9 @@ export function ChoiceQuestionCard({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto" data-slot="body">
-          {body}
+          {head}
+          {sourceBlock}
+          {feedback}
         </div>
         <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
           {optionGroup}
@@ -181,9 +189,10 @@ export function ChoiceQuestionCard({
     );
   }
 
+  // 缺省（Library 练一下）版式：题干 → 选项 → 查看原句/不会 → 原句 → 判语/纠错 → 下一题（行内唯一子节点，左对齐）
   return (
     <div className="space-y-4">
-      {body}
+      {head}
 
       {optionGroup}
 
@@ -198,9 +207,12 @@ export function ChoiceQuestionCard({
         </Button>
       )}
 
+      {sourceBlock}
+
+      {feedback}
+
       {phase !== 'answering' && (
         <div className="flex items-center justify-between gap-2">
-          <span />
           <Button onClick={onAdvance}>下一题</Button>
         </div>
       )}

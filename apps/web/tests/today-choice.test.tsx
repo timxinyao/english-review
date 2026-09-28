@@ -230,3 +230,54 @@ describe('ChoiceQuestionCard 统一纠错（§7.6：答错/主动不会同版式
     expect(onGiveUp).toHaveBeenCalledOnce();
   });
 });
+
+describe('ChoiceQuestionCard 默认版式（Library 练一下）回归：选项在前、下一题不右移', () => {
+  const question = {
+    questionId: 'q-practice',
+    context: null,
+    question: '"stable" 的意思是？',
+    options: [
+      { id: 'o1', text: '稳定的' },
+      { id: 'o2', text: '摇晃的' },
+      { id: 'o3', text: '昂贵的' },
+    ],
+  };
+
+  function renderFrozenWrong() {
+    return render(
+      <ChoiceQuestionCard
+        question={question}
+        result={makeWrongAnswer({ selectedOptionId: 'o2', correctOptionId: 'o1' })}
+        pending={false}
+        onSubmitOption={() => {}}
+        onAdvance={() => {}}
+      />,
+    );
+  }
+
+  it('冻结态：选项组在判语/正确答案/理由之前（练一下原版式，反馈不得插到选项上方）', () => {
+    renderFrozenWrong();
+
+    const group = screen.getByRole('group', { name: '选项' });
+    const verdict = screen.getByText('回答错误');
+    const answer = screen.getByText(
+      (_, el) => el?.tagName === 'P' && el.textContent === '正确答案：稳定的',
+    );
+    const explanation = screen.getByText('stable 在这里指结构上的稳固。');
+
+    // 判语/正确答案/理由都必须位于选项组之后（DOM 后序）
+    expect(group.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(group.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      group.compareDocumentPosition(explanation) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('冻结态：下一题不被填充 span 右移——它是操作行的首个元素子节点（左对齐）', () => {
+    renderFrozenWrong();
+
+    const advance = screen.getByRole('button', { name: '下一题' });
+    const row = advance.parentElement as HTMLElement;
+    expect(row.firstElementChild).toBe(advance);
+  });
+});

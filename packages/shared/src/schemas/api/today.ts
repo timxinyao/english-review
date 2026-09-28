@@ -168,15 +168,15 @@ export const AnswerResponse = z.object({
   outcomeSource: z.enum(['recalled', 'assisted', 'forgot']).nullable().optional(),
   correct: z.boolean(),
   /** 本次作答是否为主动不会（giveUp=true，按 fail 结算且未提交任何答案） */
-  gaveUp: z.boolean().optional(),
+  gaveUp: z.boolean(),
   /** 本次提交的选项（recall 直判归一丢弃时为 null；giveUp 为 null）；仅作答后返回 */
-  selectedOptionId: z.string().nullable().optional(),
+  selectedOptionId: z.string().nullable(),
   /** 本次提交的文本（giveUp 为 null）；仅作答后返回 */
-  submittedAnswerText: z.string().nullable().optional(),
+  submittedAnswerText: z.string().nullable(),
   /** 表达题主动不会时揭示的参考句（来自绑定题目 payload；绝不随未作答任务下发） */
-  referenceAnswer: z.string().nullable().optional(),
+  referenceAnswer: z.string().nullable(),
   /** 表达题主动不会时揭示的目标用法说明（payload acceptance_notes） */
-  answerNote: z.string().nullable().optional(),
+  answerNote: z.string().nullable(),
   /** 幂等重复提交时为 true，并返回首次结算的结果摘要 */
   alreadyCompleted: z.boolean().optional(),
   explanation: z.string().nullable(),

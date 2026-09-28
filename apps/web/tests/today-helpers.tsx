@@ -312,7 +312,8 @@ export function makeSessionEntry(
 }
 
 export function makeTasksResponse(tasks: SessionTaskEntry[]): TodaySessionTasksResponse {
-  return { tasks };
+  // undoableTaskId：测试内固定为 null（撤销入口消费方在 Task 5 另行覆盖）
+  return { tasks, undoableTaskId: null };
 }
 
 /** 已撤销条目（result 不回放） */

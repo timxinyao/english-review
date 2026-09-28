@@ -5,7 +5,9 @@ import {
   AnswerResponse,
   LaterResponse,
   TaskFeedbackResponse,
+  TodaySessionTasksResponse,
   TodayStatusResponse,
+  UndoResponse,
 } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
 import {
@@ -586,6 +588,106 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
         .all()
         .every((t) => t.completedAt === null),
     ).toBe(true);
+  });
+});
+
+describe('POST /api/today/tasks/:id/undo 契约', () => {
+  it('undo：ok+progress 契约、未作答 409、未知任务 404、重复撤销 409', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedDueChoice(db, 'ud-1', 'wear down');
+      await seedQuestion(db, 'ud-1', {
+        id: 'ud-1-q2',
+        type: 'understanding',
+        payloadJson: choicePayload(DEFAULT_OPTIONS, '解释'),
+        correctOptionId: 'o1',
+        contextText: 'Another ____ sentence.',
+      });
+    });
+    await post(ctx, '/api/today/start');
+    const status = TodayStatusResponse.parse((await get(ctx, '/api/today')).json());
+    const taskId = status.status === 'active' ? status.currentTask!.taskId : '';
+
+    // 未作答不能撤销
+    const early = await post(ctx, `/api/today/tasks/${taskId}/undo`);
+    expect(early.statusCode).toBe(409);
+
+    const answer = await post(ctx, `/api/today/tasks/${taskId}/answer`, { recall: 'recalled' });
+    expect(answer.statusCode).toBe(200);
+
+    const undo = await post(ctx, `/api/today/tasks/${taskId}/undo`);
+    expect(undo.statusCode).toBe(200);
+    expect(UndoResponse.safeParse(undo.json()).success).toBe(true);
+    expect(undo.json().progress).toEqual({ completed: 0, total: 1 });
+
+    // 重复撤销（任务已取消）→ 409；替代任务成为新的当前题
+    const again = await post(ctx, `/api/today/tasks/${taskId}/undo`);
+    expect(again.statusCode).toBe(409);
+    const next = TodayStatusResponse.parse((await get(ctx, '/api/today')).json());
+    if (next.status !== 'active') throw new Error('撤销后会话应重新激活');
+    expect(next.currentTask!.taskId).not.toBe(taskId);
+
+    const missing = await post(ctx, '/api/today/tasks/no-such/undo');
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it('undoableTaskId 只指向最近一次有效作答；撤销后回退到上一题', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedDueChoice(db, 'ut-1', 'wear down');
+      await seedQuestion(db, 'ut-1', {
+        id: 'ut-1-q2',
+        type: 'understanding',
+        payloadJson: choicePayload(DEFAULT_OPTIONS, '解释'),
+        correctOptionId: 'o1',
+        contextText: 'Another ____ sentence.',
+      });
+      await seedDueChoice(db, 'ut-2', 'make sense');
+      await seedQuestion(db, 'ut-2', {
+        id: 'ut-2-q2',
+        type: 'understanding',
+        payloadJson: choicePayload(DEFAULT_OPTIONS, '解释'),
+        correctOptionId: 'o1',
+        contextText: 'Another ____ sentence.',
+      });
+    });
+    await post(ctx, '/api/today/start');
+
+    const listedIds = async () => {
+      const res = await get(ctx, '/api/today/tasks');
+      expect(res.statusCode).toBe(200);
+      const body = TodaySessionTasksResponse.parse(res.json());
+      return body.undoableTaskId;
+    };
+
+    expect(await listedIds()).toBeNull(); // 无作答 → 无可撤销
+
+    const status1 = TodayStatusResponse.parse((await get(ctx, '/api/today')).json());
+    const firstId = status1.status === 'active' ? status1.currentTask!.taskId : '';
+    await post(ctx, `/api/today/tasks/${firstId}/answer`, { recall: 'recalled' });
+    expect(await listedIds()).toBe(firstId); // 最近一次作答
+
+    // 答完剩余任务（含补强/第二题），undoableTaskId 跟随最新一次作答
+    for (;;) {
+      const status = TodayStatusResponse.parse((await get(ctx, '/api/today')).json());
+      if (status.status !== 'active' || status.currentTask === null) break;
+      const task = status.currentTask;
+      await post(ctx, `/api/today/tasks/${task.taskId}/answer`, { recall: 'recalled' });
+      const undone = await listedIds();
+      expect(undone).not.toBeNull();
+      const tasksRes = TodaySessionTasksResponse.parse((await get(ctx, '/api/today/tasks')).json());
+      expect(tasksRes.tasks.map((e) => e.task.taskId)).toContain(undone);
+    }
+
+    // 撤销最近一次 → 回退到上一个仍有有效作答的任务
+    const before = TodaySessionTasksResponse.parse((await get(ctx, '/api/today/tasks')).json());
+    const lastId = before.undoableTaskId!;
+    const undo = await post(ctx, `/api/today/tasks/${lastId}/undo`);
+    expect(undo.statusCode).toBe(200);
+    expect(await listedIds()).not.toBe(lastId);
+    // 被撤销任务不再作为可撤销目标，也不回放结果
+    const after = TodaySessionTasksResponse.parse((await get(ctx, '/api/today/tasks')).json());
+    const entry = after.tasks.find((e) => e.task.taskId === lastId)!;
+    expect(entry.canceled).toBe(true);
+    expect(entry.result).toBeNull();
   });
 });
 

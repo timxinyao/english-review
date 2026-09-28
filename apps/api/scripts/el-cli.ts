@@ -31,9 +31,16 @@ import type {
 
 function loadEnv(): { apiBase: string; password: string } {
   const fromFile = (p: string): Record<string, string> => {
-    if (!existsSync(p)) return {};
+    // 文件不可读（如生产 env 为 root-only 600）时静默跳过，交给环境变量
+    let raw: string;
+    try {
+      if (!existsSync(p)) return {};
+      raw = readFileSync(p, 'utf-8');
+    } catch {
+      return {};
+    }
     const out: Record<string, string> = {};
-    for (const line of readFileSync(p, 'utf-8').split('\n')) {
+    for (const line of raw.split('\n')) {
       const m = /^([A-Z_]+)=(.*)$/.exec(line.trim());
       if (m) out[m[1]!] = m[2]!;
     }

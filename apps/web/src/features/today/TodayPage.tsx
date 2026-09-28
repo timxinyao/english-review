@@ -33,6 +33,16 @@ export function TodayPage() {
   // 评分即前进的刷新窗口：不渲染旧卡反馈页（防"下一题"页面闪现），占位到切卡；失败时回落反馈页
   const advancing = frozen?.autoAdvance === true && !isError;
 
+  /**
+   * 撤销最近一次作答成功（PRODUCT §5.1）：撤的就是当前冻结反馈那题时，
+   * 借用评分即前进的刷新窗口——冻结反馈即刻让位（不重开已撤销的揭示题），
+   * 等 today 查询 invalidate/refetch 落地后再由服务端 currentTask 接管；
+   * 撤的是其他题（如另一设备更新的作答）时当前反馈仍有效，不前进。
+   */
+  const handleUndone = useCallback((taskId: string) => {
+    setFrozen((f) => (f && f.task.taskId === taskId ? { ...f, autoAdvance: true } : f));
+  }, []);
+
   return (
     <section className={cn('space-y-4', !showSession && 'pb-40 md:pb-0')}>
       <h1 className="hidden text-lg font-semibold md:block">Today</h1>
@@ -54,6 +64,7 @@ export function TodayPage() {
           advancing={advancing}
           onAnswered={setFrozen}
           onAdvance={advance}
+          onUndone={handleUndone}
         />
       )}
       {data?.status === 'completed' && !frozen && (

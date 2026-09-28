@@ -62,9 +62,10 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
       break;
     }
 
-    // 0) 表达卡（give up，Phase 4 种子）：提交包含目标词的句子，通过后手动下一题
-    if (await page.getByText('长期的压力让我想放弃。').isVisible()) {
-      await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+    // 0) 表达卡（give up 原题/撤销替换题，题面不限）：提交包含目标词的句子，通过后手动下一题
+    const prodInput = page.getByLabel('表达答案');
+    if (await prodInput.isVisible()) {
+      await prodInput.fill('The constant stress makes me want to give up.');
       await page.getByRole('button', { name: '提交' }).click();
       await expect(page.getByText('通过', { exact: true })).toBeVisible();
       await page.getByRole('button', { name: '下一题' }).click();
@@ -277,6 +278,44 @@ test.describe('Today 复习全流程', () => {
     await dialog.getByRole('button', { name: '关闭' }).click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+  });
+
+  test('撤销最近一次作答：反馈态确认撤销另排新题重练；完成页保留入口', async ({ page }) => {
+    test.setTimeout(120_000);
+    await login(page);
+    await resetSeedData(page);
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+
+    // 首卡 give up 表达题（会话序 1/6）：答对冻结在当前卡，反馈态出现右上撤销图标
+    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+    await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+    await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+
+    // 确认层写明将撤销的词、题型和结果（PRODUCT §5.1）；取消不发请求、仍留反馈态
+    const undoIcon = page.getByRole('button', { name: '撤销最近一次作答' });
+    await expect(undoIcon).toBeVisible();
+    await undoIcon.click();
+    const dialog = page.getByRole('dialog', { name: '撤销最近一次作答' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('give up');
+    await expect(dialog).toContainText('表达');
+    await expect(dialog).toContainText('通过');
+    await dialog.getByRole('button', { name: '取消' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+
+    // 确认撤销 → 回活动队列：原题不重开，直接到下一题 make sense
+    await undoIcon.click();
+    await dialog.getByRole('button', { name: '撤销' }).click();
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+
+    // 完成整个会话（撤销后 give up 另排一道新题在队尾，由通用表达分支处理）
+    expect(await driveSessionToCompleted(page), '会话应在有限步数内完成').toBe(true);
+    await expect(page.getByRole('heading', { name: '今天完成了' })).toBeVisible();
+    // 完成页保留最近一次作答的撤销入口（PRODUCT §5.1）
+    await expect(page.getByRole('button', { name: '撤销最近一次作答' })).toBeVisible();
   });
 });
 

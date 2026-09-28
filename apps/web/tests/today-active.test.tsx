@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiCalls,
   makeActive,
+  makeCanceledEntry,
   makeChoiceTask,
   makeLearnTask,
   makeSessionEntry,
@@ -108,5 +109,267 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
     fireEvent.click(sheet);
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '今日学习' })).toBeNull());
     expect(await screen.findByRole('heading', { name: 'make sense' })).toBeVisible();
+  });
+});
+
+describe('Today 撤销最近一次作答（卡片右上单图标，PRODUCT §5.1）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const taskA = makeChoiceTask(); // stable / understanding
+  const taskB = makeChoiceTask({
+    taskId: 'task-2',
+    item: { id: 'item-2', type: 'word', target: 'beta', meaning: '乙', ipa: null, notes: null },
+    question: {
+      questionId: 'q-2',
+      kind: 'direct_meaning',
+      context: null,
+      question: '"beta" 的意思是？',
+      options: [
+        { id: 'b1', text: '乙' },
+        { id: 'b2', text: '甲' },
+      ],
+    },
+  });
+  const taskC = makeChoiceTask({
+    taskId: 'task-3',
+    item: { id: 'item-3', type: 'word', target: 'gamma', meaning: '丙', ipa: null, notes: null },
+    question: {
+      questionId: 'q-3',
+      kind: 'direct_meaning',
+      context: null,
+      question: '"gamma" 的意思是？',
+      options: [
+        { id: 'g1', text: '丙' },
+        { id: 'g2', text: '丁' },
+      ],
+    },
+  });
+  /** 撤销后的替换题：同 item 不同题面（排在队尾） */
+  const taskAReplacement = makeChoiceTask({
+    taskId: 'task-repl',
+    question: {
+      questionId: 'q-repl',
+      kind: 'direct_meaning',
+      context: null,
+      question: '"stable" 更接近的意思是？',
+      options: [
+        { id: 'o1', text: '稳定的' },
+        { id: 'o2', text: '摇晃的' },
+      ],
+    },
+  });
+
+  it('反馈态指向本题：取消不发请求；确认恰好一次；成功回活动队列且不重开原题', async () => {
+    let answered = false;
+    let undone = false;
+    stubApi({
+      '/api/today': () =>
+        undone
+          ? makeActive(taskB, { completed: 0, total: 2 })
+          : answered
+            ? makeActive(taskB, { completed: 1, total: 2 })
+            : makeActive(taskA, { completed: 0, total: 2 }),
+      '/api/today/tasks': () =>
+        undone
+          ? makeTasksResponse([
+              makeCanceledEntry(taskA),
+              makeSessionEntry(taskB, null),
+              makeSessionEntry(taskAReplacement, null),
+            ])
+          : answered
+            ? makeTasksResponse(
+                [makeSessionEntry(taskA, makeWrongAnswer()), makeSessionEntry(taskB, null)],
+                'task-1',
+              )
+            : makeTasksResponse([makeSessionEntry(taskA, null), makeSessionEntry(taskB, null)]),
+      '/api/today/tasks/task-1/answer': () => {
+        answered = true;
+        return makeWrongAnswer();
+      },
+      '/api/today/tasks/task-1/undo': () => {
+        undone = true;
+        return { ok: true, progress: { completed: 0, total: 2 } };
+      },
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'stable' });
+
+    // 答错留在当前卡：反馈态出现撤销图标
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
+    const undoIcon = screen.getByRole('button', { name: '撤销最近一次作答' });
+    expect(undoIcon).toBeVisible();
+
+    // 确认层写明将撤销的词/题型/结果（PRODUCT §5.1）
+    fireEvent.click(undoIcon);
+    const dialog = screen.getByRole('dialog', { name: '撤销最近一次作答' });
+    expect(within(dialog).getByText('stable')).toBeVisible();
+    expect(within(dialog).getByText(/理解题/)).toBeVisible();
+    expect(within(dialog).getByText(/未通过/)).toBeVisible();
+
+    // 取消：不发任何请求
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '撤销最近一次作答' })).toBeNull(),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(0);
+
+    // 确认：恰好一次 POST
+    fireEvent.click(screen.getByRole('button', { name: '撤销最近一次作答' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: '撤销最近一次作答' })).getByRole('button', {
+        name: '撤销',
+      }),
+    );
+    await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(1));
+    expect(apiCalls('/api/today/tasks/task-1/undo')[0].init).toMatchObject({ method: 'POST' });
+
+    // 成功：清除冻结反馈回到活动队列（下一题卡），原题不重开
+    expect(await screen.findByRole('heading', { name: 'beta' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'stable' })).toBeNull();
+    expect(screen.queryByText('"stable" 的意思是？')).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(1); // 仍只有一次
+  });
+
+  it('已进入下一题后：确认层指向最近一次正式作答（前一题），而非当前题', async () => {
+    stubApi({
+      '/api/today': makeActive(taskB, { completed: 1, total: 2 }),
+      '/api/today/tasks': makeTasksResponse(
+        [makeSessionEntry(taskA, makeWrongAnswer()), makeSessionEntry(taskB, null)],
+        'task-1',
+      ),
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'beta' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '撤销最近一次作答' }));
+    const dialog = screen.getByRole('dialog', { name: '撤销最近一次作答' });
+    // 指向前一题 stable（最近一次作答），不是当前 beta
+    expect(within(dialog).getByText('stable')).toBeVisible();
+    expect(within(dialog).queryByText('beta')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '撤销最近一次作答' })).toBeNull(),
+    );
+    expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(0);
+  });
+
+  it('另一设备已有更新作答：图标始终指向服务端最近作答，请求发到服务端给的 id', async () => {
+    stubApi({
+      '/api/today': makeActive(taskC, { completed: 2, total: 3 }),
+      '/api/today/tasks': makeTasksResponse(
+        [
+          makeSessionEntry(taskA, makeWrongAnswer()),
+          makeSessionEntry(taskB, makeWrongAnswer()),
+          makeSessionEntry(taskC, null),
+        ],
+        'task-2', // 服务端：最近一次作答是另一设备提交的 task-2
+      ),
+      '/api/today/tasks/task-2/undo': { ok: true, progress: { completed: 1, total: 3 } },
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'gamma' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '撤销最近一次作答' }));
+    const dialog = screen.getByRole('dialog', { name: '撤销最近一次作答' });
+    // 确认层指向服务端给的 task-2（beta），不是本地更早的 task-1（stable）也不是当前题
+    expect(within(dialog).getByText('beta')).toBeVisible();
+    expect(within(dialog).queryByText('stable')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: '撤销' }));
+    await waitFor(() => expect(apiCalls('/api/today/tasks/task-2/undo')).toHaveLength(1));
+    expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(0);
+  });
+
+  it('无可撤销作答时（undoableTaskId=null）不渲染撤销图标', async () => {
+    stubApi({
+      '/api/today': makeActive(taskB, { completed: 0, total: 2 }),
+      '/api/today/tasks': makeTasksResponse([
+        makeSessionEntry(taskA, null),
+        makeSessionEntry(taskB, null),
+      ]),
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'beta' });
+    await screen.findByText('0 / 2');
+    expect(screen.queryByRole('button', { name: '撤销最近一次作答' })).toBeNull();
+  });
+
+  it('过期撤销 409（另一设备已作答）：刷新并解释，不清掉其他设备的作答', async () => {
+    let undoAttempted = false;
+    stubApi({
+      '/api/today': makeActive(taskC, { completed: 1, total: 3 }),
+      '/api/today/tasks': () =>
+        undoAttempted
+          ? makeTasksResponse(
+              [
+                makeSessionEntry(taskA, makeWrongAnswer()),
+                makeSessionEntry(taskB, makeWrongAnswer()),
+                makeSessionEntry(taskC, null),
+              ],
+              'task-2',
+            )
+          : makeTasksResponse(
+              [
+                makeSessionEntry(taskA, makeWrongAnswer()),
+                makeSessionEntry(taskB, null),
+                makeSessionEntry(taskC, null),
+              ],
+              'task-1',
+            ),
+      '/api/today/tasks/task-1/undo': () => {
+        undoAttempted = true;
+        return Promise.reject(new Error('已有更新的作答，无法撤销该任务'));
+      },
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'gamma' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '撤销最近一次作答' }));
+    const dialog = screen.getByRole('dialog', { name: '撤销最近一次作答' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '撤销' }));
+
+    // 409 解释：说明已有更新的作答（服务端中文信息透传），确认层保留可取消
+    expect(await within(dialog).findByText('已有更新的作答，无法撤销该任务')).toBeVisible();
+    // 失败后刷新：另一设备在 task-2 上的作答保留在分布里（未被清掉）
+    expect(await screen.findByText('通过 0 · 基础通过 0 · 未通过 2')).toBeVisible();
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '撤销最近一次作答' })).toBeNull(),
+    );
+
+    // 图标重新指向刷新后的服务端最近作答（task-2/beta）
+    fireEvent.click(screen.getByRole('button', { name: '撤销最近一次作答' }));
+    const dialog2 = screen.getByRole('dialog', { name: '撤销最近一次作答' });
+    expect(within(dialog2).getByText('beta')).toBeVisible();
+  });
+
+  it('没有可用新题（可重试错误）：原作答保持，可再次重试', async () => {
+    stubApi({
+      '/api/today': makeActive(taskB, { completed: 1, total: 2 }),
+      '/api/today/tasks': makeTasksResponse(
+        [makeSessionEntry(taskA, makeWrongAnswer()), makeSessionEntry(taskB, null)],
+        'task-1',
+      ),
+      '/api/today/tasks/task-1/undo': () =>
+        Promise.reject(new Error('暂时没有可用的新题，请稍后重试')),
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'beta' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '撤销最近一次作答' }));
+    const dialog = screen.getByRole('dialog', { name: '撤销最近一次作答' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '撤销' }));
+    expect(await within(dialog).findByText('暂时没有可用的新题，请稍后重试')).toBeVisible();
+
+    // 原作答保持：结果分布未变
+    expect(screen.getByText('通过 0 · 基础通过 0 · 未通过 1')).toBeVisible();
+    // 确认按钮仍可用：允许重试（诚实提示，不吞请求）
+    fireEvent.click(within(dialog).getByRole('button', { name: '撤销' }));
+    await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(2));
   });
 });

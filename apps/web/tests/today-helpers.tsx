@@ -311,9 +311,12 @@ export function makeSessionEntry(
   return { task, result, canceled };
 }
 
-export function makeTasksResponse(tasks: SessionTaskEntry[]): TodaySessionTasksResponse {
-  // undoableTaskId：测试内固定为 null（撤销入口消费方在 Task 5 另行覆盖）
-  return { tasks, undoableTaskId: null };
+export function makeTasksResponse(
+  tasks: SessionTaskEntry[],
+  /** 服务端给出的最近一次可撤销作答（PRODUCT §5.1 撤销图标数据源） */
+  undoableTaskId: string | null = null,
+): TodaySessionTasksResponse {
+  return { tasks, undoableTaskId };
 }
 
 /** 已撤销条目（result 不回放） */

@@ -220,6 +220,35 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
       createdAt,
     })
     .run();
+  // 撤销重练的替换题（Phase 8 Task 5 E2E）：同 item 另一道 production。
+  // lastUsedAt 置旧值（acquireQuestion 优先 lastUsedAt IS NULL），主流程会话仍先取原题，
+  // 撤销排除原题后才轮到它——避免改动既有用例依赖的首卡题面。
+  db.insert(questions)
+    .values({
+      id: 'e2e-q-give-up-2',
+      learningItemId: 'e2e-item-give-up',
+      type: 'production',
+      status: 'active',
+      meaningSnapshot: '放弃',
+      promptText: '他去年决定放弃吸烟。',
+      contextText: null,
+      payloadJson: JSON.stringify({
+        mustUse: 'give up',
+        referenceAnswer: 'He decided to give up smoking last year.',
+        acceptanceNotes: '允许正常时态和人称变化。',
+      }),
+      correctOptionId: null,
+      promptKey: 'seed',
+      promptVersion: 1,
+      promptHash: 'seed',
+      model: 'seed',
+      useCount: 1,
+      correctCount: 1,
+      lastUsedAt: '2026-09-01T00:00:00.000Z',
+      retiredAt: null,
+      createdAt,
+    })
+    .run();
   return true;
 }
 

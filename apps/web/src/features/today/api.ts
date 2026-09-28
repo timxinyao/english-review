@@ -9,6 +9,7 @@ import type {
   TodayActiveResponse,
   TodaySessionTasksResponse,
   TodayStatusResponse,
+  UndoResponse,
 } from '@el/shared';
 import { api } from '../../lib/api';
 
@@ -47,6 +48,11 @@ export function deferTodayTask(taskId: string): Promise<LaterResponse> {
 
 export function reportBadQuestion(taskId: string): Promise<BadQuestionResponse> {
   return api<BadQuestionResponse>(`/api/today/tasks/${taskId}/bad-question`, { method: 'POST' });
+}
+
+/** 普通撤销（最近一次正式作答，TECHNICAL §7.5）：区别于坏题，不改题目状态 */
+export function undoTodayTask(taskId: string): Promise<UndoResponse> {
+  return api<UndoResponse>(`/api/today/tasks/${taskId}/undo`, { method: 'POST' });
 }
 
 export function sendTaskFeedback(
@@ -107,6 +113,12 @@ export function useLater() {
 export function useBadQuestion() {
   const invalidate = useInvalidateToday();
   return useMutation({ mutationFn: reportBadQuestion, onSuccess: invalidate });
+}
+
+/** 撤销成功后 invalidate 全部 today 查询：进度/批量视图/undoableTaskId 一起回服务端真态 */
+export function useUndoAnswer() {
+  const invalidate = useInvalidateToday();
+  return useMutation({ mutationFn: undoTodayTask, onSuccess: invalidate });
 }
 
 export function useTaskFeedback() {

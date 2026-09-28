@@ -2,6 +2,7 @@ import { EXTEND_BATCH_UNLIMITED, type TodayCompletedResponse } from '@el/shared'
 import { Link } from 'react-router-dom';
 import { Button } from '../../../components/ui/button';
 import { TodayLearningList } from './TodayLearningSheet';
+import { UndoAnswerControl } from './UndoAnswer';
 import { useExtendSession, useSessionTasks } from '../api';
 
 /**
@@ -19,6 +20,7 @@ export function CompletedToday({
   const { summary } = data;
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? [];
+  const undoableTaskId = sessionTasks?.undoableTaskId ?? null;
   const extend = useExtendSession();
   const extendCount = remainingNewQuota ?? EXTEND_BATCH_UNLIMITED;
 
@@ -57,6 +59,11 @@ export function CompletedToday({
           </p>
         )}
         {renderExtend()}
+
+        {/* 完成页保留最近一次作答的撤销入口（PRODUCT §5.1）；撤销后服务端重新激活会话 */}
+        <div className="flex justify-center">
+          <UndoAnswerControl undoableTaskId={undoableTaskId} entries={entries} />
+        </div>
       </div>
 
       {entries.length > 0 && (

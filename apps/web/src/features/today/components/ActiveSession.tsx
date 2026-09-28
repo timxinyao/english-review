@@ -5,6 +5,7 @@ import { cn } from '../../../lib/utils';
 import { speak } from '../../../lib/tts';
 import { TaskCard } from './TaskCard';
 import { TodayLearningSheet } from './TodayLearningSheet';
+import { UndoAnswerControl } from './UndoAnswer';
 import { useSessionTasks } from '../api';
 
 export interface FrozenAnswer {
@@ -122,6 +123,8 @@ interface ActiveSessionProps {
   advancing?: boolean;
   onAnswered: (frozen: FrozenAnswer) => void;
   onAdvance: () => void;
+  /** 撤销成功回调（TodayPage 按撤销目标决定是否清冻结反馈；见 TodayPage.handleUndone） */
+  onUndone?: (taskId: string) => void;
 }
 
 export function ActiveSession({
@@ -131,9 +134,11 @@ export function ActiveSession({
   advancing,
   onAnswered,
   onAdvance,
+  onUndone,
 }: ActiveSessionProps) {
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? null;
+  const undoableTaskId = sessionTasks?.undoableTaskId ?? null;
   /** 切卡自动读词（设备本地偏好）：缺省开，'0'=关 */
   const [autoSpeak, setAutoSpeak] = useState(
     () => localStorage.getItem('el:auto-pronounce') !== '0',
@@ -212,6 +217,13 @@ export function ActiveSession({
           key={shownTask.taskId}
           task={shownTask}
           result={shownResult}
+          undoControl={
+            <UndoAnswerControl
+              undoableTaskId={undoableTaskId}
+              entries={entries}
+              onUndone={onUndone}
+            />
+          }
           onAnswered={(result, opts) => handleAnswered(shownTask, result, opts)}
           onAdvance={onAdvance}
         />

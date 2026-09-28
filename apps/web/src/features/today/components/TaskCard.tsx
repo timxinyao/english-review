@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { AnswerResponse, TodayTaskView } from '@el/shared';
 import { ChoiceQuestionView } from './ChoiceQuestionView';
 import { ClozeQuestionView } from './ClozeQuestionView';
@@ -8,6 +9,8 @@ interface Props {
   task: TodayTaskView;
   /** 已作答时冻结的任务 + 结果（用于展示反馈，直到 advance） */
   result: AnswerResponse | null;
+  /** 卡片右上角插槽：撤销最近一次作答的单图标（PRODUCT §5.1；无可撤销作答时不传入） */
+  undoControl?: ReactNode;
   onAnswered?: (result: AnswerResponse, opts?: { autoAdvance?: boolean }) => void;
   onAdvance?: () => void;
 }
@@ -15,13 +18,15 @@ interface Props {
 /**
  * 单张任务卡：按题型渲染题目。坏题入口不在卡面——2026-09-28 起只在
  * 「今日学习」的具体作答记录上标记（PRODUCT §4.2/§6.5）；顺序回看已删除，
- * 历史作答一律进只读弹层。
+ * 历史作答一律进只读弹层。卡片右上角为撤销最近一次作答的单图标（区别于坏题）。
  */
-export function TaskCard({ task, result, onAnswered, onAdvance }: Props) {
+export function TaskCard({ task, result, undoControl, onAnswered, onAdvance }: Props) {
   const question = task.question;
 
   return (
     <article className="relative flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-5 pt-4">
+      {/* 右上角撤销图标：悬浮于卡角（答错冻结头行已留 pr-12 避让） */}
+      {undoControl && <div className="absolute right-2 top-2 z-10">{undoControl}</div>}
       {/* 已答冻结：顶部显示考的单词（learn/understanding 由 RecallCard 自带词行，不重复） */}
       {result !== null && task.taskType !== 'learn' && task.taskType !== 'understanding' && (
         <div className="mb-3 flex shrink-0 items-baseline gap-2 pr-12">

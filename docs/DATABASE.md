@@ -153,7 +153,7 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 | selected_option_id | text nullable | |
 | result | text | `pass` / `basic_pass` / `fail` / `void` |
 | viewed_source | integer | |
-| feedback | text nullable | `guessed` / `too_easy` 等 |
+| feedback | text nullable | `guessed` / `too_easy` / `gave_up` 等；`gave_up` 表示主动不会，和事后人工反馈互斥 |
 | correction_json | text nullable | expression diff |
 | explanation | text nullable | |
 | better_version | text nullable | |
@@ -162,11 +162,11 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 | ai_prompt_hash | text nullable | |
 | ai_model | text nullable | |
 | pre_state_json | text nullable | Today 正式结算前状态快照，支持坏题撤销 |
-| post_state_json | text nullable | |
+| post_state_json | text nullable | Today 结算后状态、插入的补强/个人例句，以及普通撤销需恢复的被替换个人例句/被裁剪表达历史快照；仅记录本次变动，不复制整库 |
 | created_at | datetime | |
-| voided_at | datetime nullable | 👎 后撤销 |
+| voided_at | datetime nullable | 坏题或普通撤销后作废 |
 
-每个 Item 近期表达历史最多保留 10 次；进入 personal example 的内容由 learning_examples 长期保留。
+每个 Item 近期表达历史最多保留 10 次；进入 personal example 的内容由 learning_examples 长期保留。若最新 Today 正式作答触发历史裁剪，需在其可撤销期间保存被裁剪记录的恢复快照；撤销时恢复，确认无需撤销后可丢弃派生快照。
 
 ## 9. read_articles
 

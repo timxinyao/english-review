@@ -189,6 +189,7 @@ GET  /api/today
 GET  /api/today/tasks
 POST /api/today/start
 POST /api/today/tasks/:id/answer
+POST /api/today/tasks/:id/undo
 POST /api/today/tasks/:id/later
 POST /api/today/tasks/:id/bad-question
 POST /api/today/tasks/:id/feedback
@@ -231,7 +232,8 @@ GET  /api/health
 - `POST /api/library/:id/practice/:questionId/answer`：Library“练一下”的作答端点。
 - `POST /api/library/:id/master`：PRODUCT_DESIGN 5.2 的“标记已掌握”显式操作。
 - `GET /api/health`：未认证存活检查，供部署 smoke test 与 Playwright webServer 探活。
-- `POST /api/today/tasks/:id/feedback`：答题后的用户反馈（其实蒙的/太简单），对已结算结果做一次调整。
+- `POST /api/today/tasks/:id/feedback`：保留已有答题后反馈契约；新版 Today 不再展示“其实蒙的”二次操作，“太简单”仅在适用的正确作答后提供。
+- `POST /api/today/tasks/:id/undo`：只接受当天 Session 最近一次未撤销的正式作答；恢复 attempt 的 pre-state、回减统计、取消其补强并将不同题目的替代任务排入后部。GET `/api/today/tasks` 返回可撤销 taskId 供前端显示图标；服务端仍必须再次校验以防多设备竞态。
 - `GET /api/ai/models`：只读展示当前各用途（生成/判定）解析到的模型、来源（auto/config/fallback）、任务映射与可用模型清单（2026-09-25 新增，配套 §10.5 自动发现；不暴露 endpoint 与密钥）。
 - Personal example 的 pin/unpin 并入 `PATCH /api/library/:id`，不单开端点。
 
@@ -261,7 +263,13 @@ later 不写 attempt，不改变 review state。仅增加 task.defer_count 并�
 
 ## 7.4 坏题撤销
 
-bad-question 必须在事务中执行：将 question 标记 bad_question；如果本次 attempt 已结算，则撤销对应 review state 变化和由该 attempt 新增的 reinforcement task。为降低撤销复杂度，推荐在前端显示结果时允许立即点 👎，服务端保存 attempt 前后 review state snapshot 或 event delta。具体字段见 DATABASE.md。
+bad-question 必须在事务中执行：将 question 标记 bad_question；如果本次 attempt 已结算，则撤销对应 review state 变化和由该 attempt 新增的 reinforcement task。新版 Today 在「今日学习」的具体答题记录中提供坏题入口；服务端保存 attempt 前后 review state snapshot 或 event delta。具体字段见 DATABASE.md。
+
+## 7.5 主动不会与最近作答撤销
+
+`answer` 请求允许 `giveUp: true`，与选项、文本、自评互斥。Today service 不调用语言判定或批改，直接按 fail 结算并从已绑定题目的 payload 生成反馈：选择题正确选项和 explanation、填空完整句/可接受答案/explanation、表达题 referenceAnswer/acceptanceNotes。生产题 referenceAnswer 仅在作答后返回，未作答视图仍不泄漏。
+
+普通撤销不调用 bad-question 路由，不更改题目状态。替代题的获取/必要生成在事务外完成；事务内按 attempt 实际插入顺序校验 task 仍是最近一次作答，回滚快照和全部计数、void attempt、取消旧任务及其补强、插入替代任务，并清除 Session completed_at。无法取得另一道题时不改变原作答。若造句沉淀替换了既有未固定个人例句或裁剪了表达历史，普通撤销需一并恢复；若新例句随后被固定或编辑，则拒绝普通撤销，避免丢失用户修改。替代任务沿用原 origin：撤销补强题释放原配额槽位，再由替代题占用同一槽位；不会额外消耗 reinforcement 配额。Read 补强题沿用清旗语义。
 
 # 8. 复习状态机实现
 

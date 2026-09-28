@@ -32,8 +32,12 @@ const t3 = makeChoiceTask({
   item: { id: 'i3', type: 'word', target: 'gamma', meaning: '丙', ipa: null, notes: null },
 });
 
-describe('完成页今日回顾', () => {
-  it('答错在前、答对次之、已撤销最后；链接指向 Library 详情', async () => {
+describe('完成页今日学习', () => {
+  it('按学习项去重分组（同 item 多题一组）；记录只读无跳转链接；已撤销仍展示', async () => {
+    const t1b = makeChoiceTask({
+      taskId: 'task-1b',
+      item: { id: 'i1', type: 'word', target: 'alpha', meaning: '甲', ipa: null, notes: null },
+    });
     stubApi({
       '/api/today': {
         status: 'completed',
@@ -48,24 +52,41 @@ describe('完成页今日回顾', () => {
       },
       '/api/today/tasks': makeTasksResponse([
         makeSessionEntry(t1, makeCorrectAnswer()),
-        makeSessionEntry(t2, makeWrongAnswer()),
+        makeSessionEntry(t1b, makeWrongAnswer({ selectedOptionId: 'o2' })),
+        makeSessionEntry(t2, makeCorrectAnswer()),
         makeCanceledEntry(t3),
       ]),
     });
     renderTodayApp();
     await screen.findByText('今天完成了');
 
-    // 回顾列表来自独立的 /api/today/tasks 查询，晚于完成摘要落地，需等待
-    const list = await screen.findByRole('list', { name: '今日回顾' });
-    const rows = within(list).getAllByRole('listitem');
-    expect(rows).toHaveLength(3);
-    expect(within(rows[0]!).getByText('beta')).toBeVisible(); // 答错在前
-    expect(within(rows[1]!).getByText('alpha')).toBeVisible();
-    expect(within(rows[2]!).getByText('已撤销')).toBeVisible();
+    // 今日学习列表来自独立的 /api/today/tasks 查询，晚于完成摘要落地，需等待
+    const list = await screen.findByRole('list', { name: '今日学习' });
+    // 分组按 item 去重：alpha（两题一组）/ beta / gamma（已撤销）= 3 组
+    const groups = within(list).getAllByRole('listitem');
+    expect(groups).toHaveLength(3);
+    expect(within(list).getAllByText('alpha')).toHaveLength(1);
 
-    // 链接跳 Library 详情（MemoryRouter 仅挂 /today 路由，点击即卸载；断言 href 目标）
-    const firstLink = within(rows[0]!).getByRole('link', { name: /beta/ });
-    expect(firstLink).toHaveAttribute('href', '/library/i2');
+    // 展开含错记录的 alpha 组：只读查看作答/正确答案/解释；记录可标记坏题（§6.5）
+    const alphaButton = within(list).getByRole('button', { name: /alpha/ });
+    fireEvent.click(alphaButton);
+    const alphaSection = within(alphaButton.closest('li')!);
+    expect(alphaSection.getAllByText('"stable" 的意思是？')).toHaveLength(2);
+    expect(alphaSection.getByText('未通过')).toBeVisible();
+    expect(alphaSection.getByText('摇晃的')).toBeVisible(); // 提交的错误选项
+    expect(alphaSection.getByText('稳定的')).toBeVisible(); // 正确答案
+    expect(alphaSection.getByText('stable 在这里指结构上的稳固。')).toBeVisible(); // 解释
+    expect(alphaSection.getAllByRole('button', { name: '坏题' })).toHaveLength(2);
+
+    // 只读：整页列表无任何跳转链接（不用于回看/跳题）
+    expect(within(list).queryByRole('link')).toBeNull();
+
+    // 已撤销记录仍展示，但无坏题入口
+    const gammaButton = within(list).getByRole('button', { name: /gamma/ });
+    fireEvent.click(gammaButton);
+    const gammaSection = within(gammaButton.closest('li')!);
+    expect(gammaSection.getByText('已撤销')).toBeVisible();
+    expect(gammaSection.queryByRole('button', { name: '坏题' })).toBeNull();
   });
 });
 

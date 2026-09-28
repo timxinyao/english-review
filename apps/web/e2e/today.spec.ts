@@ -49,7 +49,7 @@ async function recallPass(page: Page, meaning: string) {
 /**
  * 驱动会话循环直至完成摘要（主流程骨架，会话型用例共用）。返回是否在步数内完成。
  * 计划：gravity（learn）与 make sense / wear down 走 recall recalled（想起来了）；
- * stable 走 hint 选错（没想起来，错题进回顾列表首位）；raw 填空答对；
+ * stable 走 hint 选错（没想起来，错题可见于今日学习）；raw 填空答对；
  * give up 表达题答对；未知补强卡兜底处理。
  */
 async function driveSessionToCompleted(page: Page): Promise<boolean> {
@@ -95,7 +95,7 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
     }
 
     // 4) stable：首次出现走 Hint 选错（给我提示 → 选错误项）
-    //    → 冻结"没想起来" + 正确释义与原句揭示 + 统一纠错勾选正确选项（fail，进回顾列表首位）
+    //    → 冻结"没想起来" + 正确释义与原句揭示 + 统一纠错勾选正确选项（fail，记录进今日学习）
     if (!stableFailed && (await page.getByRole('heading', { name: 'stable' }).isVisible())) {
       stableFailed = true;
       await page.getByRole('button', { name: '给我提示' }).click();
@@ -164,11 +164,13 @@ test.describe('Today 复习全流程', () => {
 
     // idle 主卡片：种子 5 个到期（Phase 4 新增 give up 的 P 任务）；new today 为剩余新学额度
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
-    await expect(page.getByText(/^词汇总数 \d+ · 待学 \d+ · 今日到期 5 项 · 可新学 \d+$/)).toBeVisible();
+    await expect(
+      page.getByText(/^词汇总数 \d+ · 待学 \d+ · 今日到期 5 项 · 可新学 \d+$/),
+    ).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
-    // active 态：细进度行（批量 entries 未落地时为 "0 / 6"，落地后为 "第 1 / 6"）
-    await expect(page.getByText(/^(第 )?\d+ \/ \d+$/)).toBeVisible();
+    // active 态：进度行（已完成数/总数，批量 entries 未落地时用会话进度兜底）
+    await expect(page.getByText(/^\d+ \/ \d+$/)).toBeVisible();
 
     const completed = await driveSessionToCompleted(page);
 
@@ -181,11 +183,20 @@ test.describe('Today 复习全流程', () => {
     const passCount = Number(summaryText.match(/通过 (\d+)/)?.[1] ?? 0);
     expect(passCount).toBeGreaterThanOrEqual(1);
 
-    // 今日回顾列表：错题在前，含 Hint 选错的 stable
-    const reviewList = page.getByRole('list', { name: '今日回顾' });
-    await expect(reviewList).toBeVisible();
-    const firstRow = reviewList.getByRole('listitem').first();
-    await expect(firstRow).toContainText('错');
+    // 今日学习：按学习项去重分组，stable 组含错题轨迹；展开可只读查看作答/正确答案
+    const learning = page.getByRole('list', { name: '今日学习' });
+    await expect(learning).toBeVisible();
+    const stableGroup = learning.getByRole('button', { name: /stable/ });
+    await expect(stableGroup).toContainText('错');
+    await stableGroup.click();
+    // 分组 li（按钮的父节点）内展开作答记录（fail 可能另插补强题，同组多行）：首行即 hint 选错
+    const stableRecords = stableGroup.locator('..').locator('ul li');
+    const recordCount = await stableRecords.count();
+    expect(recordCount).toBeGreaterThanOrEqual(1);
+    await expect(stableRecords.first()).toContainText('未通过');
+    await expect(stableRecords.first()).toContainText('正确答案');
+    // 只读：列表无任何跳转链接
+    await expect(learning.getByRole('link')).toHaveCount(0);
   });
 
   test('同日追加：完成后额度剩余可再学一批', async ({ page }) => {
@@ -201,7 +212,7 @@ test.describe('Today 复习全流程', () => {
     // 完成整个会话（此时 New Queue 只有 gravity）
     await page.goto('/today');
     await page.getByRole('button', { name: '开始今日复习' }).click();
-    await expect(page.getByText(/^(第 )?\d+ \/ \d+$/)).toBeVisible();
+    await expect(page.getByText(/^\d+ \/ \d+$/)).toBeVisible();
     expect(await driveSessionToCompleted(page), '会话应在有限步数内完成').toBe(true);
     await expect(page.getByRole('heading', { name: '今天完成了' })).toBeVisible();
 
@@ -221,50 +232,51 @@ test.describe('Today 复习全流程', () => {
     await extendBtn.click();
     await expect(page.getByRole('heading', { name: 'delta' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('The river delta splits into many channels.')).toBeVisible();
-    await expect(page.getByText(/^第 \d+ \/ \d+$/)).toBeVisible();
+    await expect(page.getByText(/^\d+ \/ \d+$/)).toBeVisible();
 
     // 做完追加的 delta Learn 卡（Recall 路径：显示答案 → 想起来了）→ 回完成摘要
     await recallPass(page, '三角洲');
     await expect(page.getByRole('heading', { name: '今天完成了' })).toBeVisible();
   });
 
-  test('导航：列表回看与未做条目置灰', async ({ page }) => {
+  test('今日学习：进度点击打开只读弹层，不影响当前题', async ({ page }) => {
     test.setTimeout(90_000);
     await login(page);
     await resetSeedData(page);
     await page.goto('/today');
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
-    // 首卡是 give up 表达题（会话序第 1/6）：提交通过 → 手动下一题，推进到第 2/6（make sense）
+    // 首卡是 give up 表达题（会话序 1/6）：提交通过 → 手动下一题，推进到 make sense
     await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
     await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
     await page.getByRole('button', { name: '提交' }).click();
     await expect(page.getByText('通过', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '下一题' }).click();
-
-    // make sense（当前卡）：Recall recalled 路径（显示答案 → 想起来了）
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
-    await recallPass(page, '讲得通');
 
-    // 打开列表：全量任务；点已完成的 give up 回看（只读）
-    await page.getByRole('button', { name: '查看任务列表' }).click();
-    const dialog = page.getByRole('dialog', { name: '任务列表' });
+    // 进度行显示结果分布（文字计数），点击打开「今日学习」
+    await expect(page.getByText(/^通过 \d+ · 基础通过 \d+ · 未通过 \d+$/)).toBeVisible();
+    await page.getByRole('button', { name: '查看今日学习' }).click();
+    const dialog = page.getByRole('dialog', { name: '今日学习' });
     await expect(dialog).toBeVisible();
-    const giveUpEntry = dialog.getByRole('button', { name: /give up/ });
-    // 等批量 entries 拿到该题结果（invalidate refetch 落地），否则点进去是可作答视图而非回看
-    await expect(giveUpEntry).toContainText('对');
-    await giveUpEntry.click();
-    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
-    // 回看态：返回当前按钮已移除（回当前=列表点当前项，语义由单测覆盖）
-    await expect(page.getByRole('button', { name: '返回当前' })).toHaveCount(0);
 
-    // 未做条目（stable，非当前）置灰不可点
-    await page.getByRole('button', { name: '查看任务列表' }).click();
-    const stableEntry = dialog.getByRole('button', { name: /stable/ });
-    await expect(stableEntry).toBeDisabled();
-    await stableEntry.click({ force: true });
-    await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible(); // 仍停留回看位
+    // give up 组：一条通过记录；展开可读题面/作答/正确答案
+    const giveUpGroup = dialog.getByRole('button', { name: /give up/ });
+    await expect(giveUpGroup).toContainText('对');
+    await giveUpGroup.click();
+    const giveUpRecord = giveUpGroup.locator('..').locator('ul li');
+    await expect(giveUpRecord).toHaveCount(1);
+    await expect(giveUpRecord).toContainText('通过');
+    await expect(giveUpRecord).toContainText('作答');
+    await expect(giveUpRecord).toContainText('正确答案');
+
+    // 未作答条目（stable 等）在分组轨迹中展示"未做"，但只读：无链接、无跳转
+    await expect(dialog.getByRole('link')).toHaveCount(0);
+
+    // 关闭后回到原当前题（弹层不改变当前卡）
+    await dialog.getByRole('button', { name: '关闭' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
   });
 });
 

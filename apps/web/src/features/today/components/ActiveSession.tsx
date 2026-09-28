@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
-import { Check, Volume2, VolumeX, X } from 'lucide-react';
+import { Volume2, VolumeX } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { speak } from '../../../lib/tts';
 import { TaskCard } from './TaskCard';
+import { TodayLearningSheet } from './TodayLearningSheet';
 import { useSessionTasks } from '../api';
-
-export const TYPE_LABEL: Record<TodayTaskView['taskType'], string> = {
-  learn: 'learn',
-  understanding: '理解',
-  cloze: '填空',
-  production: '表达',
-};
 
 export interface FrozenAnswer {
   task: TodayTaskView;
@@ -20,47 +13,66 @@ export interface FrozenAnswer {
   autoAdvance?: boolean;
 }
 
-/** 进度行：当前位置数字 + 按题完成着色分段 + 全量任务弹层 */
+/** 进度分段颜色：pass 绿 / basic_pass 黄 / fail 红 / 未完成灰（PRODUCT §5.1/§9 少颜色） */
+const SEG_CLASS: Record<'pass' | 'basic_pass' | 'fail' | 'pending', string> = {
+  pass: 'bg-success',
+  basic_pass: 'bg-warning',
+  fail: 'bg-destructive',
+  pending: 'bg-muted',
+};
+
+/**
+ * 进度行：已完成数/总数 + 四色结果分布 + 文字计数（不只靠颜色）；
+ * 点击打开「今日学习」只读弹层——不用于跳题/回看/重答（PRODUCT §5.1）。
+ * 计数仅由 GET /api/today/tasks 派生：已撤销条目整体排除（不进分母，Task 2 契约），
+ * 补强动态插入时总题数随批量视图同步更新；批量视图未落地时用会话进度兜底。
+ */
 function ProgressRow({
   progress,
   entries,
-  currentIdx,
-  shownIdx,
+  currentTaskId,
   autoSpeak,
   onToggleAutoSpeak,
-  onJump,
 }: {
   progress: TodayProgress | null;
   entries: SessionTaskEntry[] | null;
-  currentIdx: number | null;
-  shownIdx: number | null;
+  currentTaskId: string | null;
   autoSpeak: boolean;
   onToggleAutoSpeak: () => void;
-  onJump: (index: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const hasEntries = !!entries && entries.length > 0;
-  const position = hasEntries && shownIdx !== null ? shownIdx + 1 : null;
+  const live = useMemo(() => (entries ?? []).filter((e) => !e.canceled), [entries]);
+  const hasEntries = entries !== null && live.length > 0;
+  const total = hasEntries ? live.length : (progress?.total ?? 0);
+  const completed = hasEntries
+    ? live.filter((e) => e.result !== null).length
+    : (progress?.completed ?? 0);
+  const pass = live.filter((e) => e.result?.result === 'pass').length;
+  const basicPass = live.filter((e) => e.result?.result === 'basic_pass').length;
+  const fail = live.filter((e) => e.result?.result === 'fail').length;
 
   return (
     <div className="shrink-0 space-y-1.5">
-      {/* 音量开关与列表按钮为兄弟节点：button 内嵌 button 是非法嵌套
-          （React validateDOMNesting 报错，且点击会冒泡误开列表弹层） */}
-      <div className="flex w-full items-center justify-between">
+      {/* 音量开关与进度按钮为兄弟节点：button 内嵌 button 是非法嵌套
+          （React validateDOMNesting 报错，且点击会冒泡误开弹层） */}
+      <div className="flex w-full items-center justify-between gap-2">
         <button
           type="button"
-          className="flex flex-1 items-center justify-between"
+          className="min-w-0 flex-1 text-left"
           onClick={() => setOpen(true)}
-          aria-label="查看任务列表"
+          aria-label="查看今日学习"
         >
-          <p className="text-xs text-muted-foreground">
-            {position !== null
-              ? `第 ${position} / ${entries!.length}`
-              : progress
-                ? `${progress.completed} / ${progress.total}`
-                : ''}
-          </p>
-          <p className="text-xs text-muted-foreground/60">列表 ▾</p>
+          <span className="flex w-full items-center justify-between">
+            <span className="text-xs text-muted-foreground">
+              {completed} / {total}
+            </span>
+            <span className="text-xs text-muted-foreground/60">今日学习 ▾</span>
+          </span>
+          {hasEntries && (
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              通过 {pass} · 基础通过 {basicPass} · 未通过 {fail}
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -76,113 +88,28 @@ function ProgressRow({
           )}
         </button>
       </div>
-      {hasEntries ? (
+      {/* 分布分段按结果着色；当前题段加高亮（颜色之外另有文字计数） */}
+      {hasEntries && (
         <div className="flex gap-0.5" aria-hidden>
-          {entries!.map((e, i) => (
-            <span
-              key={e.task.taskId}
-              data-seg={e.result ? 'done' : 'todo'}
-              data-current={i === shownIdx}
-              className={cn(
-                'flex-1 rounded-full',
-                i === shownIdx ? 'h-1.5' : 'h-1',
-                e.result ? 'bg-accent' : 'bg-muted',
-              )}
-            />
-          ))}
-        </div>
-      ) : (
-        progress &&
-        progress.total > 0 && (
-          <div className="flex gap-0.5" aria-hidden>
-            {Array.from({ length: progress.total }, (_, i) => (
+          {live.map((e) => {
+            const kind = e.result?.result ?? 'pending';
+            const current = e.task.taskId === currentTaskId;
+            return (
               <span
-                key={i}
-                className={cn('h-1 flex-1 rounded-full', i < progress.completed ? 'bg-accent' : 'bg-muted')}
+                key={e.task.taskId}
+                data-seg={kind}
+                data-current={current}
+                className={cn('flex-1 rounded-full', current ? 'h-1.5' : 'h-1', SEG_CLASS[kind])}
               />
-            ))}
-          </div>
-        )
+            );
+          })}
+        </div>
       )}
 
-      {open &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-label="任务列表"
-            className="fixed inset-0 z-overlay flex items-end justify-center bg-foreground/20"
-            onClick={() => setOpen(false)}
-          >
-            <div
-              className="max-h-[60vh] w-full max-w-[420px] overflow-y-auto rounded-t-xl border-t border-border bg-card p-4 pb-8"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <p className="mb-3 text-sm font-medium">任务列表</p>
-              <ul className="space-y-1">
-                {entries?.map((e, i) => {
-                  const isCurrent = i === currentIdx;
-                  // 列表只读：仅已完成或"当前"可点回看/返回；未做（按顺序做，不跳做）与已撤销置灰
-                  const disabled = e.canceled || (!e.result && !isCurrent);
-                  const status = e.canceled
-                    ? '已撤销'
-                    : e.result
-                      ? e.result.correct
-                        ? '对'
-                        : '错'
-                      : isCurrent
-                        ? '当前'
-                        : '未做';
-                  return (
-                    <li key={e.task.taskId}>
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        className={cn(
-                          'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm',
-                          isCurrent ? 'bg-accent-soft' : 'hover:bg-muted',
-                          disabled && 'opacity-50',
-                        )}
-                        onClick={() => {
-                          onJump(isCurrent ? null : i);
-                          setOpen(false);
-                        }}
-                      >
-                        <span className="flex items-baseline gap-2">
-                          <span className={cn('text-foreground', isCurrent && 'font-medium text-accent')}>
-                            {e.task.item.target}
-                          </span>
-                          <span className="text-xs text-muted-foreground/60">
-                            {TYPE_LABEL[e.task.taskType]}
-                          </span>
-                        </span>
-                        <span
-                          className={cn(
-                            'flex items-center gap-1 text-xs',
-                            e.result?.correct
-                              ? 'text-success'
-                              : e.result
-                                ? 'text-destructive'
-                                : 'text-muted-foreground',
-                          )}
-                        >
-                          {e.result ? (
-                            e.result.correct ? (
-                              <Check className="h-3 w-3" aria-hidden />
-                            ) : (
-                              <X className="h-3 w-3" aria-hidden />
-                            )
-                          ) : null}
-                          {status}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                }) ?? null}
-              </ul>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {/* 弹层不改变当前题：只展示，关闭即回原卡 */}
+      {open && entries !== null && (
+        <TodayLearningSheet entries={entries} onClose={() => setOpen(false)} />
+      )}
     </div>
   );
 }
@@ -207,10 +134,10 @@ export function ActiveSession({
 }: ActiveSessionProps) {
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? null;
-  /** null = 当前题；数字 = 回看条目索引（列表仅已完成条目可点） */
-  const [cursor, setCursor] = useState<number | null>(null);
   /** 切卡自动读词（设备本地偏好）：缺省开，'0'=关 */
-  const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('el:auto-pronounce') !== '0');
+  const [autoSpeak, setAutoSpeak] = useState(
+    () => localStorage.getItem('el:auto-pronounce') !== '0',
+  );
 
   // 当前题在会话序列中的索引（以 currentTask/frozen 的 taskId 定位；兜底第一个未完成）
   const currentIdx = useMemo(() => {
@@ -226,43 +153,36 @@ export function ActiveSession({
 
   const handleAnswered = useCallback(
     (task: TodayTaskView, result: AnswerResponse, opts?: { autoAdvance?: boolean }) => {
-      setCursor(null); // 确保回到当前
       onAnswered({ task, result, autoAdvance: opts?.autoAdvance });
     },
     [onAnswered],
   );
 
-  const isCurrent = cursor === null;
   // 乐观直切（评分即前进）：状态刷新落地前，用预取队列直接渲染下一题——服务端补强
   // 至少插在当前题 3 位之后（TECHNICAL §7.2），紧跟下一题稳定；末题无 entry 回落占位。
   // 刷新落地 advance() 后 frozen 清空、currentTask 接管，同一 taskId 无感衔接；
   // 刷新失败（advancing=false）仍回落旧题反馈页人工兜底。
   const optimisticEntry =
-    isCurrent && advancing && entries !== null && currentIdx !== null && currentIdx + 1 < entries.length
+    advancing && entries !== null && currentIdx !== null && currentIdx + 1 < entries.length
       ? entries[currentIdx + 1]!
       : null;
   const usableOptimistic =
     optimisticEntry && !optimisticEntry.canceled && optimisticEntry.result === null
       ? optimisticEntry
       : null;
-  const displayIdx = usableOptimistic && currentIdx !== null ? currentIdx + 1 : currentIdx;
-  // 窗口内但无可乐观的下一题（末题/队列未就绪）：占位等待，不渲染旧题反馈页
-  const optimisticHold = isCurrent && advancing === true && !usableOptimistic;
-  const shownIdx = cursor ?? displayIdx;
-  const entry = entries && shownIdx !== null && shownIdx < entries.length ? entries[shownIdx]! : null;
+  const fallbackEntry =
+    entries !== null && currentIdx !== null && currentIdx < entries.length
+      ? entries[currentIdx]!
+      : null;
   // 当前题视图必须信任 props（frozen/currentTask）：作答后 invalidate refetch 落地时
-  // 批量 entries 已指向新的当前题，取 entry.task 会渲染"新题卡 + 旧题反馈"错配，
-  // 坏题等操作也会 mutate 到错误的 taskId
-  const shownTask = isCurrent
-    ? (usableOptimistic?.task ?? frozen?.task ?? currentTask ?? entry?.task)
-    : (entry?.task ?? frozen?.task ?? currentTask);
-  const shownResult = isCurrent
-    ? (usableOptimistic ? null : (frozen?.result ?? null))
-    : (entry?.result ?? null);
-  // 回看（列表只点已完成条目或"当前"）：cursor 只指向已完成条目
-  const reviewing = cursor !== null;
+  // 批量 entries 已指向新的当前题，取 entry.task 会渲染"新题卡 + 旧题反馈"错配
+  const shownTask =
+    usableOptimistic?.task ?? frozen?.task ?? currentTask ?? fallbackEntry?.task ?? null;
+  const shownResult = usableOptimistic ? null : (frozen?.result ?? null);
+  // 窗口内但无可乐观的下一题（末题/队列未就绪）：占位等待，不渲染旧题反馈页
+  const optimisticHold = advancing === true && !usableOptimistic;
 
-  // 切到某词（到达/回看/回当前）自动读一次；关闭时不读。
+  // 到达当前题自动读一次；关闭时不读。
   // 依赖 taskId 而非对象：只在换卡时读，不随 refetch（对象身份变化）或 result 变化重读
   useEffect(() => {
     if (!autoSpeak || !shownTask) return;
@@ -276,8 +196,7 @@ export function ActiveSession({
       <ProgressRow
         progress={progress}
         entries={entries}
-        currentIdx={displayIdx}
-        shownIdx={shownIdx}
+        currentTaskId={shownTask?.taskId ?? null}
         autoSpeak={autoSpeak}
         onToggleAutoSpeak={() => {
           setAutoSpeak((v) => {
@@ -286,7 +205,6 @@ export function ActiveSession({
             return next;
           });
         }}
-        onJump={(i) => setCursor(i)}
       />
 
       {shownTask && !optimisticHold ? (
@@ -294,9 +212,8 @@ export function ActiveSession({
           key={shownTask.taskId}
           task={shownTask}
           result={shownResult}
-          readOnly={reviewing}
-          onAnswered={reviewing ? undefined : (result, opts) => handleAnswered(shownTask, result, opts)}
-          onAdvance={reviewing ? () => setCursor(null) : onAdvance}
+          onAnswered={(result, opts) => handleAnswered(shownTask, result, opts)}
+          onAdvance={onAdvance}
         />
       ) : (
         <p className="py-16 text-center text-sm text-muted-foreground">正在加载下一题…</p>

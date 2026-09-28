@@ -1,7 +1,5 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TaskCard } from '../src/features/today/components/TaskCard';
 import { api } from '../src/lib/api';
 import {
   apiCalls,
@@ -34,7 +32,14 @@ const forgotAnswer = () => makeWrongAnswer({ outcomeSource: 'forgot' });
 function secondTask() {
   return makeChoiceTask({
     taskId: 'task-2',
-    item: { id: 'item-2', type: 'word', target: 'ambitious', meaning: '有雄心的', ipa: '/æmˈbɪʃəs/', notes: null },
+    item: {
+      id: 'item-2',
+      type: 'word',
+      target: 'ambitious',
+      meaning: '有雄心的',
+      ipa: '/æmˈbɪʃəs/',
+      notes: null,
+    },
   });
 }
 
@@ -45,9 +50,7 @@ function verdictParagraph(text: string): Promise<HTMLElement> {
 
 /** 冻结反馈的释义行 <p>（Hint 冻结时与选项按钮/正确答案行文案可能相同，按整段区分） */
 function meaningParagraph(): HTMLElement {
-  return screen.getByText(
-    (_, el) => el?.tagName === 'P' && el.textContent === '正确释义：稳定的',
-  );
+  return screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '正确释义：稳定的');
 }
 
 describe('Recall Card（understanding）', () => {
@@ -72,7 +75,14 @@ describe('Recall Card（understanding）', () => {
 
   it('显示答案：meaning 展示、[没想起来][想起来了]；点想起来了 → POST {recall:"recalled"} → 自动进入下一题', async () => {
     const withNotes = makeChoiceTask({
-      item: { id: 'item-1', type: 'word', target: 'stable', meaning: '稳定的', ipa: '/ˈsteɪbl/', notes: '也作名词：马厩' },
+      item: {
+        id: 'item-1',
+        type: 'word',
+        target: 'stable',
+        meaning: '稳定的',
+        ipa: '/ˈsteɪbl/',
+        notes: '也作名词：马厩',
+      },
     });
     const statusQueue = [makeActive(withNotes)];
     stubApi({
@@ -139,8 +149,8 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByText('正在加载下一题…')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
-    // 进度同步推进
-    expect(screen.getByText('第 2 / 2')).toBeVisible();
+    // 进度同步推进（已完成数/总数）
+    expect(screen.getByText('1 / 2')).toBeVisible();
   });
 
   it('评分即前进（末题）：队列无下一题时占位等待刷新（完成页统计只能来自刷新）', async () => {
@@ -247,7 +257,9 @@ describe('Recall Card（understanding）', () => {
     expect(meaningParagraph()).toBeVisible();
     expect(screen.getByText('The ladder feels stable.')).toBeVisible();
     const group = screen.getByRole('group', { name: '选项' });
-    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain('text-success');
+    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain(
+      'text-success',
+    );
     expect(within(group).getByRole('button', { name: '摇晃的' }).className).not.toContain(
       'text-destructive',
     );
@@ -293,7 +305,9 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByText('其实我蒙的')).not.toBeInTheDocument();
     expect(screen.queryByText('太简单了')).not.toBeInTheDocument();
     const group = screen.getByRole('group', { name: '选项' });
-    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain('text-success');
+    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain(
+      'text-success',
+    );
     expect(screen.getByText('释义：')).toBeVisible();
     expect(screen.getByText('The ladder feels stable.')).toBeVisible();
   });
@@ -324,47 +338,17 @@ describe('Recall Card（understanding）', () => {
     expect(within(group).getByRole('button', { name: '摇晃的' }).className).toContain(
       'text-destructive',
     );
-    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain('text-success');
+    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain(
+      'text-success',
+    );
     expect(screen.getByText('stable 在这里指结构上的稳固。')).toBeVisible();
   });
 
-  it('readOnly 回看：直接呈现冻结态，无作答按钮', async () => {
-    const done = makeChoiceTask({
-      taskId: 'task-1',
-      item: { id: 'i1', type: 'word', target: 'alpha', meaning: '甲', ipa: null, notes: null },
-    });
-    const current = makeChoiceTask({
-      taskId: 'task-2',
-      item: { id: 'i2', type: 'word', target: 'beta', meaning: '乙', ipa: null, notes: null },
-    });
-    stubApi({
-      '/api/today': makeActive(current, { completed: 1, total: 2 }),
-      '/api/today/tasks': makeTasksResponse([
-        makeSessionEntry(done, recalledAnswer()),
-        makeSessionEntry(current, null),
-      ]),
-    });
-    renderTodayApp();
-    await screen.findByText('第 2 / 2');
-
-    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
-    fireEvent.click(
-      within(screen.getByRole('dialog', { name: '任务列表' })).getByRole('button', { name: /alpha/ }),
-    );
-    await screen.findByText('第 1 / 2');
-
-    // 冻结回看：recalled 反馈 + 词行；不出现任何作答入口
-    expect(await verdictParagraph('想起来了')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'alpha' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: '给我提示' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '显示答案' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '没想起来' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '想起来了' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
-  });
+  // 回看（readOnly 冻结态）已随顺序导航删除（2026-09-28 决策）：历史记录只在「今日学习」只读列表展示，
+  // 冻结反馈的只读断言由 today-navigation / today-active 的弹层用例覆盖。
 
   // refetch 失败兜底：自评后停留冻结反馈（历史 outcomeSource=NULL 按 result 回退判定文案）
-  it('refetch 失败：自评后停留冻结反馈（历史 outcomeSource=NULL 回退"想起来了"），下一题/坏题兜底仍在', async () => {
+  it('refetch 失败：自评后停留冻结反馈（历史 outcomeSource=NULL 回退"想起来了"），下一题兜底仍在', async () => {
     let answered = false;
     stubApi({
       '/api/today': () => {
@@ -384,9 +368,9 @@ describe('Recall Card（understanding）', () => {
     const verdict = await verdictParagraph('想起来了');
     expect(verdict.className).toContain('text-success');
     expect(screen.queryByText('没想起来')).not.toBeInTheDocument();
-    // 刷新失败不自动前进：人工兜底入口仍在
+    // 刷新失败不自动前进：人工兜底入口仍在（坏题入口在「今日学习」记录上，不在卡面）
     expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '坏题' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
   });
 
   it('refetch 失败：历史 outcomeSource=NULL 回退"没想起来"+释义揭示', async () => {
@@ -411,27 +395,6 @@ describe('Recall Card（understanding）', () => {
     expect(screen.getByText('稳定的')).toBeVisible();
     expect(screen.getByText('The ladder feels stable.')).toBeVisible();
     expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
-  });
-
-  it('历史 outcomeSource=NULL 且 readOnly（result=null）：中性回看——仅 meaning，无判定文案', () => {
-    // 会话内（列表回看）到不了 result=null 的冻结态，直接以 readOnly 渲染 TaskCard
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <TaskCard
-          task={makeChoiceTask()}
-          result={null}
-          readOnly
-          onAnswered={() => {}}
-          onAdvance={() => {}}
-        />
-      </QueryClientProvider>,
-    );
-
-    expect(screen.getByText('稳定的')).toBeVisible();
-    expect(screen.queryByText('想起来了')).not.toBeInTheDocument();
-    expect(screen.queryByText('没想起来')).not.toBeInTheDocument();
-    expect(screen.queryByText('提示后想起（基础通过）')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '显示答案' })).not.toBeInTheDocument();
   });
 });
 

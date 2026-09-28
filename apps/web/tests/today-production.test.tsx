@@ -115,8 +115,8 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
       expect(screen.getByText('The constant stress makes me want to give up.')).toBeVisible();
       expect(screen.getByText('目标表达使用正确。')).toBeVisible();
       expect(screen.getByText('已存入个人例句')).toBeVisible();
-      // 表达题结果后可标记坏题
-      expect(screen.getByRole('button', { name: '坏题' })).toBeVisible();
+      // 坏题入口不在卡面（2026-09-28 起：坏题只在「今日学习」的具体记录上标记，PRODUCT §4.2/§6.5）
+      expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
 
       // 不自动下一题（自动跳题已全删）：时间流逝仍停留当前卡，直到点"下一题"
       await act(async () => {
@@ -139,8 +139,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
   it('不会表达：POST {giveUp:true} 不调批改；展示参考句与用法说明、无纠错 diff，手动下一题', async () => {
     const statusQueue = [makeActive(makeProductionTask(), { completed: 1, total: 6 })];
     stubApi({
-      '/api/today': () =>
-        statusQueue.shift() ?? makeActive(nextTask(), { completed: 2, total: 6 }),
+      '/api/today': () => statusQueue.shift() ?? makeActive(nextTask(), { completed: 2, total: 6 }),
       '/api/today/tasks/task-prod/answer': makeProductionAnswer({
         result: 'fail',
         correct: false,

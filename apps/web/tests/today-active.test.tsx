@@ -32,11 +32,18 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
     expect(screen.queryByRole('button', { name: '稍后再做' })).not.toBeInTheDocument();
   });
 
-  it('坏题：自评前进后在回看中标记，confirm 流程 POST bad-question 并返回当前题', async () => {
+  it('坏题：答错留在当前卡，下一题后从「今日学习」记录标记，confirm 流程 POST bad-question', async () => {
     let answered = false;
     const nextTask = makeChoiceTask({
       taskId: 'task-2',
-      item: { id: 'item-2', type: 'word', target: 'make sense', meaning: '讲得通', ipa: null, notes: null },
+      item: {
+        id: 'item-2',
+        type: 'word',
+        target: 'make sense',
+        meaning: '讲得通',
+        ipa: null,
+        notes: null,
+      },
       question: {
         questionId: 'q-2',
         kind: 'direct_meaning',
@@ -56,7 +63,10 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
           : makeActive(first, { completed: 1, total: 4 }),
       '/api/today/tasks': () =>
         answered
-          ? makeTasksResponse([makeSessionEntry(first, makeWrongAnswer()), makeSessionEntry(nextTask, null)])
+          ? makeTasksResponse([
+              makeSessionEntry(first, makeWrongAnswer()),
+              makeSessionEntry(nextTask, null),
+            ])
           : makeTasksResponse([makeSessionEntry(first, null), makeSessionEntry(nextTask, null)]),
       '/api/today/tasks/task-1/answer': () => {
         answered = true;
@@ -66,7 +76,7 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
     });
     renderTodayApp();
 
-    // 答题前没有坏题入口
+    // 答题前卡片上没有坏题入口（坏题只在「今日学习」的具体记录上，PRODUCT §4.2/§6.5）
     await screen.findByRole('heading', { name: 'stable' });
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
 
@@ -77,13 +87,13 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
     expect(await screen.findByRole('heading', { name: 'make sense' })).toBeVisible();
 
-    // 回看 stable → 坏题 confirm → POST task-1
-    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
-    fireEvent.click(
-      within(screen.getByRole('dialog', { name: '任务列表' })).getByRole('button', { name: /stable/ }),
-    );
-    expect(await screen.findByRole('button', { name: '坏题' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '坏题' }));
+    // 打开今日学习 → 展开 stable 分组 → 记录上标记坏题 → confirm POST task-1
+    fireEvent.click(screen.getByRole('button', { name: '查看今日学习' }));
+    const sheet = screen.getByRole('dialog', { name: '今日学习' });
+    await waitFor(() => expect(sheet).toBeVisible());
+    fireEvent.click(within(sheet).getByRole('button', { name: /stable/ }));
+    expect(await within(sheet).findByRole('button', { name: '坏题' })).toBeVisible();
+    fireEvent.click(within(sheet).getByRole('button', { name: '坏题' }));
     const dialog = screen.getByRole('dialog', { name: '标记坏题' });
     expect(screen.getByText('标记坏题将撤销本次作答影响')).toBeVisible();
     fireEvent.click(within(dialog).getByRole('button', { name: '确定' }));
@@ -91,8 +101,12 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
     await waitFor(() => {
       expect(apiCalls('/api/today/tasks/task-1/bad-question')).toHaveLength(1);
     });
-    expect(apiCalls('/api/today/tasks/task-1/bad-question')[0].init).toMatchObject({ method: 'POST' });
-    // 返回当前题 make sense
+    expect(apiCalls('/api/today/tasks/task-1/bad-question')[0].init).toMatchObject({
+      method: 'POST',
+    });
+    // 标记坏题不改变当前题：关闭弹层仍在 make sense
+    fireEvent.click(sheet);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '今日学习' })).toBeNull());
     expect(await screen.findByRole('heading', { name: 'make sense' })).toBeVisible();
   });
 });

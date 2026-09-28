@@ -1,8 +1,4 @@
-import { useState } from 'react';
 import type { AnswerResponse, TodayTaskView } from '@el/shared';
-import { ThumbsDown } from 'lucide-react';
-import { Button } from '../../../components/ui/button';
-import { useBadQuestion } from '../api';
 import { ChoiceQuestionView } from './ChoiceQuestionView';
 import { ClozeQuestionView } from './ClozeQuestionView';
 import { ProductionQuestionView } from './ProductionQuestionView';
@@ -12,41 +8,22 @@ interface Props {
   task: TodayTaskView;
   /** 已作答时冻结的任务 + 结果（用于展示反馈，直到 advance） */
   result: AnswerResponse | null;
-  /** 回看模式：禁用答题交互，仅展示冻结结果 */
-  readOnly?: boolean;
   onAnswered?: (result: AnswerResponse, opts?: { autoAdvance?: boolean }) => void;
   onAdvance?: () => void;
 }
 
-/** 单张任务卡：按题型渲染题目；右上操作（稍后再做 / 坏题） */
-export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Props) {
-  const badQuestion = useBadQuestion();
-  const [confirmBad, setConfirmBad] = useState(false);
-
+/**
+ * 单张任务卡：按题型渲染题目。坏题入口不在卡面——2026-09-28 起只在
+ * 「今日学习」的具体作答记录上标记（PRODUCT §4.2/§6.5）；顺序回看已删除，
+ * 历史作答一律进只读弹层。
+ */
+export function TaskCard({ task, result, onAnswered, onAdvance }: Props) {
   const question = task.question;
-
-  function closeBadConfirm() {
-    setConfirmBad(false);
-  }
 
   return (
     <article className="relative flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-5 pt-4">
-      {/* 右上角操作：绝对定位，与词行同高（词行 pr-12 让位） */}
-      <div className="absolute right-3 top-3 z-10">
-        {result && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setConfirmBad(true)}
-          >
-            <ThumbsDown className="h-3.5 w-3.5" aria-hidden />
-            坏题
-          </Button>
-        )}
-      </div>
-
-      {/* 回看/已答：顶部显示考的单词（learn/understanding 由 RecallCard 自带词行，不重复） */}
-      {(result !== null || readOnly) && task.taskType !== 'learn' && task.taskType !== 'understanding' && (
+      {/* 已答冻结：顶部显示考的单词（learn/understanding 由 RecallCard 自带词行，不重复） */}
+      {result !== null && task.taskType !== 'learn' && task.taskType !== 'understanding' && (
         <div className="mb-3 flex shrink-0 items-baseline gap-2 pr-12">
           <h3 className="text-lg font-semibold text-foreground">{task.item.target}</h3>
           {task.item.type === 'word' && task.item.ipa !== null && (
@@ -63,7 +40,6 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
             question={question}
             result={result}
             outcomeSource={result?.outcomeSource ?? null}
-            readOnly={readOnly}
             onAnswered={onAnswered ?? (() => {})}
             onAdvance={onAdvance ?? (() => {})}
           />
@@ -93,38 +69,6 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
           onAdvance={onAdvance ?? (() => {})}
         />
       ) : null}
-
-      {confirmBad && (
-        <div
-          role="dialog"
-          aria-label="标记坏题"
-          className="mt-4 shrink-0 space-y-3 rounded-lg border border-border p-4"
-        >
-          <div className="space-y-1">
-            <p className="text-sm text-foreground">标记坏题</p>
-            <p className="text-xs text-muted-foreground">标记坏题将撤销本次作答影响</p>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={closeBadConfirm}>
-              取消
-            </Button>
-            <Button
-              size="sm"
-              disabled={badQuestion.isPending}
-              onClick={() =>
-                badQuestion.mutate(task.taskId, {
-                  onSuccess: () => {
-                    closeBadConfirm();
-                    onAdvance?.();
-                  },
-                })
-              }
-            >
-              确定
-            </Button>
-          </div>
-        </div>
-      )}
     </article>
   );
 }

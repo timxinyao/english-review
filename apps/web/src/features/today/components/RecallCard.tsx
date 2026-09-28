@@ -16,14 +16,13 @@ interface Props {
   question: ChoiceQuestion;
   result: AnswerResponse | null;
   outcomeSource: AnswerResponse['outcomeSource'];
-  readOnly?: boolean;
   onAnswered: (result: AnswerResponse, opts?: { autoAdvance?: boolean }) => void;
   onAdvance: () => void;
 }
 
 /** 冻结反馈：按 outcomeSource 三态——recalled=想起来了 / assisted=提示后想起（基础通过）/
  *  forgot=没想起来 + 正确释义与原句揭示；历史数据 outcomeSource 为空时按 result 回退：
- *  对=想起来了 / 错=没想起来 / 无 result 的只读回看=中性（仅 meaning，不显示判定文案） */
+ *  对=想起来了 / 错=没想起来 */
 function RecallFeedback({
   task,
   result,
@@ -33,7 +32,8 @@ function RecallFeedback({
   result: AnswerResponse | null;
   outcomeSource: AnswerResponse['outcomeSource'];
 }) {
-  const unknown = outcomeSource !== 'recalled' && outcomeSource !== 'assisted' && outcomeSource !== 'forgot';
+  const unknown =
+    outcomeSource !== 'recalled' && outcomeSource !== 'assisted' && outcomeSource !== 'forgot';
   const recalled = outcomeSource === 'recalled' || (unknown && result?.correct === true);
   const assisted = outcomeSource === 'assisted';
   const forgot = outcomeSource === 'forgot' || (unknown && result !== null && !result.correct);
@@ -41,9 +41,7 @@ function RecallFeedback({
   return (
     <div className="space-y-3">
       {recalled && <p className="text-sm text-success">想起来了</p>}
-      {assisted && (
-        <p className="text-sm text-warning">提示后想起（基础通过）</p>
-      )}
+      {assisted && <p className="text-sm text-warning">提示后想起（基础通过）</p>}
       {forgot && <p className="text-sm text-destructive">没想起来</p>}
       {/* 冻结态统一保留学习内容：释义 + 原句（verdict 只作一行判语，2026-09-28 用户改版） */}
       <p className="text-sm">
@@ -68,7 +66,6 @@ export function RecallCard({
   question,
   result,
   outcomeSource,
-  readOnly,
   onAnswered,
   onAdvance,
 }: Props) {
@@ -76,13 +73,17 @@ export function RecallCard({
   const [revealed, setRevealed] = useState(false);
   const [hint, setHint] = useState(false);
 
-  const frozen = result !== null || readOnly;
+  const frozen = result !== null;
   const word = task.item;
   // Hint 路径的冻结（提交过选项或主动不会）：复用选择题统一纠错（勾正确项/错选项+理由）
-  const choiceFrozen = result !== null && (result.selectedOptionId !== null || result.gaveUp === true);
+  const choiceFrozen =
+    result !== null && (result.selectedOptionId !== null || result.gaveUp === true);
 
   function submit(body: AnswerRequest, opts?: { autoAdvance?: boolean }) {
-    answer.mutate({ taskId: task.taskId, body }, { onSuccess: (result) => onAnswered(result, opts) });
+    answer.mutate(
+      { taskId: task.taskId, body },
+      { onSuccess: (result) => onAnswered(result, opts) },
+    );
   }
 
   /** 词行（含手动发音） */
@@ -165,11 +166,7 @@ export function RecallCard({
       {!frozen && !revealed && (
         <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => setRevealed(true)}
-            >
+            <Button variant="outline" className="flex-1" onClick={() => setRevealed(true)}>
               显示答案
             </Button>
             <Button
@@ -210,7 +207,10 @@ export function RecallCard({
       )}
 
       {frozen && (
-        <div className="mt-3 flex shrink-0 justify-end border-t border-border pt-3" data-slot="dock">
+        <div
+          className="mt-3 flex shrink-0 justify-end border-t border-border pt-3"
+          data-slot="dock"
+        >
           <Button onClick={onAdvance}>下一题</Button>
         </div>
       )}

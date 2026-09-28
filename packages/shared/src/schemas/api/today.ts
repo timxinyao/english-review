@@ -207,6 +207,8 @@ export type SessionTaskEntry = z.infer<typeof SessionTaskEntry>;
 
 export const TodaySessionTasksResponse = z.object({
   tasks: z.array(SessionTaskEntry),
+  /** 最近一次可撤销的正式作答对应任务 id（当日内且下一次作答前；无则 null，PRODUCT §5.1） */
+  undoableTaskId: z.string().nullable(),
 });
 export type TodaySessionTasksResponse = z.infer<typeof TodaySessionTasksResponse>;
 
@@ -223,6 +225,13 @@ export const BadQuestionResponse = z.object({
   progress: TodayProgress,
 });
 export type BadQuestionResponse = z.infer<typeof BadQuestionResponse>;
+
+/** 普通撤销（最近一次正式作答）：回滚后返回队列进度（TECHNICAL_DESIGN §7.5） */
+export const UndoResponse = z.object({
+  ok: z.literal(true),
+  progress: TodayProgress,
+});
+export type UndoResponse = z.infer<typeof UndoResponse>;
 
 export const TaskFeedbackRequest = z.object({
   feedback: z.enum(['guessed', 'too_easy']),

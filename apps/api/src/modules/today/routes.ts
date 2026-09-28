@@ -13,6 +13,7 @@ import {
   resolveTodayDeps,
   startTodaySession,
   submitTaskFeedback,
+  undoTodayTask,
 } from './service.js';
 
 export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppConfig): void {
@@ -45,6 +46,12 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
   app.post('/api/today/tasks/:id/bad-question', async (req) => {
     const { id } = req.params as { id: string };
     return reportBadQuestion(db, id, new Date());
+  });
+
+  // 普通撤销：精确回滚最近一次正式作答并重排一道不同的新题（区别于坏题，PRODUCT §6.5）
+  app.post('/api/today/tasks/:id/undo', async (req) => {
+    const { id } = req.params as { id: string };
+    return undoTodayTask(db, await resolveTodayDeps(), tz, new Date(), id);
   });
 
   app.post('/api/today/tasks/:id/feedback', async (req) => {

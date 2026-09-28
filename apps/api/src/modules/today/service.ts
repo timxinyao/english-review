@@ -22,6 +22,7 @@ import {
   type TodayStatusResponse,
   type TodaySummary,
   type TodayTaskView,
+  type UndoResponse,
 } from '@el/shared';
 import type { AppDatabase } from '../../db/client.js';
 import { JobLockTimeoutError, withJobLock } from '../../db/job-lock.js';
@@ -48,6 +49,8 @@ import {
 import {
   maybeSavePersonalExample,
   trimProductionHistory,
+  type AttemptRowSnapshot,
+  type ExampleRowSnapshot,
   type PersonalExampleSaveResult,
 } from '../learning-items/service.js';
 
@@ -72,7 +75,7 @@ export interface DimSnapshot {
   wrongStreak: number;
 }
 
-/** attempt 的 pre/post 状态快照（坏题撤销依据，DATABASE.md §8） */
+/** attempt 的 pre/post 状态快照（坏题/普通撤销依据，DATABASE.md §8） */
 export interface StateSnapshot {
   reviewStates: {
     understanding: (DimSnapshot & { id: string }) | null;
@@ -86,6 +89,10 @@ export interface StateSnapshot {
   reinforcementTaskIds?: string[];
   /** 仅 post：本次结算写入的 Personal Example id（坏题撤销时删除该例句的依据） */
   personalExampleId?: string | null;
+  /** 仅 post：本次沉淀替换掉的未固定个人例句行快照（普通撤销精确恢复；旧快照无此字段） */
+  replacedPersonalExample?: ExampleRowSnapshot | null;
+  /** 仅 post：本次结算被裁剪的表达历史 attempt 行快照（普通撤销在 10 条边界恢复；旧快照无此字段） */
+  prunedProductionAttempts?: AttemptRowSnapshot[];
 }
 
 export type AdvanceKind = 'pass' | 'basic_pass' | 'fail';
@@ -95,6 +102,7 @@ const SKIP_PERSONAL: PersonalExampleSaveResult = {
   saved: false,
   replacedExampleId: null,
   exampleId: null,
+  replacedExampleSnapshot: null,
 };
 
 /** review.advanceReviewState 的 outcome 入参 */
@@ -800,6 +808,32 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
 // GET /api/today/tasks：会话全部任务批量视图（进度/回看/完成页今日回顾）
 // ---------------------------------------------------------------------------
 
+/**
+ * 会话内最近一次非 void 的 Today attempt 及其任务（撤销目标定位，TECHNICAL_DESIGN §7.5）。
+ * 用 SQLite rowid DESC 判插入序——任务 sortKey/UUID/毫秒时间戳都可能并列，不可作依据。
+ */
+function latestSessionAttempt(
+  exec: DbExecutor,
+  sessionId: string,
+): { attempt: AttemptRowSnapshot; task: TaskRow } | null {
+  const row = exec
+    .select({ attempt: attempts, task: reviewTasks })
+    .from(attempts)
+    .innerJoin(reviewTasks, eq(reviewTasks.id, attempts.reviewTaskId))
+    .where(
+      and(
+        eq(reviewTasks.sessionId, sessionId),
+        eq(attempts.mode, 'today'),
+        isNull(attempts.voidedAt),
+        ne(attempts.result, 'void'),
+      ),
+    )
+    .orderBy(sql`"attempts"."rowid" DESC`)
+    .limit(1)
+    .get();
+  return row ?? null;
+}
+
 export async function getSessionTasks(
   db: AppDatabase,
   timezone: string,
@@ -818,6 +852,8 @@ export async function getSessionTasks(
     .where(eq(reviewTasks.sessionId, session.id))
     .orderBy(asc(reviewTasks.sortKey))
     .all();
+  // 撤销入口只指向最近一次有效作答（普通撤销仅限当日内、下一次作答前，PRODUCT §5.1）
+  const undoable = latestSessionAttempt(db, session.id);
   return {
     tasks: tasks.map((task) => ({
       task: taskToView(db, task),
@@ -825,6 +861,7 @@ export async function getSessionTasks(
       result: task.canceledAt === null && task.completedAt !== null ? replayAnswer(db, task) : null,
       canceled: task.canceledAt !== null,
     })),
+    undoableTaskId: undoable?.attempt.reviewTaskId ?? null,
   };
 }
 
@@ -1643,7 +1680,7 @@ export async function answerTodayTask(
     post.reinforcementTaskIds = reinforcementIds;
 
     // 表达题：优质 corrected 句沉淀 Personal Example（PRODUCT §3.2/§7.5），
-    // post 快照记录本次写入的 exampleId（坏题撤销依据）
+    // post 快照记录本次写入的 exampleId（坏题撤销依据）与被替换例句行（普通撤销恢复）
     let personalSaved: PersonalExampleSaveResult = SKIP_PERSONAL;
     if (isProduction && production) {
       personalSaved = maybeSavePersonalExample(
@@ -1660,6 +1697,9 @@ export async function answerTodayTask(
         now,
       );
       if (personalSaved.exampleId) post.personalExampleId = personalSaved.exampleId;
+      if (personalSaved.replacedExampleSnapshot) {
+        post.replacedPersonalExample = personalSaved.replacedExampleSnapshot;
+      }
     }
 
     const reveal = isCloze ? clozeReveal(question) : null;
@@ -1673,9 +1713,10 @@ export async function answerTodayTask(
       : isProduction
         ? production!.explanation
         : revealExplanation(question, correct);
+    const attemptId = randomUUID();
     tx.insert(attempts)
       .values({
-        id: randomUUID(),
+        id: attemptId,
         reviewTaskId: task.id,
         learningItemId: task.learningItemId,
         questionId: question.id,
@@ -1710,8 +1751,18 @@ export async function answerTodayTask(
       })
       .run();
 
-    // 造句历史裁剪：保留该 item 最近 10 条 production attempts（PRODUCT §7.5）
-    if (isProduction) trimProductionHistory(tx, task.learningItemId);
+    // 造句历史裁剪：保留该 item 最近 10 条 production attempts（PRODUCT §7.5）；
+    // 被裁剪行快照在裁剪后补写进 post 快照（DATABASE §8：撤销期间保留恢复快照）
+    if (isProduction) {
+      const pruned = trimProductionHistory(tx, task.learningItemId);
+      if (pruned.length > 0) {
+        post.prunedProductionAttempts = pruned;
+        tx.update(attempts)
+          .set({ postStateJson: JSON.stringify(post) })
+          .where(eq(attempts.id, attemptId))
+          .run();
+      }
+    }
 
     tx.update(reviewTasks).set({ completedAt: nowIso }).where(eq(reviewTasks.id, task.id)).run();
 
@@ -1899,6 +1950,213 @@ export function reportBadQuestion(db: AppDatabase, taskId: string, now: Date): B
       .where(eq(attempts.id, attempt.id))
       .run();
     tx.update(reviewTasks).set({ canceledAt: nowIso }).where(eq(reviewTasks.id, task.id)).run();
+
+    return { ok: true as const, progress: progressOf(tx, task.sessionId) };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/today/tasks/:id/undo（普通撤销最近一次作答，TECHNICAL_DESIGN §7.5）
+// ---------------------------------------------------------------------------
+
+/** 本次沉淀写入例句的原始文本（attempt.correction_json.corrected；用于检测用户后续编辑） */
+function insertedExampleTextOf(attempt: AttemptRowSnapshot): string | null {
+  if (!attempt.correctionJson) return null;
+  try {
+    const parsed = JSON.parse(attempt.correctionJson) as { corrected?: unknown };
+    return typeof parsed.corrected === 'string' ? parsed.corrected : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 普通撤销：只回滚当天 Session 最近一次未撤销的正式作答（PRODUCT §5.1）。
+ * 与坏题撤销不同：不改题目状态、不调用 bad-question 逻辑，替代题取不同题目排到队列尾。
+ * 替代题在事务外预取（含懒生成）；取不到时抛可重试错误且不改变任何数据。
+ */
+export async function undoTodayTask(
+  db: AppDatabase,
+  deps: TodayDeps,
+  timezone: string,
+  now: Date,
+  taskId: string,
+): Promise<UndoResponse> {
+  const today = localDateString(now, timezone);
+  const task = db.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get();
+  if (!task) throw appError('NOT_FOUND', '任务不存在');
+  const session = db
+    .select()
+    .from(reviewSessions)
+    .where(eq(reviewSessions.id, task.sessionId))
+    .get();
+  if (!session) throw appError('INTERNAL', '会话不存在');
+  if (session.sessionDate !== today) throw appError('CONFLICT', '只能撤销今天的作答');
+
+  // 预取前的只读快检（事务内还会复核）：明显失效的请求直接拒绝，
+  // 避免为过期撤销白白消耗题目库存（取题会写 use_count/last_used_at）
+  if (task.canceledAt !== null) throw appError('CONFLICT', '该任务已撤销');
+  if (task.completedAt === null) throw appError('CONFLICT', '该任务尚未作答，无法撤销');
+  const latestNow = latestSessionAttempt(db, task.sessionId);
+  if (!latestNow || latestNow.attempt.reviewTaskId !== taskId) {
+    throw appError('CONFLICT', '已有更新的作答，无法撤销该任务');
+  }
+
+  // ---- 事务外预取替代题：同 item/题型，但必须与原题不同 id ----
+  const replacementType: QuestionKind =
+    task.taskType === 'cloze'
+      ? 'cloze'
+      : task.taskType === 'production'
+        ? 'production'
+        : 'understanding';
+  const replacement = await acquireWithGenerate(
+    db,
+    deps,
+    task.learningItemId,
+    replacementType,
+    now,
+    [task.questionId ?? ''],
+  );
+  if (!replacement) {
+    // 没有可用新题：保持原作答与会话不变，提示重试（PRODUCT §5.1）
+    throw appError('CONFLICT', '暂时没有可用的新题，请稍后重试');
+  }
+
+  const nowIso = now.toISOString();
+  return db.transaction((tx) => {
+    // ---- 事务内复核（顺序：会话日期 → 精确最近作答 → 任务完成 → 依赖数据安全 → 替代题）----
+    const freshSession = tx
+      .select()
+      .from(reviewSessions)
+      .where(eq(reviewSessions.id, task.sessionId))
+      .get();
+    if (!freshSession) throw appError('INTERNAL', '会话不存在');
+    if (freshSession.sessionDate !== today) throw appError('CONFLICT', '只能撤销今天的作答');
+
+    // 精确最近作答：目标任务的 attempt 必须仍是本会话最近一次非 void 作答
+    // （过期任务/重复撤销在此拒绝，不会误伤更早的作答）
+    const latest = latestSessionAttempt(tx, task.sessionId);
+    if (!latest || latest.attempt.reviewTaskId !== taskId) {
+      throw appError('CONFLICT', '已有更新的作答，无法撤销该任务');
+    }
+    const attempt = latest.attempt;
+
+    const freshTask = tx.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get();
+    if (!freshTask) throw appError('NOT_FOUND', '任务不存在');
+    if (freshTask.canceledAt !== null) throw appError('CONFLICT', '该任务已撤销');
+    if (freshTask.completedAt === null) throw appError('CONFLICT', '该任务尚未作答，无法撤销');
+
+    // 依赖数据安全：快照缺失 / 新例句已被用户固定或编辑 → 拒绝撤销以保护用户数据
+    const pre = parseSnapshot(attempt.preStateJson);
+    if (!pre) throw appError('CONFLICT', '该作答缺少状态快照，无法撤销');
+    const post = parseSnapshot(attempt.postStateJson);
+    const savedExampleId = post?.personalExampleId;
+    if (savedExampleId) {
+      const saved = tx
+        .select()
+        .from(learningExamples)
+        .where(eq(learningExamples.id, savedExampleId))
+        .get();
+      if (saved) {
+        const insertedText = insertedExampleTextOf(attempt);
+        const edited = insertedText !== null && saved.text !== insertedText;
+        if (saved.pinned === 1 || edited) {
+          throw appError('CONFLICT', '本次例句已被固定或修改，无法撤销');
+        }
+      }
+    }
+    // 替代题仍可用（并发下可能被占用或失效）
+    const replacementRow = tx
+      .select()
+      .from(questions)
+      .where(eq(questions.id, replacement.id))
+      .get();
+    if (
+      !replacementRow ||
+      replacementRow.status === 'bad_question' ||
+      replacementRow.status === 'retired'
+    ) {
+      throw appError('CONFLICT', '替代题目已不可用，请重试');
+    }
+
+    // ---- 精确回滚（仅本次 attempt 的变动）----
+    // 1) 恢复 pre 快照：两维 review 状态、item.status/queue_state、Read 补强旗
+    restoreSnapshot(tx, task.learningItemId, pre, nowIso);
+
+    // 2) 只取消本次结算记录的补强任务（已取消的跳过）
+    for (const rid of post?.reinforcementTaskIds ?? []) {
+      tx.update(reviewTasks)
+        .set({ canceledAt: nowIso })
+        .where(and(eq(reviewTasks.id, rid), isNull(reviewTasks.canceledAt)))
+        .run();
+    }
+
+    // 3) 反向回减统计与新学额度（Learn：formal+new_items+会话计数；表达题：attempts/pass）
+    const isLearn = task.taskType === 'learn';
+    const delta: StatsDelta = { formal: -1 };
+    if (isLearn) delta.newItems = -1;
+    if (task.taskType === 'production') {
+      delta.productionAttempts = -1;
+      if (attempt.result === 'pass') delta.productionPass = -1;
+    }
+    bumpDailyStats(tx, freshSession.sessionDate, delta, nowIso);
+    if (isLearn) {
+      tx.update(reviewSessions)
+        .set({ newItemsStarted: Math.max(0, freshSession.newItemsStarted - 1) })
+        .where(eq(reviewSessions.id, task.sessionId))
+        .run();
+    }
+
+    // 4) 恢复保留数据：删除本次新增例句、精确还原被替换例句与被裁剪表达历史
+    if (savedExampleId) {
+      tx.delete(learningExamples).where(eq(learningExamples.id, savedExampleId)).run();
+    }
+    const displaced = post?.replacedPersonalExample;
+    if (displaced) {
+      tx.delete(learningExamples).where(eq(learningExamples.id, displaced.id)).run();
+      tx.insert(learningExamples).values(displaced).run();
+    }
+    for (const pruned of post?.prunedProductionAttempts ?? []) {
+      tx.insert(attempts).values(pruned).run();
+    }
+
+    // 5) 作废该次 attempt + 取消旧任务
+    tx.update(attempts)
+      .set({ result: 'void', voidedAt: nowIso, feedback: null })
+      .where(eq(attempts.id, attempt.id))
+      .run();
+    tx.update(reviewTasks).set({ canceledAt: nowIso }).where(eq(reviewTasks.id, task.id)).run();
+
+    // 6) 替代任务插入队列尾：沿用原 taskType/dimension/origin——补强撤销释放的
+    //    配额槽位由替代题占用同一槽位（不额外消耗），read_reinforcement 沿用清旗语义
+    const maxSort =
+      tx
+        .select({ m: sql<number>`max(${reviewTasks.sortKey})` })
+        .from(reviewTasks)
+        .where(eq(reviewTasks.sessionId, task.sessionId))
+        .get()?.m ?? 0;
+    tx.insert(reviewTasks)
+      .values({
+        id: randomUUID(),
+        sessionId: task.sessionId,
+        learningItemId: task.learningItemId,
+        dimension: task.dimension,
+        questionId: replacement.id,
+        taskType: task.taskType,
+        origin: task.origin,
+        sortKey: Number(maxSort) + 1,
+        deferCount: 0,
+        completedAt: null,
+        canceledAt: null,
+        createdAt: nowIso,
+      })
+      .run();
+
+    // 7) 重新激活已完成的会话
+    tx.update(reviewSessions)
+      .set({ completedAt: null })
+      .where(eq(reviewSessions.id, task.sessionId))
+      .run();
 
     return { ok: true as const, progress: progressOf(tx, task.sessionId) };
   });

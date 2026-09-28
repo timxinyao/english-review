@@ -31,6 +31,11 @@ type ExampleRow = typeof learningExamples.$inferSelect;
 type ReviewStateRow = typeof reviewStates.$inferSelect;
 type ItemStatusDto = LibraryListItemDto['status'];
 
+/** learning_examples 行快照（Today 撤销恢复被替换例句用；学习项模块导出，Today 复用） */
+export type ExampleRowSnapshot = ExampleRow;
+/** attempts 行快照（Today 撤销恢复被裁剪表达历史用） */
+export type AttemptRowSnapshot = typeof attempts.$inferSelect;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -294,12 +299,15 @@ export interface PersonalExampleSaveResult {
   saved: boolean;
   replacedExampleId: string | null;
   exampleId: string | null;
+  /** 替换路径：被删例句的完整行快照（普通撤销恢复该行，DATABASE.md §8；未替换为 null） */
+  replacedExampleSnapshot: ExampleRow | null;
 }
 
 const SKIP_RESULT: PersonalExampleSaveResult = {
   saved: false,
   replacedExampleId: null,
   exampleId: null,
+  replacedExampleSnapshot: null,
 };
 
 /**
@@ -335,7 +343,7 @@ export function maybeSavePersonalExample(
         updatedAt: nowIso,
       })
       .run();
-    return { saved: true, replacedExampleId: null, exampleId: id };
+    return { saved: true, replacedExampleId: null, exampleId: id, replacedExampleSnapshot: null };
   };
 
   const existing = tx
@@ -356,6 +364,7 @@ export function maybeSavePersonalExample(
   })[0]!;
   const worstScore = worst.qualityScore ?? 0;
   if (input.qualityScore > worstScore + PERSONAL_EXAMPLE_REPLACE_MARGIN) {
+    // 删除前保留完整行快照：普通撤销需精确恢复被替换例句（PRODUCT §5.1 决策）
     tx.delete(learningExamples).where(eq(learningExamples.id, worst.id)).run();
     const id = randomUUID();
     const nowIso = now.toISOString();
@@ -374,7 +383,12 @@ export function maybeSavePersonalExample(
         updatedAt: nowIso,
       })
       .run();
-    return { saved: true, replacedExampleId: worst.id, exampleId: id };
+    return {
+      saved: true,
+      replacedExampleId: worst.id,
+      exampleId: id,
+      replacedExampleSnapshot: worst,
+    };
   }
   return SKIP_RESULT;
 }
@@ -382,11 +396,12 @@ export function maybeSavePersonalExample(
 /**
  * 造句历史裁剪（PRODUCT §7.5：每 item 保留最近 10 次）：
  * 插入新 production attempt 后调用；更旧的（today/library_practice）删除。
- * 必须在同步事务内调用。
+ * 返回被删行的完整快照——Today 正式作答把它写进 post 快照，
+ * 普通撤销在 10 条边界上恢复被裁剪记录（DATABASE.md §8）。必须在同步事务内调用。
  */
-export function trimProductionHistory(tx: DbExecutor, itemId: string): void {
+export function trimProductionHistory(tx: DbExecutor, itemId: string): Array<AttemptRowSnapshot> {
   const rows = tx
-    .select({ id: attempts.id })
+    .select({ attempt: attempts })
     .from(attempts)
     .innerJoin(questions, eq(questions.id, attempts.questionId))
     .where(
@@ -398,10 +413,12 @@ export function trimProductionHistory(tx: DbExecutor, itemId: string): void {
     )
     .orderBy(desc(attempts.createdAt), desc(attempts.id))
     .all();
-  if (rows.length <= PRODUCTION_HISTORY_KEEP) return;
-  for (const row of rows.slice(PRODUCTION_HISTORY_KEEP)) {
+  if (rows.length <= PRODUCTION_HISTORY_KEEP) return [];
+  const pruned = rows.slice(PRODUCTION_HISTORY_KEEP).map((row) => row.attempt);
+  for (const row of pruned) {
     tx.delete(attempts).where(eq(attempts.id, row.id)).run();
   }
+  return pruned;
 }
 
 // ---------- 编辑 ----------

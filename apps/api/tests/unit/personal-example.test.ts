@@ -58,8 +58,18 @@ describe('maybeSavePersonalExample', () => {
       await seedItem(db, { id: itemId });
       const r1 = maybeSavePersonalExample(db, itemId, input({ result: 'fail' }), NOW);
       const r2 = maybeSavePersonalExample(db, itemId, input({ eligible: false }), NOW);
-      expect(r1).toEqual({ saved: false, replacedExampleId: null, exampleId: null });
-      expect(r2).toEqual({ saved: false, replacedExampleId: null, exampleId: null });
+      expect(r1).toEqual({
+        saved: false,
+        replacedExampleId: null,
+        exampleId: null,
+        replacedExampleSnapshot: null,
+      });
+      expect(r2).toEqual({
+        saved: false,
+        replacedExampleId: null,
+        exampleId: null,
+        replacedExampleSnapshot: null,
+      });
       expect(personal(itemId)).toHaveLength(0);
     })();
   });
@@ -119,6 +129,13 @@ describe('maybeSavePersonalExample', () => {
       const r = maybeSavePersonalExample(db, itemId, input({ qualityScore: 0.65 }), NOW);
       expect(r.saved).toBe(true);
       expect(r.replacedExampleId).toBeTruthy();
+      // 被替换例句的完整行快照（普通撤销恢复依据，DATABASE.md §8）
+      expect(r.replacedExampleSnapshot).toMatchObject({
+        id: r.replacedExampleId,
+        kind: 'personal',
+        text: 'Worst one.',
+        qualityScore: 0.5,
+      });
 
       const rows = personal(itemId);
       expect(rows).toHaveLength(3);

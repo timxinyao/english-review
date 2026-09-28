@@ -18,6 +18,16 @@ function renderShell() {
   return { ...render(<AppShell />, { wrapper }), client };
 }
 
+function renderShellAt(path: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[path]}>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+  return { ...render(<AppShell />, { wrapper }), client };
+}
+
 describe('AppShell iOS 兼容', () => {
   it('底部导航带 pb-safe（避开 home 指示条）', () => {
     const { container } = renderShell();
@@ -34,14 +44,21 @@ describe('AppShell iOS 兼容', () => {
     expect(header?.className).not.toContain('relative');
   });
 
-  it('主内容区底部大留白；顶栏只留安全区、导航用收紧避让（用户偏好更贴边）', () => {
-    const { container } = renderShell();
+  it('主内容区底部大留白仅限非 Today 页；顶栏只留安全区、导航用收紧避让（用户偏好更贴边）', () => {
+    const { container } = renderShellAt('/library');
     const main = container.querySelector('main');
     const header = container.querySelector('header');
     const nav = container.querySelector('nav.fixed');
     expect(main?.className).toContain('pb-40');
     expect(header?.className).toContain('pt-safe');
     expect(nav?.className).toContain('pb-safe-tight');
+  });
+
+  it('Today 路由：主内容区不留 pb-40 大留白（沉浸式卡自身贴底部导航，§5.1 一题一屏）', () => {
+    const { container } = renderShellAt('/today');
+    const main = container.querySelector('main');
+    expect(main?.className).not.toContain('pb-40');
+    expect(main?.className).toContain('max-w-[900px]');
   });
 
   it('顶栏有刷新按钮，点击整页刷新（location.reload）', async () => {

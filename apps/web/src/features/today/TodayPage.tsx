@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { cn } from '../../lib/utils';
 import { Button } from '../../components/ui/button';
 import { useTodayStatus } from './api';
 import { ActiveSession, type FrozenAnswer } from './components/ActiveSession';
@@ -9,6 +10,8 @@ import { IdleToday } from './components/IdleToday';
  * Today：产品核心页，按 GET /api/today 三态渲染（idle / active / completed）。
  * 作答反馈冻结在页面级：最后一题答完即使状态已翻转为 completed，
  * 仍先展示该题反馈，advance 后才进入完成摘要。
+ * 活动会话为沉浸式一题一屏（§5.1）：无页级底部留白，卡自身占满可用高度；
+ * 非 会话 态补回 shell 让出的移动端底部留白。
  */
 export function TodayPage() {
   const { data, isLoading, isError, isFetching, refetch } = useTodayStatus();
@@ -31,7 +34,7 @@ export function TodayPage() {
   const advancing = frozen?.autoAdvance === true && !isError;
 
   return (
-    <section className="space-y-4">
+    <section className={cn('space-y-4', !showSession && 'pb-40 md:pb-0')}>
       <h1 className="hidden text-lg font-semibold md:block">Today</h1>
       {isLoading && <p className="py-8 text-center text-sm text-muted-foreground">加载中…</p>}
       {isError && (

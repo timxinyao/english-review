@@ -43,7 +43,7 @@ function ProgressRow({
   const position = hasEntries && shownIdx !== null ? shownIdx + 1 : null;
 
   return (
-    <div className="space-y-1.5">
+    <div className="shrink-0 space-y-1.5">
       {/* 音量开关与列表按钮为兄弟节点：button 内嵌 button 是非法嵌套
           （React validateDOMNesting 报错，且点击会冒泡误开列表弹层） */}
       <div className="flex w-full items-center justify-between">
@@ -270,7 +270,9 @@ export function ActiveSession({
   }, [shownTask?.taskId, autoSpeak]);
 
   return (
-    <div className="space-y-4">
+    /* 沉浸式一题一屏（PRODUCT §5.1）：移动端占满顶栏/导航间可用高度（dvh，键盘收放自适应）；
+       桌面保持自然高度的可读版式 */
+    <div className="flex h-today-viewport min-h-0 flex-col md:h-auto">
       <ProgressRow
         progress={progress}
         entries={entries}

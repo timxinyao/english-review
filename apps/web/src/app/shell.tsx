@@ -40,6 +40,9 @@ export function AppShell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [refreshed, setRefreshed] = useState(false);
+  // Today 沉浸式会话（§5.1 一题一屏）：主内容不留移动端大留白，卡自身贴底部导航；
+  // 其余页面保留 iOS 惯例的底部大留白
+  const immersiveToday = pathname === '/' || pathname.startsWith('/today');
 
   // 路由切换时停止正在播放的发音
   useEffect(() => {
@@ -126,8 +129,14 @@ export function AppShell() {
           </div>
         </header>
 
-        {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12）；移动端底部大留白（iOS 惯例）+ 覆盖导航与指示条 */}
-        <main className="mx-auto w-full max-w-[900px] flex-1 px-5 pb-40 pt-3 md:px-8 md:pb-10 md:pt-6">
+        {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12）；移动端底部大留白（iOS 惯例）+ 覆盖导航与指示条。
+            Today 活动卡改由页面自身贴导航（pb 由 TodayPage 按会话态接管） */}
+        <main
+          className={cn(
+            'mx-auto w-full max-w-[900px] flex-1 px-5 pt-3 md:px-8 md:pb-10 md:pt-6',
+            immersiveToday ? 'pb-0' : 'pb-40',
+          )}
+        >
           <Outlet />
         </main>
 

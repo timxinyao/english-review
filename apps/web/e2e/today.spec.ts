@@ -95,7 +95,7 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
     }
 
     // 4) stable：首次出现走 Hint 选错（给我提示 → 选错误项）
-    //    → 冻结"没想起来" + 正确释义与原句揭示（fail，进回顾列表首位）
+    //    → 冻结"没想起来" + 正确释义与原句揭示 + 统一纠错勾选正确选项（fail，进回顾列表首位）
     if (!stableFailed && (await page.getByRole('heading', { name: 'stable' }).isVisible())) {
       stableFailed = true;
       await page.getByRole('button', { name: '给我提示' }).click();
@@ -108,7 +108,10 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
         .click();
       await expect(page.getByText('没想起来', { exact: true })).toBeVisible();
       await expect(page.getByText('正确释义：', { exact: true })).toBeVisible();
-      await expect(page.getByText('稳定的', { exact: true })).toBeVisible();
+      // 统一纠错：冻结后选项仍可见，正确选项「稳定的」被勾选
+      await expect(
+        page.getByRole('group', { name: '选项' }).getByRole('button', { name: '稳定的' }),
+      ).toBeVisible();
       await expect(page.getByText('原句', { exact: true })).toBeVisible();
       await expect(page.getByText('The connection has been stable all week.')).toBeVisible();
       await page.getByRole('button', { name: '下一题' }).click();
@@ -262,5 +265,46 @@ test.describe('Today 复习全流程', () => {
     await expect(stableEntry).toBeDisabled();
     await stableEntry.click({ force: true });
     await expect(page.getByText(/^第 1 \/ \d+$/)).toBeVisible(); // 仍停留回看位
+  });
+});
+
+test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', () => {
+  // 375x480 模拟短屏 + 键盘弹出后的可视高度：输入与主操作必须仍可达
+  test.use({ viewport: { width: 375, height: 480 } });
+
+  test('短屏：卡填满顶栏/导航之间，输入与主操作停靠其上；主动不会揭示参考句', async ({ page }) => {
+    test.setTimeout(90_000);
+    await login(page);
+    await resetSeedData(page);
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+
+    // 首卡为 give up 表达题（会话序第 1）
+    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+
+    const card = page.locator('article').first();
+    const nav = page.locator('nav.fixed');
+    const cardBox = (await card.boundingBox())!;
+    const navBox = (await nav.boundingBox())!;
+    expect(cardBox, '卡面应有占位高度').not.toBeNull();
+    // 卡填满顶栏与底部导航之间的可用高度，且不被导航覆盖
+    expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(navBox.y + 2);
+    expect(navBox.y - (cardBox.y + cardBox.height)).toBeLessThanOrEqual(2);
+
+    // 输入框与提交按钮完整落在视口内、导航之上（键盘弹出同理：停靠底部）
+    const inputBox = (await page.getByLabel('表达答案').boundingBox())!;
+    const submitBox = (await page.getByRole('button', { name: '提交' }).boundingBox())!;
+    expect(inputBox.y).toBeLessThan(submitBox.y);
+    expect(submitBox.y + submitBox.height).toBeLessThanOrEqual(navBox.y + 1);
+    expect(submitBox.y + submitBox.height).toBeLessThanOrEqual(480);
+
+    // 主动不会：参考句/用法揭示、无纠错 diff，手动下一题
+    await page.getByRole('button', { name: '不会表达' }).click();
+    await expect(page.getByText('主动不会')).toBeVisible();
+    await expect(page.getByText('The constant stress makes me want to give up.')).toBeVisible();
+    await expect(page.getByText('允许正常时态和人称变化。')).toBeVisible();
+    await expect(page.getByText('纠正后')).toHaveCount(0);
+    await page.getByRole('button', { name: '下一题' }).click();
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
   });
 });

@@ -30,7 +30,7 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
   }
 
   return (
-    <article className="relative rounded-xl border border-border bg-card p-5 pt-4">
+    <article className="relative flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-5 pt-4">
       {/* 右上角操作：绝对定位，与词行同高（词行 pr-12 让位） */}
       <div className="absolute right-3 top-3 z-10">
         {result && (
@@ -47,7 +47,7 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
 
       {/* 回看/已答：顶部显示考的单词（learn/understanding 由 RecallCard 自带词行，不重复） */}
       {(result !== null || readOnly) && task.taskType !== 'learn' && task.taskType !== 'understanding' && (
-        <div className="mb-3 flex items-baseline gap-2 pr-12">
+        <div className="mb-3 flex shrink-0 items-baseline gap-2 pr-12">
           <h3 className="text-lg font-semibold text-foreground">{task.item.target}</h3>
           {task.item.type === 'word' && task.item.ipa !== null && (
             <span className="text-sm text-muted-foreground">{task.item.ipa}</span>
@@ -98,7 +98,7 @@ export function TaskCard({ task, result, readOnly, onAnswered, onAdvance }: Prop
         <div
           role="dialog"
           aria-label="标记坏题"
-          className="mt-4 space-y-3 rounded-lg border border-border p-4"
+          className="mt-4 shrink-0 space-y-3 rounded-lg border border-border p-4"
         >
           <div className="space-y-1">
             <p className="text-sm text-foreground">标记坏题</p>

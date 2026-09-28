@@ -16,6 +16,7 @@ export function ClozeQuestionView({ task, question, result, onAnswered, onAdvanc
 
   return (
     <ClozeQuestionCard
+      variant="today"
       question={question}
       result={result}
       pending={answer.isPending}
@@ -29,6 +30,12 @@ export function ClozeQuestionView({ task, question, result, onAnswered, onAdvanc
               ...(meta.viewedSource ? { viewedSource: true } : {}),
             },
           },
+          { onSuccess: onAnswered },
+        )
+      }
+      onGiveUp={() =>
+        answer.mutate(
+          { taskId: task.taskId, body: { giveUp: true } },
           { onSuccess: onAnswered },
         )
       }

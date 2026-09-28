@@ -70,9 +70,11 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
     await screen.findByRole('heading', { name: 'stable' });
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
 
-    // 显示答案 → 没想起来 → 自动前进到 make sense
+    // 显示答案 → 没想起来 → 留在当前卡看揭示 → 手动下一题进 make sense
     fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
     fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
     expect(await screen.findByRole('heading', { name: 'make sense' })).toBeVisible();
 
     // 回看 stable → 坏题 confirm → POST task-1

@@ -136,6 +136,48 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     }
   });
 
+  it('不会表达：POST {giveUp:true} 不调批改；展示参考句与用法说明、无纠错 diff，手动下一题', async () => {
+    const statusQueue = [makeActive(makeProductionTask(), { completed: 1, total: 6 })];
+    stubApi({
+      '/api/today': () =>
+        statusQueue.shift() ?? makeActive(nextTask(), { completed: 2, total: 6 }),
+      '/api/today/tasks/task-prod/answer': makeProductionAnswer({
+        result: 'fail',
+        correct: false,
+        gaveUp: true,
+        submittedAnswerText: null,
+        explanation: null,
+        referenceAnswer: 'The constant stress makes me want to give up.',
+        answerNote: '允许正常时态与人称变化。',
+        correction: null,
+        personalExampleSaved: false,
+      }),
+    });
+    renderTodayApp();
+
+    fireEvent.click(await screen.findByRole('button', { name: '不会表达' }));
+
+    await waitFor(() => {
+      expect(apiCalls('/api/today/tasks/task-prod/answer')).toHaveLength(1);
+    });
+    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-prod/answer')[0])).toEqual({ giveUp: true });
+
+    // 留在当前卡：判定 + 参考句/用法说明（表达题给-up 揭示来自绑定题目 payload）
+    expect(await screen.findByText('主动不会')).toBeVisible();
+    expect(screen.getByText('The constant stress makes me want to give up.')).toBeVisible();
+    expect(screen.getByText('允许正常时态与人称变化。')).toBeVisible();
+    // 无批改即无最小纠错 diff，也不入个人例句
+    expect(screen.queryByText('纠正后')).not.toBeInTheDocument();
+    expect(screen.queryByText('未通过')).not.toBeInTheDocument();
+    expect(screen.queryByText('已存入个人例句')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '不会表达' })).not.toBeInTheDocument();
+
+    // 手动下一题
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
+  });
+
   it('未通过：判定 destructive、红删绿增 diff、纠正后行、betterVersion 折叠', async () => {
     stubApi({
       '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
@@ -197,7 +239,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
 
     const verdict = await screen.findByText('基本通过');
-    expect(verdict.className).toContain('text-muted-foreground');
+    expect(verdict.className).toContain('text-warning');
     expect(screen.queryByText('已存入个人例句')).not.toBeInTheDocument();
   });
 

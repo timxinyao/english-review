@@ -25,6 +25,7 @@ export function ChoiceQuestionView({ task, question, result, onAnswered, onAdvan
 
   return (
     <ChoiceQuestionCard
+      variant="today"
       question={question}
       target={task.item.target}
       result={result}
@@ -39,6 +40,12 @@ export function ChoiceQuestionView({ task, question, result, onAnswered, onAdvan
               ...(meta.viewedSource ? { viewedSource: true } : {}),
             },
           },
+          { onSuccess: onAnswered },
+        )
+      }
+      onGiveUp={() =>
+        answer.mutate(
+          { taskId: task.taskId, body: { giveUp: true } },
           { onSuccess: onAnswered },
         )
       }

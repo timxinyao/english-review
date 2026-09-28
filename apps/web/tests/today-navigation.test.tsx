@@ -149,9 +149,11 @@ describe('Today 会话导航', () => {
     });
     renderTodayApp();
     await screen.findByText('第 3 / 4');
-    // 自评答错 → 自动前进到第 4 题
+    // 自评答错 → 留在当前卡看揭示 → 手动下一题到第 4 题
     fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
     fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
     await screen.findByText('第 4 / 4');
     expect(screen.getByRole('heading', { name: 'delta' })).toBeVisible();
 

@@ -115,6 +115,45 @@ describe('Today 填空题任务卡', () => {
     });
   });
 
+  it('不会填：无需输入直接 POST {giveUp:true}；留在当前卡看完整句/可接受答案/解释，手动下一题', async () => {
+    const statusQueue = [makeActive(makeClozeTask())];
+    stubApi({
+      '/api/today': () =>
+        statusQueue.shift() ??
+        makeActive(makeClozeTask({ taskId: 'task-next' }), { completed: 3, total: 5 }),
+      '/api/today/tasks/task-cloze/answer': makeWrongAnswer({
+        gaveUp: true,
+        submittedAnswerText: null,
+        acceptedAnswer: 'raw',
+        completeSentence: 'The raw data has not been processed yet.',
+        explanation: 'raw 修饰 data 表示未加工的。',
+      }),
+    });
+    renderTodayApp();
+
+    expect(await screen.findByRole('button', { name: '不会填' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '不会填' }));
+
+    await waitFor(() => {
+      expect(apiCalls('/api/today/tasks/task-cloze/answer')).toHaveLength(1);
+    });
+    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-cloze/answer')[0])).toEqual({ giveUp: true });
+
+    // 留在当前卡：主动不会与答错共享版式（完整句/可接受答案/解释 + 原句自动揭示）
+    expect(await screen.findByText('主动不会')).toBeVisible();
+    expect(screen.getByText('The raw data has not been processed yet.')).toBeVisible();
+    expect(
+      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '可接受答案：raw'),
+    ).toBeVisible();
+    expect(screen.getByText('raw 修饰 data 表示未加工的。')).toBeVisible();
+    expect(screen.getByText('Raw sugar is less sweet.')).toBeVisible();
+    // 输入与主动不会入口收起，手动下一题
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '不会填' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(await screen.findByLabelText('填空答案')).toBeVisible();
+  });
+
   it('答错：显示可接受答案、完整句子、解释并自动揭示原句（含最后一题：反馈先于完成页）', async () => {
     // 状态序列：初始填空卡 → 答错后 refetch 已完成 → 冻结反馈展示 → 手动下一题进完成页
     const statusQueue = [makeActive(makeClozeTask())];

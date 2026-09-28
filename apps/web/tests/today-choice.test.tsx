@@ -1,5 +1,6 @@
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ChoiceQuestionCard } from '../src/components/choice-question-card';
 import { api } from '../src/lib/api';
 import {
   apiCalls,
@@ -122,5 +123,110 @@ describe('Today learn 首题（Recall Card：recall 直判 + hint 选择题）',
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('ChoiceQuestionCard 统一纠错（§7.6：答错/主动不会同版式；蒙的入口移除）', () => {
+  const question = {
+    questionId: 'q-1',
+    context: null,
+    question: '"stable" 的意思是？',
+    options: [
+      { id: 'o1', text: '稳定的' },
+      { id: 'o2', text: '摇晃的' },
+      { id: 'o3', text: '昂贵的' },
+    ],
+  };
+
+  it('答对：只剩「太简单了」反馈，不出现任何蒙的入口', () => {
+    render(
+      <ChoiceQuestionCard
+        question={question}
+        result={makeCorrectAnswer({ correctOptionId: 'o1' })}
+        pending={false}
+        onSubmitOption={() => {}}
+        onAdvance={() => {}}
+        onFeedback={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('回答正确')).toBeVisible();
+    expect(screen.getByRole('button', { name: '太简单了' })).toBeVisible();
+    expect(screen.queryByText('其实是蒙的')).not.toBeInTheDocument();
+    expect(screen.queryByText('其实我蒙的')).not.toBeInTheDocument();
+  });
+
+  it('答错：勾选错误选项与正确选项、展示正确答案与理由（result.selectedOptionId 驱动，回放同样生效）', () => {
+    render(
+      <ChoiceQuestionCard
+        question={question}
+        result={makeWrongAnswer({ selectedOptionId: 'o2', correctOptionId: 'o1' })}
+        pending={false}
+        onSubmitOption={() => {}}
+        onAdvance={() => {}}
+      />,
+    );
+
+    const group = screen.getByRole('group', { name: '选项' });
+    expect(within(group).getByRole('button', { name: '摇晃的' }).className).toContain(
+      'text-destructive',
+    );
+    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain('text-success');
+    expect(within(group).getByRole('button', { name: '昂贵的' }).className).not.toContain(
+      'text-destructive',
+    );
+    expect(
+      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '正确答案：稳定的'),
+    ).toBeVisible();
+    expect(screen.getByText('stable 在这里指结构上的稳固。')).toBeVisible();
+    expect(screen.queryByText('其实我蒙的')).not.toBeInTheDocument();
+  });
+
+  it('主动不会：只勾正确选项与理由，不虚构错误选项标记；判语「主动不会」；onGiveUp 触发', () => {
+    const onGiveUp = vi.fn();
+    render(
+      <ChoiceQuestionCard
+        question={question}
+        result={makeWrongAnswer({
+          gaveUp: true,
+          selectedOptionId: null,
+          correctOptionId: 'o1',
+          explanation: 'stable 在这里指结构上的稳固。',
+        })}
+        pending={false}
+        onSubmitOption={() => {}}
+        onAdvance={() => {}}
+        onGiveUp={onGiveUp}
+      />,
+    );
+
+    expect(screen.getByText('主动不会')).toBeVisible();
+    const group = screen.getByRole('group', { name: '选项' });
+    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain('text-success');
+    expect(within(group).getByRole('button', { name: '摇晃的' }).className).not.toContain(
+      'text-destructive',
+    );
+    expect(screen.getByText('stable 在这里指结构上的稳固。')).toBeVisible();
+
+    // 答题态才有「不会」入口；冻结态提供手动下一题
+    expect(screen.queryByRole('button', { name: '不会' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '下一题' })).toBeVisible();
+  });
+
+  it('答题态：提供「不会」直接放弃入口，点击回调 onGiveUp', () => {
+    const onGiveUp = vi.fn();
+    render(
+      <ChoiceQuestionCard
+        question={question}
+        result={null}
+        pending={false}
+        onSubmitOption={() => {}}
+        onAdvance={() => {}}
+        onGiveUp={onGiveUp}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '不会' }));
+    expect(onGiveUp).toHaveBeenCalledOnce();
   });
 });

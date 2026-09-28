@@ -25,12 +25,19 @@ export function ProductionQuestionView({ task, question, result, onAnswered, onA
 
   return (
     <ProductionQuestionCard
+      variant="today"
       question={question}
       result={result}
       pending={answer.isPending}
       error={error}
       onSubmitText={(answerText) =>
         answer.mutate({ taskId: task.taskId, body: { answerText } }, { onSuccess: onAnswered })
+      }
+      onGiveUp={() =>
+        answer.mutate(
+          { taskId: task.taskId, body: { giveUp: true } },
+          { onSuccess: onAnswered },
+        )
       }
       onAdvance={onAdvance}
     />

@@ -69,14 +69,14 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
         continue;
       }
 
-      // 2) Learn 卡（gravity，Recall Card）：显示答案 → 想起来了 → 冻结反馈 → 手动下一题
+      // 2) Learn 卡（gravity，Recall Card）：显示答案 → 想起来了 → 评分即前进
       if (await page.getByText('I laugh at gravity all the time.').isVisible()) {
         await expect(page.getByRole('heading', { name: 'gravity' })).toBeVisible();
         await page.getByRole('button', { name: '显示答案' }).click();
         await expect(page.getByText('重力', { exact: true })).toBeVisible();
         await page.getByRole('button', { name: '想起来了' }).click();
-        await expect(page.getByText('想起来了', { exact: true })).toBeVisible();
-        await page.getByRole('button', { name: '下一题' }).click();
+        // 评分即前进：等自评按钮消失即已切卡
+        await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
         continue;
       }
 
@@ -91,12 +91,13 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
       }
 
       // 4) understanding Recall 卡（stable / wear down / make sense 及理解补强）：
-      //    显示答案 → 想起来了 → 冻结反馈 → 下一题（RecallCard 无默认选项组）
+      //    显示答案 → 想起来了 → 评分即前进（RecallCard 无默认选项组）
       const reveal = page.getByRole('button', { name: '显示答案' });
       if (await reveal.isVisible()) {
         await reveal.click();
         await page.getByRole('button', { name: '想起来了' }).click();
-        await page.getByRole('button', { name: '下一题' }).click();
+        // 评分即前进：等自评按钮消失即已切卡
+        await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
         continue;
       }
 

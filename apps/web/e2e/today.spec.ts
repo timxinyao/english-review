@@ -35,15 +35,13 @@ async function continueAfterCorrect(page: Page) {
   await page.getByRole('button', { name: '下一题' }).click();
 }
 
-/** understanding Recall：recalled 路径——显示答案 → 自评"想起来了" → 冻结反馈 → 下一题 */
+/** understanding Recall：recalled 路径——显示答案 → 自评"想起来了" → 评分即前进 */
 async function recallPass(page: Page, meaning: string) {
   await page.getByRole('button', { name: '显示答案' }).click();
   await expect(page.getByText(meaning, { exact: true })).toBeVisible(); // 揭示态展示 meaning
   await page.getByRole('button', { name: '想起来了' }).click();
-  // 冻结：自评按钮消失，RecallFeedback 文案"想起来了"出现
+  // 自动前进：等自评按钮消失（冻结瞬态或已切卡）
   await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
-  await expect(page.getByText('想起来了', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '下一题' }).click();
 }
 
 /**
@@ -88,7 +86,7 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
       continue;
     }
 
-    // 3) make sense：Recall recalled 路径（显示答案 → 想起来了 → 冻结"想起来了"）
+    // 3) make sense：Recall recalled 路径（显示答案 → 想起来了 → 评分即前进）
     if (await page.getByRole('heading', { name: 'make sense' }).isVisible()) {
       await recallPass(page, '讲得通');
       continue;
@@ -127,7 +125,6 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
     if (await reveal.isVisible()) {
       await reveal.click();
       await page.getByRole('button', { name: '想起来了' }).click();
-      await page.getByRole('button', { name: '下一题' }).click();
       continue;
     }
     const optionButtons = page.getByRole('group', { name: '选项' }).getByRole('button');

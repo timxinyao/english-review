@@ -97,13 +97,23 @@ describe('Recall Card（understanding）', () => {
     expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
   });
 
-  it('评分即前进刷新期间：不闪现反馈页，显示加载占位', async () => {
+  it('评分即前进：刷新落地前用预取队列直接渲染下一题（无占位、无反馈闪现）', async () => {
     let answered = false;
     stubApi({
       '/api/today': () => {
         if (!answered) return makeActive(makeChoiceTask(), { completed: 1, total: 4 });
-        return new Promise(() => {}); // 刷新挂起：钉住占位窗口
+        return new Promise(() => {}); // 状态刷新挂起：钉住乐观窗口
       },
+      '/api/today/tasks': () =>
+        answered
+          ? makeTasksResponse([
+              makeSessionEntry(makeChoiceTask(), recalledAnswer()),
+              makeSessionEntry(secondTask(), null),
+            ])
+          : makeTasksResponse([
+              makeSessionEntry(makeChoiceTask(), null),
+              makeSessionEntry(secondTask(), null),
+            ]),
       '/api/today/tasks/task-1/answer': () => {
         answered = true;
         return recalledAnswer();
@@ -117,11 +127,35 @@ describe('Recall Card（understanding）', () => {
     await waitFor(() => {
       expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1);
     });
-    // 刷新未落地：无反馈页（判语/下一题/坏题都不出现），也不提前切卡
-    expect(await screen.findByText('正在加载下一题…')).toBeVisible();
+    // 无占位：直接渲染预取队列的下一题（ambitious），不带旧题反馈与兜底按钮
+    expect(await screen.findByRole('heading', { name: 'ambitious' })).toBeVisible();
+    expect(screen.queryByText('正在加载下一题…')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
-    expect(screen.queryByText('想起来了')).not.toBeInTheDocument();
+    // 进度同步推进
+    expect(screen.getByText('第 2 / 2')).toBeVisible();
+  });
+
+  it('评分即前进（末题）：队列无下一题时占位等待刷新（完成页统计只能来自刷新）', async () => {
+    let answered = false;
+    stubApi({
+      '/api/today': () => {
+        if (!answered) return makeActive(makeChoiceTask(), { completed: 0, total: 1 });
+        return new Promise(() => {});
+      },
+      '/api/today/tasks': makeTasksResponse([makeSessionEntry(makeChoiceTask(), null)]),
+      '/api/today/tasks/task-1/answer': () => {
+        answered = true;
+        return recalledAnswer();
+      },
+    });
+    renderTodayApp();
+
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(screen.getByRole('button', { name: '想起来了' }));
+
+    expect(await screen.findByText('正在加载下一题…')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'ambitious' })).not.toBeInTheDocument();
   });
 
   it('没想起来：POST {recall:"forgot"} → 自动进入下一题（释义在揭示态已看过）', async () => {

@@ -191,7 +191,7 @@ interface ActiveSessionProps {
   progress: TodayProgress | null;
   currentTask: TodayTaskView | null;
   frozen: FrozenAnswer | null;
-  /** 评分即前进的刷新窗口：true 时不渲染旧卡反馈页，占位等待切卡（回看不受影响） */
+  /** 评分即前进的刷新窗口（autoAdvance 且刷新未失败）：true 时乐观渲染预取队列的下一题 */
   advancing?: boolean;
   onAnswered: (frozen: FrozenAnswer) => void;
   onAdvance: () => void;
@@ -232,16 +232,33 @@ export function ActiveSession({
     [onAnswered],
   );
 
-  const shownIdx = cursor ?? currentIdx;
-  const entry = entries && shownIdx !== null && shownIdx < entries.length ? entries[shownIdx]! : null;
   const isCurrent = cursor === null;
+  // 乐观直切（评分即前进）：状态刷新落地前，用预取队列直接渲染下一题——服务端补强
+  // 至少插在当前题 3 位之后（TECHNICAL §7.2），紧跟下一题稳定；末题无 entry 回落占位。
+  // 刷新落地 advance() 后 frozen 清空、currentTask 接管，同一 taskId 无感衔接；
+  // 刷新失败（advancing=false）仍回落旧题反馈页人工兜底。
+  const optimisticEntry =
+    isCurrent && advancing && entries !== null && currentIdx !== null && currentIdx + 1 < entries.length
+      ? entries[currentIdx + 1]!
+      : null;
+  const usableOptimistic =
+    optimisticEntry && !optimisticEntry.canceled && optimisticEntry.result === null
+      ? optimisticEntry
+      : null;
+  const displayIdx = usableOptimistic && currentIdx !== null ? currentIdx + 1 : currentIdx;
+  // 窗口内但无可乐观的下一题（末题/队列未就绪）：占位等待，不渲染旧题反馈页
+  const optimisticHold = isCurrent && advancing === true && !usableOptimistic;
+  const shownIdx = cursor ?? displayIdx;
+  const entry = entries && shownIdx !== null && shownIdx < entries.length ? entries[shownIdx]! : null;
   // 当前题视图必须信任 props（frozen/currentTask）：作答后 invalidate refetch 落地时
   // 批量 entries 已指向新的当前题，取 entry.task 会渲染"新题卡 + 旧题反馈"错配，
   // 坏题等操作也会 mutate 到错误的 taskId
   const shownTask = isCurrent
-    ? (frozen?.task ?? currentTask ?? entry?.task)
+    ? (usableOptimistic?.task ?? frozen?.task ?? currentTask ?? entry?.task)
     : (entry?.task ?? frozen?.task ?? currentTask);
-  const shownResult = isCurrent ? (frozen?.result ?? null) : (entry?.result ?? null);
+  const shownResult = isCurrent
+    ? (usableOptimistic ? null : (frozen?.result ?? null))
+    : (entry?.result ?? null);
   // 回看（列表只点已完成条目或"当前"）：cursor 只指向已完成条目
   const reviewing = cursor !== null;
 
@@ -257,7 +274,7 @@ export function ActiveSession({
       <ProgressRow
         progress={progress}
         entries={entries}
-        currentIdx={currentIdx}
+        currentIdx={displayIdx}
         shownIdx={shownIdx}
         autoSpeak={autoSpeak}
         onToggleAutoSpeak={() => {
@@ -270,7 +287,7 @@ export function ActiveSession({
         onJump={(i) => setCursor(i)}
       />
 
-      {shownTask && !(advancing && !reviewing) ? (
+      {shownTask && !optimisticHold ? (
         <TaskCard
           key={shownTask.taskId}
           task={shownTask}

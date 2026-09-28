@@ -191,6 +191,8 @@ interface ActiveSessionProps {
   progress: TodayProgress | null;
   currentTask: TodayTaskView | null;
   frozen: FrozenAnswer | null;
+  /** 评分即前进的刷新窗口：true 时不渲染旧卡反馈页，占位等待切卡（回看不受影响） */
+  advancing?: boolean;
   onAnswered: (frozen: FrozenAnswer) => void;
   onAdvance: () => void;
 }
@@ -199,6 +201,7 @@ export function ActiveSession({
   progress,
   currentTask,
   frozen,
+  advancing,
   onAnswered,
   onAdvance,
 }: ActiveSessionProps) {
@@ -267,7 +270,7 @@ export function ActiveSession({
         onJump={(i) => setCursor(i)}
       />
 
-      {shownTask ? (
+      {shownTask && !(advancing && !reviewing) ? (
         <TaskCard
           key={shownTask.taskId}
           task={shownTask}

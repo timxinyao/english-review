@@ -97,6 +97,33 @@ describe('Recall Card（understanding）', () => {
     expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
   });
 
+  it('评分即前进刷新期间：不闪现反馈页，显示加载占位', async () => {
+    let answered = false;
+    stubApi({
+      '/api/today': () => {
+        if (!answered) return makeActive(makeChoiceTask(), { completed: 1, total: 4 });
+        return new Promise(() => {}); // 刷新挂起：钉住占位窗口
+      },
+      '/api/today/tasks/task-1/answer': () => {
+        answered = true;
+        return recalledAnswer();
+      },
+    });
+    renderTodayApp();
+
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(screen.getByRole('button', { name: '想起来了' }));
+
+    await waitFor(() => {
+      expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1);
+    });
+    // 刷新未落地：无反馈页（判语/下一题/坏题都不出现），也不提前切卡
+    expect(await screen.findByText('正在加载下一题…')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
+    expect(screen.queryByText('想起来了')).not.toBeInTheDocument();
+  });
+
   it('没想起来：POST {recall:"forgot"} → 自动进入下一题（释义在揭示态已看过）', async () => {
     const statusQueue = [makeActive(makeChoiceTask(), { completed: 1, total: 4 })];
     stubApi({
@@ -232,7 +259,7 @@ describe('Recall Card（understanding）', () => {
     expect(verdict.className).toContain('text-success');
     expect(screen.queryByText('没想起来')).not.toBeInTheDocument();
     // 刷新失败不自动前进：人工兜底入口仍在
-    expect(screen.getByRole('button', { name: '下一题' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
     expect(screen.getByRole('button', { name: '坏题' })).toBeVisible();
   });
 
@@ -257,7 +284,7 @@ describe('Recall Card（understanding）', () => {
     expect(verdict.className).toContain('text-destructive');
     expect(screen.getByText('稳定的')).toBeVisible();
     expect(screen.getByText('The ladder feels stable.')).toBeVisible();
-    expect(screen.getByRole('button', { name: '下一题' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
   });
 
   it('历史 outcomeSource=NULL 且 readOnly（result=null）：中性回看——仅 meaning，无判定文案', () => {

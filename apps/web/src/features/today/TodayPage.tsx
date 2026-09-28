@@ -27,6 +27,8 @@ export function TodayPage() {
   const isActive = data?.status === 'active';
   // completed + frozen：会话已结束但还在展示最后一题的作答反馈
   const showSession = isActive || frozen !== null;
+  // 评分即前进的刷新窗口：不渲染旧卡反馈页（防"下一题"页面闪现），占位到切卡；失败时回落反馈页
+  const advancing = frozen?.autoAdvance === true && !isError;
 
   return (
     <section className="space-y-4">
@@ -46,6 +48,7 @@ export function TodayPage() {
           progress={isActive ? data.progress : (frozen?.result.progress ?? null)}
           currentTask={isActive ? data.currentTask : null}
           frozen={frozen}
+          advancing={advancing}
           onAnswered={setFrozen}
           onAdvance={advance}
         />

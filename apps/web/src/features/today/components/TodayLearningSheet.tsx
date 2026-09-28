@@ -178,7 +178,14 @@ function RecordRow({ entry }: { entry: SessionTaskEntry }) {
           >
             <span className="text-xs text-muted-foreground">标记坏题将撤销本次作答影响</span>
             <span className="flex shrink-0 gap-1">
-              <Button variant="ghost" size="sm" onClick={() => setConfirmBad(false)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  badQuestion.reset();
+                  setConfirmBad(false);
+                }}
+              >
                 取消
               </Button>
               <Button

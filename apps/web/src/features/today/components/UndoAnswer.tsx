@@ -51,6 +51,8 @@ export function UndoAnswerControl({
   const serverUndoableId = undoableTaskId;
 
   function openConfirm() {
+    // 上一次失败的信息不带到新开的确认层（目标可能已换题）
+    undo.reset();
     const entry = (entries ?? []).find((e) => e.task.taskId === serverUndoableId);
     setTarget(
       entry

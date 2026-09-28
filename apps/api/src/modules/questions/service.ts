@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import {
   ChoicePayload,
   ClozePayload,
@@ -79,6 +79,7 @@ export function countQuestionStock(db: DbExecutor, itemId: string, type: Questio
 
 /**
  * 从练习池取一题：fresh/active 中按 last_used_at 最旧优先（null 最先，从未用过的先出）。
+ * excludeQuestionIds：跳过指定题目（Today 撤销替代题必须与原题不同，TECHNICAL_DESIGN §7.5）。
  * 取出即置 status='active'、use_count+1、last_used_at=now（同步执行，可在事务内调用）。
  * 无库存返回 null。
  */
@@ -87,7 +88,9 @@ export function acquireQuestion(
   itemId: string,
   type: QuestionPoolType,
   now: Date,
+  excludeQuestionIds?: string[],
 ): QuestionRow | null {
+  const excluded = excludeQuestionIds ?? [];
   const candidate = db
     .select()
     .from(questions)
@@ -96,6 +99,7 @@ export function acquireQuestion(
         eq(questions.learningItemId, itemId),
         eq(questions.type, type),
         inArray(questions.status, ['fresh', 'active']),
+        excluded.length > 0 ? notInArray(questions.id, excluded) : undefined,
       ),
     )
     // SQLite：IS NULL DESC 让 NULL 排最前（从未使用优先），其次按时间升序

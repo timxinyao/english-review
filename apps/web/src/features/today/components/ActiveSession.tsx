@@ -17,6 +17,7 @@ export const TYPE_LABEL: Record<TodayTaskView['taskType'], string> = {
 export interface FrozenAnswer {
   task: TodayTaskView;
   result: AnswerResponse;
+  autoAdvance?: boolean;
 }
 
 /** 进度行：当前位置数字 + 按题完成着色分段 + 全量任务弹层 */
@@ -221,9 +222,9 @@ export function ActiveSession({
   }, [entries, currentTask, frozen]);
 
   const handleAnswered = useCallback(
-    (task: TodayTaskView, result: AnswerResponse) => {
+    (task: TodayTaskView, result: AnswerResponse, opts?: { autoAdvance?: boolean }) => {
       setCursor(null); // 确保回到当前
-      onAnswered({ task, result });
+      onAnswered({ task, result, autoAdvance: opts?.autoAdvance });
     },
     [onAnswered],
   );
@@ -272,8 +273,8 @@ export function ActiveSession({
           task={shownTask}
           result={shownResult}
           readOnly={reviewing}
-          onAnswered={reviewing ? undefined : (result) => handleAnswered(shownTask, result)}
-          onAdvance={reviewing ? undefined : onAdvance}
+          onAnswered={reviewing ? undefined : (result, opts) => handleAnswered(shownTask, result, opts)}
+          onAdvance={reviewing ? () => setCursor(null) : onAdvance}
         />
       ) : (
         <p className="py-16 text-center text-sm text-muted-foreground">正在加载下一题…</p>

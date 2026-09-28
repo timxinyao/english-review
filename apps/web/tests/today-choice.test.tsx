@@ -98,7 +98,7 @@ describe('Today learn 首题（Recall Card：recall 直判 + hint 选择题）',
     });
   });
 
-  it('答对：不自动跳题，点"下一题"按钮推进（与答错统一）', async () => {
+  it('答对：refetch 成功后自动推进（评分即前进，无需点下一题）', async () => {
     vi.useFakeTimers();
     try {
       const statusQueue = [makeActive(makeLearnTask())];
@@ -112,28 +112,13 @@ describe('Today learn 首题（Recall Card：recall 直判 + hint 选择题）',
         await vi.advanceTimersByTimeAsync(0);
       });
 
-      // recall 直判：显示答案 → 想起来了
       fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
       fireEvent.click(screen.getByRole('button', { name: '想起来了' }));
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(50);
       });
-      expect(screen.getByText('想起来了')).toBeVisible();
-
-      // 越过原 4s 自动跳题窗口：仍停留冻结反馈（下一张卡未出现）
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000);
-      });
-      expect(screen.getByText('想起来了')).toBeVisible();
-      expect(screen.queryByText('"gravity" 的意思是？')).toBeNull();
-
-      // 统一手动"下一题"按钮推进
-      fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
-      expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
       expect(screen.getByRole('heading', { name: 'stable' })).toBeVisible();
+      expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }

@@ -63,8 +63,7 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
   });
 
-  it('显示答案：meaning 展示、[没想起来][想起来了]；点想起来了 → POST {recall:"recalled"} → 冻结"想起来了"', async () => {
-    // notes 链路：fixture 带笔记，揭示态默认展开
+  it('显示答案：meaning 展示、[没想起来][想起来了]；点想起来了 → POST {recall:"recalled"} → 自动进入下一题', async () => {
     const withNotes = makeChoiceTask({
       item: { id: 'item-1', type: 'word', target: 'stable', meaning: '稳定的', ipa: '/ˈsteɪbl/', notes: '也作名词：马厩' },
     });
@@ -80,15 +79,12 @@ describe('Recall Card（understanding）', () => {
     expect(await screen.findByText('稳定的')).toBeVisible();
     expect(screen.getByRole('button', { name: '没想起来' })).toBeVisible();
     expect(screen.getByRole('button', { name: '想起来了' })).toBeVisible();
-    // notes 默认展开（2026-09-28 用户改版：揭示即可见，无需手动展开）
-    expect(screen.getByText('笔记')).toBeVisible();
     const notesDetails = screen.getByText('笔记').closest('details');
-    expect(notesDetails).not.toBeNull();
     expect(notesDetails).toHaveAttribute('open');
     expect(notesDetails).toHaveTextContent('也作名词：马厩');
-    // 揭示态不再提供提示入口
     expect(screen.queryByRole('button', { name: '给我提示' })).not.toBeInTheDocument();
 
+    // 评分即前进：不出现"下一题"，refetch 落地即切下一张卡
     fireEvent.click(screen.getByRole('button', { name: '想起来了' }));
     await waitFor(() => {
       expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1);
@@ -96,22 +92,16 @@ describe('Recall Card（understanding）', () => {
     expect(jsonBodyOf(apiCalls('/api/today/tasks/task-1/answer')[0])).toEqual({
       recall: 'recalled',
     });
-
-    // 冻结反馈：recalled 文案（success 色）
-    const verdict = await verdictParagraph('想起来了');
-    expect(verdict.className).toContain('text-success');
-    // understanding 由 RecallCard 自带词行：TaskCard 顶部词行不重复
-    expect(screen.getAllByRole('heading', { name: 'stable' })).toHaveLength(1);
-
-    // 手动"下一题"推进（与其他题型一致）
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
     expect(await screen.findByRole('heading', { name: 'ambitious' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();
     expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
   });
 
-  it('没想起来：POST {recall:"forgot"} → 冻结显示正确 meaning + source_example 突出', async () => {
+  it('没想起来：POST {recall:"forgot"} → 自动进入下一题（释义在揭示态已看过）', async () => {
+    const statusQueue = [makeActive(makeChoiceTask(), { completed: 1, total: 4 })];
     stubApi({
-      '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }),
+      '/api/today': () =>
+        statusQueue.shift() ?? makeActive(secondTask(), { completed: 1, total: 2 }),
       '/api/today/tasks/task-1/answer': forgotAnswer(),
     });
     renderTodayApp();
@@ -125,12 +115,7 @@ describe('Recall Card（understanding）', () => {
     expect(jsonBodyOf(apiCalls('/api/today/tasks/task-1/answer')[0])).toEqual({
       recall: 'forgot',
     });
-
-    const verdict = await verdictParagraph('没想起来');
-    expect(verdict.className).toContain('text-destructive');
-    // 正确释义揭示 + source_example 突出块（原句样式）
-    expect(screen.getByText('稳定的')).toBeVisible();
-    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'ambitious' })).toBeVisible();
   });
 
   it('Hint：点给我提示出现选择题；选对 → POST {selectedOptionId, hintUsed:true} → 冻结"提示后想起（基础通过）"', async () => {
@@ -225,11 +210,18 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
   });
 
-  // 历史数据（outcomeSource=NULL）冻结回退：按 result 渲染
-  it('历史 outcomeSource=NULL：result.correct=true 冻结回退"想起来了"', async () => {
+  // refetch 失败兜底：自评后停留冻结反馈（历史 outcomeSource=NULL 按 result 回退判定文案）
+  it('refetch 失败：自评后停留冻结反馈（历史 outcomeSource=NULL 回退"想起来了"），下一题/坏题兜底仍在', async () => {
+    let answered = false;
     stubApi({
-      '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }),
-      '/api/today/tasks/task-1/answer': makeCorrectAnswer(), // 无 outcomeSource
+      '/api/today': () => {
+        if (!answered) return makeActive(makeChoiceTask(), { completed: 1, total: 4 });
+        throw new Error('network down');
+      },
+      '/api/today/tasks/task-1/answer': () => {
+        answered = true;
+        return makeCorrectAnswer(); // 无 outcomeSource → 历史回退
+      },
     });
     renderTodayApp();
 
@@ -239,12 +231,22 @@ describe('Recall Card（understanding）', () => {
     const verdict = await verdictParagraph('想起来了');
     expect(verdict.className).toContain('text-success');
     expect(screen.queryByText('没想起来')).not.toBeInTheDocument();
+    // 刷新失败不自动前进：人工兜底入口仍在
+    expect(screen.getByRole('button', { name: '下一题' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '坏题' })).toBeVisible();
   });
 
-  it('历史 outcomeSource=NULL：result.correct=false 冻结回退"没想起来"+释义揭示', async () => {
+  it('refetch 失败：历史 outcomeSource=NULL 回退"没想起来"+释义揭示', async () => {
+    let answered = false;
     stubApi({
-      '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }),
-      '/api/today/tasks/task-1/answer': makeWrongAnswer(), // 无 outcomeSource
+      '/api/today': () => {
+        if (!answered) return makeActive(makeChoiceTask(), { completed: 1, total: 4 });
+        throw new Error('network down');
+      },
+      '/api/today/tasks/task-1/answer': () => {
+        answered = true;
+        return makeWrongAnswer(); // 无 outcomeSource → 历史回退
+      },
     });
     renderTodayApp();
 
@@ -255,6 +257,7 @@ describe('Recall Card（understanding）', () => {
     expect(verdict.className).toContain('text-destructive');
     expect(screen.getByText('稳定的')).toBeVisible();
     expect(screen.getByText('The ladder feels stable.')).toBeVisible();
+    expect(screen.getByRole('button', { name: '下一题' })).toBeVisible();
   });
 
   it('历史 outcomeSource=NULL 且 readOnly（result=null）：中性回看——仅 meaning，无判定文案', () => {
@@ -312,13 +315,9 @@ describe('learn 分派 RecallCard（新词首触即回忆）', () => {
       recall: 'recalled',
     });
 
-    // 冻结反馈 + 词行不重复（learn 与 understanding 一样由 RecallCard 自带词行）
-    expect(await verdictParagraph('想起来了')).toBeVisible();
-    expect(screen.getAllByRole('heading', { name: 'gravity' })).toHaveLength(1);
-
-    // 手动"下一题"推进
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    // 评分即前进：refetch 落地自动到下一张卡（learn 与 understanding 同路径）
     expect(await screen.findByRole('heading', { name: 'ambitious' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'gravity' })).not.toBeInTheDocument();
     expect(apiMock.mock.calls.filter(([p]) => p === '/api/today')).toHaveLength(2);
   });
 });

@@ -122,14 +122,11 @@ describe('Today 会话导航', () => {
     await screen.findByText('第 3 / 4');
   });
 
-  it('冻结错配回归：答错后 refetch 落地仍显示原题反馈，坏题提交到原题 taskId', async () => {
-    // 作答后桩切换快照：t3 完成(fail)、currentTask=t4、entries 更新（模拟 invalidate refetch 落地）
+  it('坏题入口在回看：自评自动前进后，列表回看已答题可标记坏题并返回当前题', async () => {
     let answered = false;
     stubApi({
       '/api/today': () =>
-        answered
-          ? makeActive(t4, { completed: 3, total: 4 })
-          : makeActive(t3, { completed: 2, total: 4 }),
+        answered ? makeActive(t4, { completed: 3, total: 4 }) : makeActive(t3, { completed: 2, total: 4 }),
       '/api/today/tasks': () =>
         answered
           ? makeTasksResponse([
@@ -148,28 +145,34 @@ describe('Today 会话导航', () => {
         answered = true;
         return makeWrongAnswer();
       },
-      '/api/today/tasks/task-3/bad-question': { ok: true, progress: { completed: 3, total: 4 } },
+      '/api/today/tasks/task-3/bad-question': { ok: true, progress: { completed: 2, total: 4 } },
     });
     renderTodayApp();
     await screen.findByText('第 3 / 4');
-    // understanding Recall：显示答案 → 没想起来
+    // 自评答错 → 自动前进到第 4 题
     fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
     fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
-    await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === '没想起来');
-    // 等 invalidate refetch 落地（t3 变为已完成段），反馈仍冻结在 t3 的题面上
-    await waitFor(() => expect(document.querySelectorAll('[data-seg="done"]')).toHaveLength(3));
-    expect(screen.getByRole('heading', { name: 'gamma' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'delta' })).toBeNull();
-    // 坏题必须 mutate 到冻结的旧题 task-3，而非 refetch 后的当前题 task-4
+    await screen.findByText('第 4 / 4');
+    expect(screen.getByRole('heading', { name: 'delta' })).toBeVisible();
+
+    // 回看 t3（gamma）：冻结反馈 + 坏题入口；坏题必须提交到被回看的 task-3
+    fireEvent.click(screen.getByRole('button', { name: '查看任务列表' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: '任务列表' })).getByRole('button', { name: /gamma/ }),
+    );
+    await screen.findByText('第 3 / 4');
     fireEvent.click(screen.getByRole('button', { name: '坏题' }));
     fireEvent.click(await screen.findByRole('button', { name: '确定' }));
     await waitFor(() => {
       expect(apiCalls('/api/today/tasks/task-3/bad-question')).toHaveLength(1);
     });
     expect(apiCalls('/api/today/tasks/task-4/bad-question')).toHaveLength(0);
+    // 坏题成功后返回当前题
+    await screen.findByText('第 4 / 4');
+    expect(screen.getByRole('heading', { name: 'delta' })).toBeVisible();
   });
 
-  it('答对：显示"下一题"按钮，点击推进；不再自动跳题', async () => {
+  it('答对：refetch 成功后自动推进到下一题（评分即前进）', async () => {
     let answered = false;
     stubApi({
       '/api/today': () =>
@@ -195,18 +198,12 @@ describe('Today 会话导航', () => {
     });
     renderTodayApp();
     await screen.findByText('第 3 / 4');
-    // understanding Recall：显示答案 → 想起来了
     fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
     fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
-    await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === '想起来了');
-    // 不自动跳：超过原 4s 窗口仍停留本题反馈
-    await new Promise((r) => setTimeout(r, 5000));
-    expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '想起来了')).toBeVisible();
-    expect(screen.queryByText('第 4 / 4')).toBeNull();
-    // 统一手动下一题按钮
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    // 无需点"下一题"：refetch 落地即到第 4 题
     await screen.findByText('第 4 / 4');
-  }, 15_000);
+    expect(screen.getByRole('heading', { name: 'delta' })).toBeVisible();
+  });
 
   it('任务列表弹层 portal 到 body：脱离业务容器层叠上下文；点遮罩可关闭', async () => {
     stubSession();

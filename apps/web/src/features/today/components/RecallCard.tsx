@@ -18,7 +18,7 @@ interface Props {
   result: AnswerResponse | null;
   outcomeSource: AnswerResponse['outcomeSource'];
   readOnly?: boolean;
-  onAnswered: (result: AnswerResponse) => void;
+  onAnswered: (result: AnswerResponse, opts?: { autoAdvance?: boolean }) => void;
   onAdvance: () => void;
 }
 
@@ -29,17 +29,14 @@ function RecallFeedback({
   task,
   result,
   outcomeSource,
-  readOnly,
   onAdvance,
 }: {
   task: TodayTaskView;
   result: AnswerResponse | null;
   outcomeSource: AnswerResponse['outcomeSource'];
-  readOnly?: boolean;
   onAdvance: () => void;
 }) {
   const unknown = outcomeSource !== 'recalled' && outcomeSource !== 'assisted' && outcomeSource !== 'forgot';
-  const neutral = unknown && result === null && readOnly === true;
   const recalled = outcomeSource === 'recalled' || (unknown && result?.correct === true);
   const assisted = outcomeSource === 'assisted';
   const forgot = outcomeSource === 'forgot' || (unknown && result !== null && !result.correct);
@@ -86,8 +83,8 @@ export function RecallCard({
   const frozen = result !== null || readOnly;
   const word = task.item;
 
-  function submit(body: AnswerRequest) {
-    answer.mutate({ taskId: task.taskId, body }, { onSuccess: onAnswered });
+  function submit(body: AnswerRequest, opts?: { autoAdvance?: boolean }) {
+    answer.mutate({ taskId: task.taskId, body }, { onSuccess: (result) => onAnswered(result, opts) });
   }
 
   return (
@@ -145,14 +142,14 @@ export function RecallCard({
               variant="outline"
               className="flex-1"
               disabled={answer.isPending}
-              onClick={() => submit({ recall: 'forgot' })}
+              onClick={() => submit({ recall: 'forgot' }, { autoAdvance: true })}
             >
               没想起来
             </Button>
             <Button
               className="flex-1"
               disabled={answer.isPending}
-              onClick={() => submit({ recall: 'recalled' })}
+              onClick={() => submit({ recall: 'recalled' }, { autoAdvance: true })}
             >
               想起来了
             </Button>
@@ -180,7 +177,6 @@ export function RecallCard({
           task={task}
           result={result}
           outcomeSource={outcomeSource}
-          readOnly={readOnly}
           onAdvance={onAdvance}
         />
       )}

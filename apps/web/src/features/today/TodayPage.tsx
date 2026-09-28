@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { useTodayStatus } from './api';
 import { ActiveSession, type FrozenAnswer } from './components/ActiveSession';
@@ -11,9 +11,18 @@ import { IdleToday } from './components/IdleToday';
  * 仍先展示该题反馈，advance 后才进入完成摘要。
  */
 export function TodayPage() {
-  const { data, isLoading, isError, refetch } = useTodayStatus();
+  const { data, isLoading, isError, isFetching, refetch } = useTodayStatus();
   const [frozen, setFrozen] = useState<FrozenAnswer | null>(null);
   const advance = useCallback(() => setFrozen(null), []);
+
+  // Recall 评分即前进：自评后等状态刷新成功再 advance；失败停留反馈页人工兜底。
+  // useAnswer 的 onSuccess invalidate 已触发 /api/today 刷新，这里只消费其结果，
+  // 不再显式 refetch（否则与 invalidate 叠加成两次请求）。
+  useEffect(() => {
+    if (!frozen?.autoAdvance) return;
+    if (isError || isFetching) return;
+    advance();
+  }, [frozen, isError, isFetching, advance]);
 
   const isActive = data?.status === 'active';
   // completed + frozen：会话已结束但还在展示最后一题的作答反馈

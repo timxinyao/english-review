@@ -14,7 +14,7 @@ interface Props {
   result: AnswerResponse | null;
   /** 回看模式：禁用答题交互，仅展示冻结结果 */
   readOnly?: boolean;
-  onAnswered?: (result: AnswerResponse) => void;
+  onAnswered?: (result: AnswerResponse, opts?: { autoAdvance?: boolean }) => void;
   onAdvance?: () => void;
 }
 

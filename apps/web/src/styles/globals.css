@@ -105,9 +105,10 @@ body {
 }
 
 /*
- * Today 活动卡可用高度：视口 - 顶栏 - 主内容顶部呼吸(0.75rem=pt-3) - 底部导航。
- * dvh 随键盘/工具栏收放，键盘弹出时 dock（输入+主操作）仍留在可视区内。
+ * Today 活动卡可用高度：视口 - 顶栏 - 主内容顶部呼吸(0.75rem=pt-3) - 底部导航 - 键盘遮挡。
+ * 键盘期再减 --kb-inset（Task 1 全局写入，无键盘时 0px/未定义）：卡身压缩、
+ * dock（输入+主操作）停靠键盘线上；dvh 随键盘/工具栏收放兜底。
  */
 @utility h-today-viewport {
-  height: calc(100dvh - var(--header-block) - 0.75rem - var(--nav-block));
+  height: calc(100dvh - var(--header-block) - 0.75rem - var(--nav-block) - var(--kb-inset, 0px));
 }

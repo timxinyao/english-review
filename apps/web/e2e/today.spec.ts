@@ -358,4 +358,40 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
     await page.getByRole('button', { name: '下一题' }).click();
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
   });
+
+  // 键盘几何用真机高度（375x812）：注入 260px 后剩余卡高需容纳 dock 最小内容高
+  // （textarea 3 行 + 按钮行 ≈ 150px）；沿用外层 480 高时剩余仅 ~100px，
+  // dock 收不下会向键盘区溢出，断言在本机不可能成立（与 --kb-inset 无关）
+  test.describe('键盘避让（iPhone 高度）', () => {
+    test.use({ viewport: { width: 375, height: 812 } });
+
+    test('键盘避让：注入 --kb-inset 后卡身压缩、顶栏不动、输入停靠键盘线上', async ({ page }) => {
+      test.setTimeout(90_000);
+      await login(page);
+      await resetSeedData(page);
+      await page.goto('/today');
+      await page.getByRole('button', { name: '开始今日复习' }).click();
+      await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+
+      const card = page.locator('article').first();
+      const nav = page.locator('nav.fixed');
+      const header = page.locator('header.fixed');
+      const cardBefore = (await card.boundingBox())!;
+      const headerBefore = (await header.boundingBox())!;
+
+      await page.evaluate(() =>
+        document.documentElement.style.setProperty('--kb-inset', '260px'),
+      );
+
+      const cardAfter = (await card.boundingBox())!;
+      const headerAfter = (await header.boundingBox())!;
+      const navBox = (await nav.boundingBox())!;
+      expect(headerAfter.y).toBe(headerBefore.y); // 顶栏不动
+      expect(cardAfter.y).toBe(cardBefore.y); // 卡顶不动（压缩发生在底部）
+      expect(cardAfter.height).toBeLessThan(cardBefore.height); // 卡身压缩
+      expect(navBox.y - (cardAfter.y + cardAfter.height)).toBeGreaterThanOrEqual(258); // 卡底 ≈ 键盘线
+      const inputBox = (await page.getByLabel('表达答案').boundingBox())!;
+      expect(navBox.y - (inputBox.y + inputBox.height)).toBeGreaterThanOrEqual(258); // 输入框在键盘线上
+    });
+  });
 });

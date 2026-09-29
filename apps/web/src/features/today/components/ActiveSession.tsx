@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
 import { Volume2, VolumeX } from 'lucide-react';
 import { cn } from '../../../lib/utils';
+import { useKeyboardInset } from '../../../lib/keyboard-inset';
 import { speak } from '../../../lib/tts';
 import { TaskCard } from './TaskCard';
 import { TodayLearningSheet } from './TodayLearningSheet';
@@ -143,6 +144,19 @@ export function ActiveSession({
   const [autoSpeak, setAutoSpeak] = useState(
     () => localStorage.getItem('el:auto-pronounce') !== '0',
   );
+
+  // 键盘期滚动锁（spec 键盘避让）：卡高已随 --kb-inset 压缩、dock 停靠键盘线，
+  // body 再滚动会露出底下内容——活动会话内键盘弹起锁 body，收起/卸载恢复原值
+  const keyboardInset = useKeyboardInset();
+  const keyboardLocked = keyboardInset > 0;
+  useEffect(() => {
+    if (!keyboardLocked) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [keyboardLocked]);
 
   // 当前题在会话序列中的索引（以 currentTask/frozen 的 taskId 定位；兜底第一个未完成）
   const currentIdx = useMemo(() => {

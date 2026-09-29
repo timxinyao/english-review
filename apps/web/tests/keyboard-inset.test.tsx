@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 class FakeVisualViewport extends EventTarget {
@@ -21,6 +21,9 @@ describe('keyboard-inset', () => {
   });
 
   afterEach(() => {
+    // 先卸载 hook（触发各模块实例 stop 移除 window/vv 监听），
+    // 否则跨用例泄漏的 publish 会踩共享的 --kb-inset
+    cleanup();
     delete (window as { visualViewport?: unknown }).visualViewport;
     document.documentElement.style.removeProperty('--kb-inset');
   });
@@ -78,5 +81,31 @@ describe('keyboard-inset', () => {
     const { result } = renderHook(() => useKeyboardInset());
     expect(result.current).toBe(0);
     expect(document.documentElement.style.getPropertyValue('--kb-inset')).toBe('');
+  });
+
+  it('iOS 26 回弹：innerHeight 变化无 vv 事件时经 window resize/scroll 重算', async () => {
+    const vv = new FakeVisualViewport();
+    vv.height = 389;
+    (window as { visualViewport?: unknown }).visualViewport = vv;
+    const { useKeyboardInset } = await loadModule();
+    const { result, unmount } = renderHook(() => useKeyboardInset());
+    expect(result.current).toBe(455); // 844 - 389
+
+    // iOS 先把布局视口缩到 389（伴随 vv 事件）→ inset 归 0
+    setInnerHeight(389);
+    vv.dispatchEvent(new Event('resize'));
+    expect(result.current).toBe(0);
+
+    // 布局视口回弹 812，只有 window 事件、无 vv 事件 → 必须重算回 423
+    setInnerHeight(812);
+    window.dispatchEvent(new Event('resize'));
+    expect(result.current).toBe(423);
+    expect(document.documentElement.style.getPropertyValue('--kb-inset')).toBe('423px');
+
+    // 卸载后 window 监听一并移除，不再重算
+    unmount();
+    setInnerHeight(389);
+    window.dispatchEvent(new Event('scroll'));
+    expect(document.documentElement.style.getPropertyValue('--kb-inset')).toBe('423px');
   });
 });

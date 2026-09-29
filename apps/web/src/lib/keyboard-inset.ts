@@ -36,6 +36,11 @@ function start() {
   if (!vv) return;
   vv.addEventListener('resize', publish);
   vv.addEventListener('scroll', publish);
+  // iOS 26：innerHeight 随键盘异步变化（布局视口先缩后回弹），且该变化
+  // 可能不伴随任何 visualViewport 事件——补听 window 事件保证重算，
+  // 否则 inset 卡死在旧值（真机诊断 2026-09-29：ih 回弹 812 而 vv 仍 389）
+  window.addEventListener('resize', publish);
+  window.addEventListener('scroll', publish);
   publish();
 }
 
@@ -44,6 +49,8 @@ function stop() {
   if (!vv) return;
   vv.removeEventListener('resize', publish);
   vv.removeEventListener('scroll', publish);
+  window.removeEventListener('resize', publish);
+  window.removeEventListener('scroll', publish);
 }
 
 function subscribe(notify: () => void): () => void {

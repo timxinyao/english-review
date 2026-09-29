@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { stopSpeaking } from '../lib/tts';
 import { useKeyboardInset } from '../lib/keyboard-inset';
+import { KbDebugOverlay } from '../components/kb-debug-overlay';
 import { useLogout } from '../features/auth/api';
 import { Button } from '../components/ui/button';
 
@@ -94,6 +95,8 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-h-dvh flex-col pt-header-space md:pt-0">
+        {/* 【临时调试】键盘避让真机诊断浮层，问题定位后删除 */}
+        <KbDebugOverlay />
         {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
         <header className="fixed inset-x-0 top-0 z-header flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
           <div className="flex min-w-0 items-center gap-2">

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { stopSpeaking } from '../lib/tts';
+import { useKeyboardInset } from '../lib/keyboard-inset';
 import { useLogout } from '../features/auth/api';
 import { Button } from '../components/ui/button';
 
@@ -40,6 +41,7 @@ export function AppShell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [refreshed, setRefreshed] = useState(false);
+  useKeyboardInset(); // 常驻订阅：软键盘 --kb-inset 全局生效（今日卡消费）
   // Today 沉浸式会话（§5.1 一题一屏）：主内容不留移动端大留白，卡自身贴底部导航；
   // 其余页面保留 iOS 惯例的底部大留白
   const immersiveToday = pathname === '/' || pathname.startsWith('/today');

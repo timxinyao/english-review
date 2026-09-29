@@ -1,6 +1,12 @@
-import { cleanup, screen } from '@testing-library/react';
+import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeActive, makeChoiceTask, makeClozeTask, renderTodayApp, stubApi } from './today-helpers';
+import {
+  makeActive,
+  makeChoiceTask,
+  makeClozeTask,
+  renderTodayApp,
+  stubApi,
+} from './today-helpers';
 
 afterEach(cleanup);
 
@@ -75,7 +81,11 @@ describe('Today 沉浸式卡布局', () => {
         {
           ...makeClozeTask(),
           taskType: 'production',
-          question: { questionId: 'q-prod', zhPrompt: '长期的压力让我想放弃。', mustUse: 'give up' },
+          question: {
+            questionId: 'q-prod',
+            zhPrompt: '长期的压力让我想放弃。',
+            mustUse: 'give up',
+          },
         },
         { completed: 1, total: 6 },
       ),
@@ -89,5 +99,32 @@ describe('Today 沉浸式卡布局', () => {
     expect(dock!.contains(screen.getByLabelText('表达答案'))).toBe(true);
     expect(dock!.contains(screen.getByRole('button', { name: '提交' }))).toBe(true);
     expect(dock!.contains(screen.getByRole('button', { name: '不会表达' }))).toBe(true);
+  });
+
+  it('表达卡触屏先无滚动聚焦但不移动真实输入，点击后预定位底部区域', async () => {
+    stubApi({
+      '/api/today': makeActive({
+        ...makeClozeTask(),
+        taskType: 'production',
+        question: { questionId: 'q-prod', zhPrompt: '说一句话。', mustUse: 'raw' },
+      }),
+    });
+    renderTodayApp();
+    const input = await screen.findByLabelText('表达答案');
+    expect(input).not.toHaveFocus();
+
+    const touch = new Event('pointerdown', { bubbles: true, cancelable: true });
+    Object.defineProperty(touch, 'pointerType', { value: 'touch' });
+    const focusSpy = vi.spyOn(input, 'focus');
+    fireEvent(input, touch);
+    expect(touch.defaultPrevented).toBe(false);
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    expect(input).toHaveFocus();
+    expect(document.documentElement).toHaveAttribute('data-today-touch-pending');
+    expect(document.documentElement).not.toHaveAttribute('data-today-keyboard-primed');
+    fireEvent.click(input);
+    expect(document.documentElement).not.toHaveAttribute('data-today-touch-pending');
+    expect(input).toHaveFocus();
+    expect(document.documentElement).toHaveAttribute('data-today-keyboard-primed');
   });
 });

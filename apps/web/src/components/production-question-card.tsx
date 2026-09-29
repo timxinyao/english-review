@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { CorrectionDiff } from './correction-diff';
 import { PRODUCTION_VERDICTS, type QuestionAnswerResult } from './question-answer';
+import { positionTodayDockAfterClick, rememberTodayInputTouch } from '../lib/keyboard-inset';
 
 export interface ProductionQuestionData {
   questionId: string;
@@ -88,7 +89,9 @@ export function ProductionQuestionCard({
               {result.answerNote}
             </p>
           )}
-          {result.explanation && <p className="text-sm text-muted-foreground">{result.explanation}</p>}
+          {result.explanation && (
+            <p className="text-sm text-muted-foreground">{result.explanation}</p>
+          )}
         </>
       ) : (
         <>
@@ -127,6 +130,8 @@ export function ProductionQuestionCard({
               placeholder="Write your sentence in English…"
               value={text}
               disabled={pending}
+              onPointerDown={rememberTodayInputTouch}
+              onClick={positionTodayDockAfterClick}
               onChange={(e) => setText(e.target.value)}
             />
             <div className="flex items-center justify-between gap-2">

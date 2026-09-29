@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { cn } from '../lib/utils';
 import { splitClozeBlank } from '../lib/questions';
+import { positionTodayDockAfterClick, rememberTodayInputTouch } from '../lib/keyboard-inset';
 import type { QuestionAnswerResult } from './question-answer';
 
 export interface ClozeQuestionData {
@@ -102,31 +103,25 @@ export function ClozeQuestionCard({
     </p>
   );
 
-  const feedback =
-    result !== null && (
-      <div className="space-y-3">
-        <p
-          className={cn(
-            'text-sm',
-            result.correct ? 'text-success' : 'text-destructive',
-          )}
-        >
-          {result.correct ? '回答正确' : gaveUp ? '主动不会' : '回答错误'}
+  const feedback = result !== null && (
+    <div className="space-y-3">
+      <p className={cn('text-sm', result.correct ? 'text-success' : 'text-destructive')}>
+        {result.correct ? '回答正确' : gaveUp ? '主动不会' : '回答错误'}
+      </p>
+      {result.completeSentence && (
+        <p className="text-sm text-foreground">{result.completeSentence}</p>
+      )}
+      {!result.correct && result.acceptedAnswer && (
+        <p className="text-sm">
+          <span className="text-muted-foreground">可接受答案：</span>
+          {result.acceptedAnswer}
         </p>
-        {result.completeSentence && (
-          <p className="text-sm text-foreground">{result.completeSentence}</p>
-        )}
-        {!result.correct && result.acceptedAnswer && (
-          <p className="text-sm">
-            <span className="text-muted-foreground">可接受答案：</span>
-            {result.acceptedAnswer}
-          </p>
-        )}
-        {!result.correct && result.explanation && (
-          <p className="text-sm text-muted-foreground">{result.explanation}</p>
-        )}
-      </div>
-    );
+      )}
+      {!result.correct && result.explanation && (
+        <p className="text-sm text-muted-foreground">{result.explanation}</p>
+      )}
+    </div>
+  );
 
   if (variant === 'today') {
     return (
@@ -139,11 +134,12 @@ export function ClozeQuestionCard({
         {phase === 'answering' ? (
           <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
             <Input
-              autoFocus
               aria-label="填空答案"
               className="h-10 w-full"
               value={text}
               disabled={pending}
+              onPointerDown={rememberTodayInputTouch}
+              onClick={positionTodayDockAfterClick}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') submit();

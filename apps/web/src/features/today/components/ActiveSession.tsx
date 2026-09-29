@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
 import { Volume2, VolumeX } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { useKeyboardInset } from '../../../lib/keyboard-inset';
+import { useKeyboardPhase } from '../../../lib/keyboard-inset';
 import { speak } from '../../../lib/tts';
 import { TaskCard } from './TaskCard';
 import { TodayLearningSheet } from './TodayLearningSheet';
@@ -145,23 +145,18 @@ export function ActiveSession({
     () => localStorage.getItem('el:auto-pronounce') !== '0',
   );
 
-  // 键盘期滚动锁（spec 键盘避让）：卡高已随 --kb-inset 压缩、dock 停靠键盘线。
-  // iOS 键盘 reveal 会先把 document 顶起滚动（fixed 顶栏/底 nav 随视觉视口位移），
-  // overflow 锁只防后续滚动——还需立即回正并持续把 scrollY 钉回 0。
-  const keyboardInset = useKeyboardInset();
-  const keyboardLocked = keyboardInset > 0;
+  // 聚焦起锁定根滚动；失焦后仍等视觉视口恢复，避免 iOS 在键盘动画中解锁。
+  // 不再反复 scrollTo(0,0)：它会和 Safari 的输入框 reveal 互相争抢。
+  const keyboardLocked = useKeyboardPhase() !== 'idle';
   useEffect(() => {
     if (!keyboardLocked) return;
-    const prev = document.body.style.overflow;
+    const prevBody = document.body.style.overflow;
+    const prevRoot = document.documentElement.style.overflow;
     document.body.style.overflow = 'hidden';
-    window.scrollTo(0, 0);
-    const holdScroll = () => {
-      if (window.scrollY !== 0) window.scrollTo(0, 0);
-    };
-    window.addEventListener('scroll', holdScroll, { passive: true });
+    document.documentElement.style.overflow = 'hidden';
     return () => {
-      window.removeEventListener('scroll', holdScroll);
-      document.body.style.overflow = prev;
+      document.body.style.overflow = prevBody;
+      document.documentElement.style.overflow = prevRoot;
     };
   }, [keyboardLocked]);
 

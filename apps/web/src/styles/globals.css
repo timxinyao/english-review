@@ -72,6 +72,20 @@ body {
   -webkit-tap-highlight-color: transparent; /* iOS 去除点击灰块 */
 }
 
+/* 仅 ?kbdebug=1 创建：主屏 PWA 真机键盘视口诊断，不参与正常交互。 */
+.keyboard-viewport-debug {
+  @apply z-toast bg-foreground text-background;
+  position: fixed;
+  top: calc(var(--kb-offset-top, 0px) + 0.25rem);
+  left: 0.25rem;
+  max-width: calc(100vw - 0.5rem);
+  padding: 0.35rem;
+  border-radius: var(--radius);
+  font: 10px/1.35 ui-monospace, monospace;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+
 /*
  * iOS 全面屏安全区（刘海/灵动岛 + home 指示条）：
  * 顶栏只留安全区（标题贴近顶部）；底部导航用收紧版避让（菜单贴底但不压指示条）。
@@ -105,10 +119,53 @@ body {
 }
 
 /*
- * Today 活动卡可用高度：视口 - 顶栏 - 主内容顶部呼吸(0.75rem=pt-3) - 底部导航 - 键盘遮挡。
- * 键盘期再减 --kb-inset（Task 1 全局写入，无键盘时 0px/未定义）：卡身压缩、
- * dock（输入+主操作）停靠键盘线上；dvh 随键盘/工具栏收放兜底。
+ * Today 活动卡常态：视口 - 顶栏 - 顶部呼吸 - 底部导航。
+ * 键盘期改用 visualViewport.height 单独计算，避免 iOS 同时缩小 100dvh 与
+ * --kb-inset 时重复扣除键盘高度。
  */
 @utility h-today-viewport {
-  height: calc(100dvh - var(--header-block) - 0.75rem - var(--nav-block) - var(--kb-inset, 0px));
+  height: calc(100dvh - var(--header-block) - 0.75rem - var(--nav-block));
+}
+
+@media (max-width: 767px) {
+  /* 活动会话一开始就固定在同一布局模式。不跟随 WebKit 的 scrollY/offsetTop
+     追帧移动整个页面：视口事件晚于系统绘制时会产生顶栏抖动。 */
+  [data-today-route]:has(.h-today-viewport) {
+    position: fixed;
+    inset-inline: 0;
+    top: 0;
+    height: var(--kb-baseline-height, 100dvh);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  [data-today-route]:has(.h-today-viewport) > div {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* 导航占用的空间先由键盘吃掉；键盘上沿碰到卡底后，dock 逐帧跟随。
+     min 两个高度始终生效，因此不存在超过 100px 时的突然切换。 */
+  [data-today-route]:has(.h-today-viewport) .h-today-viewport {
+    height: min(
+      calc(var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block)),
+      calc(var(--kb-visible-height, 100dvh) - var(--header-block) - 0.75rem)
+    );
+  }
+
+  /* pointerdown 无滚动聚焦后，到 click 落在真实输入前不移动它的命中区域。 */
+  html[data-today-touch-pending] [data-today-route]:has(.h-today-viewport) .h-today-viewport {
+    height: calc(var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block));
+  }
+
+  /* 完整触摸 click 已落在真实输入、原生聚焦完成后预置 dock 安全高度。
+     不能在 pointerdown 时搬动输入，否则后续 click 会命中原位置下方页面。 */
+  html[data-today-keyboard-primed] [data-today-route]:has(.h-today-viewport) .h-today-viewport {
+    height: min(
+      calc(var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block)),
+      calc(var(--kb-visible-height, 100dvh) - var(--header-block) - 0.75rem),
+      calc(var(--kb-prime-visible-height, 100dvh) - var(--header-block) - 0.75rem)
+    );
+  }
 }

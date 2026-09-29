@@ -30,14 +30,35 @@ describe('Today 填空题任务卡', () => {
     });
   });
 
-  it('按空位切分句面、内嵌输入（autofocus）；提交 answerText', async () => {
+  it('切入填空题不自动弹键盘；触摸先无滚动聚焦，点击完成后才预定位输入区', async () => {
+    renderTodayApp();
+    const input = await screen.findByLabelText('填空答案');
+    expect(input).not.toHaveFocus();
+
+    const touch = new Event('pointerdown', { bubbles: true, cancelable: true });
+    Object.defineProperty(touch, 'pointerType', { value: 'touch' });
+    const focusSpy = vi.spyOn(input, 'focus');
+    fireEvent(input, touch);
+    expect(touch.defaultPrevented).toBe(false);
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    expect(input).toHaveFocus();
+    expect(document.documentElement).toHaveAttribute('data-today-touch-pending');
+    expect(document.documentElement).not.toHaveAttribute('data-today-keyboard-primed');
+
+    fireEvent.click(input);
+    expect(document.documentElement).not.toHaveAttribute('data-today-touch-pending');
+    expect(input).toHaveFocus();
+    expect(document.documentElement).toHaveAttribute('data-today-keyboard-primed');
+  });
+
+  it('按空位切分句面；提交 answerText', async () => {
     renderTodayApp();
 
     expect(await screen.findByText('The')).toBeVisible();
     expect(screen.getByText('data has not been processed yet.')).toBeVisible();
     const input = screen.getByLabelText('填空答案');
     expect(input).toBeInTheDocument();
-    expect(input).toHaveFocus();
+    expect(input).not.toHaveFocus();
     expect(screen.getByRole('button', { name: '提交' })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: 'raw' } });

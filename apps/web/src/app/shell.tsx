@@ -1,10 +1,9 @@
 import { BarChart3, BookOpen, Library, RotateCw, Settings, Sun } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { stopSpeaking } from '../lib/tts';
-import { useKeyboardInset } from '../lib/keyboard-inset';
-import { KbDebugOverlay } from '../components/kb-debug-overlay';
+import { toggleKeyboardDebug, useKeyboardPhase } from '../lib/keyboard-inset';
 import { useLogout } from '../features/auth/api';
 import { Button } from '../components/ui/button';
 
@@ -42,10 +41,13 @@ export function AppShell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [refreshed, setRefreshed] = useState(false);
-  useKeyboardInset(); // 常驻订阅：软键盘 --kb-inset 全局生效（今日卡消费）
+  const logoTaps = useRef<number[]>([]);
+  const keyboardPhase = useKeyboardPhase(); // 常驻订阅：几何由 CSS 变量更新，仅阶段变化重渲染
   // Today 沉浸式会话（§5.1 一题一屏）：主内容不留移动端大留白，卡自身贴底部导航；
   // 其余页面保留 iOS 惯例的底部大留白
   const immersiveToday = pathname === '/' || pathname.startsWith('/today');
+  const todayKeyboardAnchored = immersiveToday && keyboardPhase !== 'idle';
+  const todayKeyboardOpen = immersiveToday && keyboardPhase === 'open';
 
   // 路由切换时停止正在播放的发音
   useEffect(() => {
@@ -63,8 +65,21 @@ export function AppShell() {
     });
   }
 
+  function onLogoTap() {
+    const now = Date.now();
+    logoTaps.current = [...logoTaps.current.filter((at) => now - at < 3000), now];
+    if (logoTaps.current.length < 5) return;
+    logoTaps.current = [];
+    toggleKeyboardDebug();
+  }
+
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[220px_1fr]">
+    <div
+      className="min-h-dvh md:grid md:grid-cols-[220px_1fr]"
+      data-today-route={immersiveToday ? '' : undefined}
+      data-keyboard-anchored={todayKeyboardAnchored ? '' : undefined}
+      data-keyboard-open={todayKeyboardOpen ? '' : undefined}
+    >
       {/* PC 侧边导航：菜单项贴近顶部（用户偏好），标题与菜单间距收紧 */}
       <aside className="hidden md:flex md:flex-col md:border-r md:border-border md:px-3 md:pt-4 md:pb-6 md:sticky md:top-0 md:h-dvh md:overflow-y-auto">
         <div className="flex items-center gap-2 px-3 pb-2">
@@ -95,14 +110,12 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-h-dvh flex-col pt-header-space md:pt-0">
-        {/* 【临时调试】键盘避让真机诊断浮层，问题定位后删除 */}
-        <KbDebugOverlay />
         {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
         <header className="fixed inset-x-0 top-0 z-header flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
-          <div className="flex min-w-0 items-center gap-2">
-            <img src="/icon.svg" alt="Foxi" className="h-6 w-6 rounded-md" />
+          <button type="button" className="flex min-w-0 items-center gap-2" onClick={onLogoTap}>
+            <img src="/icon.svg" alt="" className="h-6 w-6 rounded-md" />
             <span className="text-sm font-semibold tracking-wide text-foreground">Foxi</span>
-          </div>
+          </button>
           {/* 页名绝对居中（不受左右两段宽度差影响） */}
           <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-base font-semibold text-foreground">
             {headerTitle(pathname)}
@@ -146,7 +159,12 @@ export function AppShell() {
         </main>
 
         {/* 手机底部导航：pb-safe 避开 iOS home 指示条（globals.css 定义的工具类） */}
-        <nav className="fixed inset-x-0 bottom-0 z-nav flex border-t border-border bg-background pb-safe-tight md:hidden">
+        <nav
+          className={cn(
+            'fixed inset-x-0 bottom-0 z-nav flex border-t border-border bg-background pb-safe-tight md:hidden',
+            todayKeyboardAnchored && 'hidden',
+          )}
+        >
           {MAIN_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={bottomLinkClass}>
               <Icon className="h-5 w-5" aria-hidden />

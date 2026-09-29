@@ -271,6 +271,16 @@ bad-question 必须在事务中执行：将 question 标记 bad_question；如�
 
 普通撤销不调用 bad-question 路由，不更改题目状态。替代题的获取/必要生成在事务外完成；事务内按 attempt 实际插入顺序校验 task 仍是最近一次作答，回滚快照和全部计数、void attempt、取消旧任务及其补强、插入替代任务，并清除 Session completed_at。无法取得另一道题时不改变原作答。若造句沉淀替换了既有未固定个人例句或裁剪了表达历史，普通撤销需一并恢复；若新例句随后被固定或编辑，则拒绝普通撤销，避免丢失用户修改。替代任务沿用原 origin：撤销补强题释放原配额槽位，再由替代题占用同一槽位；不会额外消耗 reinforcement 配额。Read 补强题沿用清旗语义。
 
+## 7.6 Today 输入键盘（2026-09-29 真机修正）
+
+iOS 键盘状态不得以 `innerHeight - visualViewport.height - visualViewport.offsetTop > 0` 单独判定：布局视口缩小、视觉视口平移时该差值可为 0，而键盘仍打开。Today 聚焦输入框期间依据无键盘的可视高度基线与 `visualViewport.height` 判定键盘。活动会话从进入时就固定页面壳，不在聚焦瞬间切换 `position`；页面壳高度始终采用无键盘基线，顶栏和题面不读取视觉视口 offset 进行平移。卡片高度取「基线减顶栏/导航」与「当前可视高度减顶栏」的较小值；触屏预定位期间再与键盘安全高度取较小值。键盘上沿碰到卡底后底部 dock 上移，不以键盘已打开阈值切换高度，也不同时扣 `100dvh` 与 inset。底部导航从聚焦起隐藏。滚动锁从聚焦开始，到键盘真正收起才结束，不依赖 inset 值；避免反复 `scrollTo(0,0)` 与浏览器的聚焦滚动互相争抢。其他页面维持原布局。
+
+2026-09-29 主屏 PWA 录屏复核：整页 `translateY(visualViewport.offsetTop)` 补偿仍会在 WebKit 异步更新 offset 时使顶栏/题面先上移再回弹，收键盘时闪白。废弃整页位移；顶栏、进度和题卡顶部保持固定。填空 Today 不自动聚焦，避免切题时未经用户操作弹键盘。曾在 `pointerdown` 同时移动真实输入框、`preventDefault` 并手动 `focus()`，导致同一次触摸的 click 命中输入框原位置下方页面、键盘立即收起；问题关键是 click 前移动命中区域。触摸点击完成后再预定位底部答题 dock；键盘动画期间仅 dock 跟随可视高度，题干区独立滚动。失焦且键盘实际收起后才恢复 dock 与底部导航。桌面 E2E 需覆盖完整触摸而非只派发 pointerdown。
+
+2026-09-29 真机视口读数进一步确认：键盘稳定时 `visualViewport.height=389`、`offsetTop=107`，同时 `scrollY=html.scrollTop=107`，顶栏矩形恰为 `-107..-52`、题卡为 `-41..282`。WebKit 已经滚动 document，但 fixed 页面壳并未停留在可视顶部；卡高本身恰为预置 390px。尝试在输入/键盘阶段以 `scrollY` 逐帧校正页面壳与独立 fixed 顶栏，静态位置可对齐，但真机出现抖动，故废弃这条后验补偿。最终改为触摸 `pointerdown` 时在真实输入仍位于原处的前提下执行 `focus({preventScroll:true})`；不取消默认触摸、不移动输入。到合成 click 命中真实输入之前，卡高锁在无键盘基线，避免异步视口缩小抢先挪走命中区域；click 后再释放锁并预定位 dock。若触摸取消/未产出 click，短时超时清锁。目标是在源头避免 WebKit 的原生 107px 滚动，而非追帧补偿。用户已在 iPhone「添加到主屏幕」应用中确认此版键盘交互可用。
+
+键盘交互回归门禁：组件测试覆盖原位聚焦、锁定与释放；移动端 E2E 必须覆盖完整 `pointerdown → pointerup → click`，并模拟视口在 click 前缩小，断言 click 仍命中输入框且焦点保留。浏览器模拟只能检查事件命中和最终几何，不能证明 iOS 主屏 PWA 的原生滚动与动画平顺。调整 `focus` 时机、输入框命中区域、页面壳定位、`visualViewport` 或 dock 算法后，发布验收还须在已添加到主屏幕的 iPhone 上检查：首次聚焦、输入、收起、再次聚焦，以及填空和表达两种输入；全过程顶栏/题面不跳动、键盘不自行消失、输入框停在键盘上方。遇到「静态位置正确但动画抖动」时，先记录 `innerHeight`、`visualViewport.height/offsetTop`、`scrollY` 与顶栏/卡片/input 矩形，确认是否发生 document 原生滚动，不再直接增加整页逐帧位移补偿。
+
 # 8. 复习状态机实现
 
 Understanding 与 Production 使用同一通用状态结构，不共享 Level。业务代码只通过 review service 改变状态，其他模块不得直接 update level。

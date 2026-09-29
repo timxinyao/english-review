@@ -24,8 +24,48 @@ describe('keyboard-inset', () => {
     // 先卸载 hook（触发各模块实例 stop 移除 window/vv 监听），
     // 否则跨用例泄漏的 publish 会踩共享的 --kb-inset
     cleanup();
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    document.querySelectorAll('body > input').forEach((input) => input.remove());
     delete (window as { visualViewport?: unknown }).visualViewport;
     document.documentElement.style.removeProperty('--kb-inset');
+    document.documentElement.style.removeProperty('--kb-visible-height');
+    document.documentElement.style.removeProperty('--kb-baseline-height');
+    document.documentElement.style.removeProperty('--kb-offset-top');
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('仅在 kbdebug 查询参数下显示真实视口与卡片几何，退出后移除', async () => {
+    window.history.replaceState(null, '', '/today?kbdebug=1');
+    const vv = new FakeVisualViewport();
+    vv.height = 389;
+    vv.offsetTop = 123;
+    (window as { visualViewport?: unknown }).visualViewport = vv;
+    const { useKeyboardViewport } = await loadModule();
+    const { unmount } = renderHook(() => useKeyboardViewport());
+
+    const panel = document.querySelector('[data-kb-debug]');
+    expect(panel?.textContent).toContain('vv.height 389');
+    expect(panel?.textContent).toContain('vv.offsetTop 123');
+    expect(panel?.textContent).toContain('scrollY');
+
+    unmount();
+    expect(document.querySelector('[data-kb-debug]')).toBeNull();
+  });
+
+  it('主屏 PWA 无地址栏时可在应用内切换诊断面板', async () => {
+    (window as { visualViewport?: unknown }).visualViewport = new FakeVisualViewport();
+    const { useKeyboardViewport, toggleKeyboardDebug } = await loadModule();
+    const { unmount } = renderHook(() => useKeyboardViewport());
+
+    expect(document.querySelector('[data-kb-debug]')).toBeNull();
+    toggleKeyboardDebug();
+    expect(document.querySelector('[data-kb-debug]')).not.toBeNull();
+    expect(window.location.search).toBe('?kbdebug=1');
+
+    toggleKeyboardDebug();
+    expect(document.querySelector('[data-kb-debug]')).toBeNull();
+    expect(window.location.search).toBe('');
+    unmount();
   });
 
   it('键盘弹起：inset = round(innerHeight - vv.height - vv.offsetTop)，写入 --kb-inset', async () => {
@@ -107,5 +147,65 @@ describe('keyboard-inset', () => {
     setInnerHeight(389);
     window.dispatchEvent(new Event('scroll'));
     expect(document.documentElement.style.getPropertyValue('--kb-inset')).toBe('423px');
+  });
+
+  it('iOS 键盘平移视口且 innerHeight 同步缩小时仍保留键盘遮挡高度', async () => {
+    const vv = new FakeVisualViewport();
+    vv.height = 812;
+    (window as { visualViewport?: unknown }).visualViewport = vv;
+    setInnerHeight(812);
+    const { useKeyboardInset } = await loadModule();
+    const { result } = renderHook(() => useKeyboardInset());
+
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+    setInnerHeight(389);
+    vv.height = 389;
+    vv.offsetTop = 423;
+    vv.dispatchEvent(new Event('resize'));
+
+    expect(result.current).toBe(423);
+    expect(document.documentElement.style.getPropertyValue('--kb-inset')).toBe('423px');
+    input.remove();
+  });
+
+  it('聚焦先固定 Today，键盘期间按视觉视口定位，失焦后等键盘收起才解锁', async () => {
+    const vv = new FakeVisualViewport();
+    vv.height = 812;
+    (window as { visualViewport?: unknown }).visualViewport = vv;
+    setInnerHeight(812);
+    const { useKeyboardViewport } = await loadModule();
+    const { result } = renderHook(() => useKeyboardViewport());
+    expect(result.current.anchored).toBe(false);
+    expect(document.documentElement.style.getPropertyValue('--kb-baseline-height')).toBe('812px');
+
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+    expect(result.current.anchored).toBe(true);
+
+    setInnerHeight(389);
+    vv.height = 389;
+    vv.offsetTop = 423;
+    vv.dispatchEvent(new Event('resize'));
+    expect(result.current).toMatchObject({
+      open: true,
+      anchored: true,
+      visibleHeight: 389,
+      offsetTop: 423,
+    });
+    expect(document.documentElement.style.getPropertyValue('--kb-visible-height')).toBe('389px');
+    expect(document.documentElement.style.getPropertyValue('--kb-baseline-height')).toBe('812px');
+    expect(document.documentElement.style.getPropertyValue('--kb-offset-top')).toBe('423px');
+
+    input.blur();
+    expect(result.current.open).toBe(true);
+    vv.height = 812;
+    vv.offsetTop = 0;
+    setInnerHeight(812);
+    vv.dispatchEvent(new Event('resize'));
+    expect(result.current).toMatchObject({ open: false, anchored: false });
+    input.remove();
   });
 });

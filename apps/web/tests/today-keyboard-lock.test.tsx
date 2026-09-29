@@ -1,9 +1,20 @@
 import { cleanup, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeActive, makeChoiceTask, makeSessionEntry, makeTasksResponse, renderTodayApp, stubApi } from './today-helpers';
+import {
+  makeActive,
+  makeChoiceTask,
+  makeSessionEntry,
+  makeTasksResponse,
+  renderTodayApp,
+  stubApi,
+} from './today-helpers';
 
-const kb = { inset: 0 };
-vi.mock('../src/lib/keyboard-inset', () => ({ useKeyboardInset: () => kb.inset }));
+const kb = { inset: 0, open: false, anchored: false, visibleHeight: 812, offsetTop: 0 };
+vi.mock('../src/lib/keyboard-inset', () => ({
+  useKeyboardInset: () => kb.inset,
+  useKeyboardViewport: () => kb,
+  useKeyboardPhase: () => (kb.open ? 'open' : kb.anchored ? 'focused' : 'idle'),
+}));
 
 // ActiveSession 切卡会自动 speak：mock 掉真实 tts（jsdom 无 AudioContext，真实调用会产生未处理 rejection）
 vi.mock('../src/lib/tts', () => ({ speak: vi.fn(), stopSpeaking: vi.fn() }));
@@ -21,6 +32,8 @@ function renderActiveSession() {
 describe('Today 键盘期 body 滚动锁', () => {
   beforeEach(() => {
     kb.inset = 0;
+    kb.open = false;
+    kb.anchored = false;
     document.body.style.overflow = '';
   });
 
@@ -29,8 +42,8 @@ describe('Today 键盘期 body 滚动锁', () => {
     document.body.style.overflow = '';
   });
 
-  it('键盘弹起（inset>0）锁 body，卸载恢复', async () => {
-    kb.inset = 320;
+  it('iOS inset 为 0 但聚焦已开始时仍锁 body，卸载恢复', async () => {
+    kb.anchored = true;
     renderActiveSession();
     await screen.findByRole('heading', { name: 'stable' });
     expect(document.body.style.overflow).toBe('hidden');
@@ -44,22 +57,16 @@ describe('Today 键盘期 body 滚动锁', () => {
     expect(document.body.style.overflow).not.toBe('hidden');
   });
 
-  it('锁定期把顶起的 scrollY 立即回正并持续钉回 0，卸载后不再干预', async () => {
+  it('键盘期不持续调用 scrollTo 与 Safari 聚焦滚动竞争', async () => {
     const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
-    kb.inset = 320;
+    kb.anchored = true;
+    kb.open = true;
     renderActiveSession();
     await screen.findByRole('heading', { name: 'stable' });
-    // iOS 键盘 reveal 已把页面顶起的场景：锁定生效即回正一次
-    expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
-
-    // 锁定期内再次被顶起（键盘动画/箭头工具条）：scroll 监听持续钉回
     Object.defineProperty(window, 'scrollY', { value: 120, configurable: true });
     window.dispatchEvent(new Event('scroll'));
-    expect(scrollToSpy).toHaveBeenCalledTimes(2);
-
+    expect(scrollToSpy).not.toHaveBeenCalled();
     cleanup();
-    window.dispatchEvent(new Event('scroll'));
-    expect(scrollToSpy).toHaveBeenCalledTimes(2); // 卸载后不再干预
     scrollToSpy.mockRestore();
   });
 });

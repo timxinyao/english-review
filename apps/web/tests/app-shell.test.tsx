@@ -6,7 +6,18 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from '../src/app/shell';
 
-afterEach(cleanup);
+const keyboard = { inset: 0, open: false, anchored: false, visibleHeight: 812, offsetTop: 0 };
+vi.mock('../src/lib/keyboard-inset', () => ({
+  useKeyboardInset: () => keyboard.inset,
+  useKeyboardViewport: () => keyboard,
+  useKeyboardPhase: () => (keyboard.open ? 'open' : keyboard.anchored ? 'focused' : 'idle'),
+}));
+
+afterEach(() => {
+  cleanup();
+  keyboard.open = false;
+  keyboard.anchored = false;
+});
 
 function renderShell() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -59,6 +70,19 @@ describe('AppShell iOS 兼容', () => {
     const main = container.querySelector('main');
     expect(main?.className).not.toContain('pb-40');
     expect(main?.className).toContain('max-w-[900px]');
+  });
+
+  it('Today 键盘期锚定整页顶部、隐藏底部导航，Library 不受影响', () => {
+    keyboard.open = true;
+    keyboard.anchored = true;
+    const { container } = renderShellAt('/today');
+    expect(container.querySelector('[data-keyboard-anchored]')).not.toBeNull();
+    expect(container.querySelector('nav.fixed')?.classList.contains('hidden')).toBe(true);
+    cleanup();
+
+    const library = renderShellAt('/library');
+    expect(library.container.querySelector('[data-keyboard-anchored]')).toBeNull();
+    expect(library.container.querySelector('nav.fixed')?.classList.contains('hidden')).toBe(false);
   });
 
   it('顶栏有刷新按钮，点击整页刷新（location.reload）', async () => {

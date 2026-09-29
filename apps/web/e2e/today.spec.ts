@@ -359,14 +359,28 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
   });
 
-  // 键盘几何用真机高度（375x812）：注入 260px 后剩余卡高需容纳 dock 最小内容高
-  // （textarea 3 行 + 按钮行 ≈ 150px）；沿用外层 480 高时剩余仅 ~100px，
-  // dock 收不下会向键盘区溢出，断言在本机不可能成立（与 --kb-inset 无关）
+  // 键盘几何用真机高度（375x812）：模拟 visualViewport 收缩到 552px，
+  // 验证顶部保持原位、卡底 dock 对齐可视区底部，导航不浮到键盘上方。
   test.describe('键盘避让（iPhone 高度）', () => {
-    test.use({ viewport: { width: 375, height: 812 } });
+    test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
 
-    test('键盘避让：注入 --kb-inset 后卡身压缩、顶栏不动、输入停靠键盘线上', async ({ page }) => {
+    test('主屏应用内五击 Foxi 切换视口与卡片诊断面板', async ({ page }) => {
+      await login(page);
+      await resetSeedData(page);
+      await page.goto('/today');
+      await page.getByRole('button', { name: '开始今日复习' }).click();
+      for (let index = 0; index < 5; index++) await page.getByRole('button', { name: 'Foxi' }).click();
+      await expect(page.locator('[data-kb-debug]')).toContainText('vv.height');
+      await expect(page.locator('[data-kb-debug]')).toContainText('card');
+      await page.screenshot({ path: '/tmp/foxi-kbdebug-local.png' });
+      for (let index = 0; index < 5; index++) await page.getByRole('button', { name: 'Foxi' }).click();
+      await expect(page.locator('[data-kb-debug]')).toHaveCount(0);
+    });
+
+    test('键盘避让：视觉视口缩小时顶栏不动、输入停靠键盘线上、导航隐藏', async ({ page }) => {
       test.setTimeout(90_000);
+      const runtimeErrors: string[] = [];
+      page.on('pageerror', (error) => runtimeErrors.push(error.message));
       await login(page);
       await resetSeedData(page);
       await page.goto('/today');
@@ -376,22 +390,119 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
       const card = page.locator('article').first();
       const nav = page.locator('nav.fixed');
       const header = page.locator('header.fixed');
+      const shell = page.locator('#root > div');
       const cardBefore = (await card.boundingBox())!;
       const headerBefore = (await header.boundingBox())!;
-
-      await page.evaluate(() =>
-        document.documentElement.style.setProperty('--kb-inset', '260px'),
+      const inputBefore = (await page.getByLabel('表达答案').boundingBox())!;
+      const shellPositionBefore = await shell.evaluate(
+        (element) => getComputedStyle(element).position,
       );
+      expect(await shell.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
+
+      await page.evaluate(() => {
+        document.addEventListener(
+          'click',
+          (event) => {
+            const target = event.target as HTMLElement;
+            document.documentElement.dataset.lastTodayClick =
+              target.getAttribute('aria-label') ?? target.tagName;
+          },
+          { capture: true, once: true },
+        );
+        // 模拟 iOS 在同一次触摸的 pointerdown 与 click 之间开始缩小视口。
+        document.addEventListener(
+          'pointerdown',
+          (event) => {
+            const target = event.target as HTMLElement;
+            if (target.getAttribute('aria-label') !== '表达答案') return;
+            const vv = window.visualViewport!;
+            Object.defineProperty(vv, 'height', { configurable: true, get: () => 389 });
+            vv.dispatchEvent(new Event('resize'));
+            document.documentElement.dataset.touchPending = String(
+              document.documentElement.hasAttribute('data-today-touch-pending'),
+            );
+            document.documentElement.dataset.touchInputTop = String(
+              target.getBoundingClientRect().top,
+            );
+          },
+          { once: true },
+        );
+      });
+      await page.getByLabel('表达答案').tap();
+      expect(await page.locator('html').getAttribute('data-last-today-click')).toBe('表达答案');
+      expect(await page.locator('html').getAttribute('data-touch-pending')).toBe('true');
+      expect(
+        Math.abs(Number(await page.locator('html').getAttribute('data-touch-input-top')) - inputBefore.y),
+      ).toBeLessThanOrEqual(1);
+      await expect(page.getByLabel('表达答案')).toBeFocused();
+      await page.waitForTimeout(400);
+      await expect(page.getByLabel('表达答案')).toBeFocused();
+      await page.keyboard.type('test');
+      await expect(page.getByLabel('表达答案')).toHaveValue('test');
+      await expect(page.locator('html[data-today-keyboard-primed]')).toHaveCount(1);
+      const primedCard = (await card.boundingBox())!;
+      expect(primedCard.y).toBe(cardBefore.y);
+      expect(primedCard.y + primedCard.height).toBeLessThanOrEqual(812 * 0.48 + 2);
+
+      for (const height of [780, 750, 715, 690, 620, 552]) {
+        await page.evaluate((nextHeight) => {
+          const vv = window.visualViewport;
+          if (!vv) throw new Error('visualViewport unavailable');
+          Object.defineProperty(vv, 'height', { configurable: true, get: () => nextHeight });
+          vv.dispatchEvent(new Event('resize'));
+        }, height);
+        const frameHeader = (await header.boundingBox())!;
+        const frameCard = (await card.boundingBox())!;
+        expect(frameHeader.y).toBe(headerBefore.y);
+        expect(frameCard.y).toBe(cardBefore.y);
+        expect(frameCard.y + frameCard.height).toBeLessThanOrEqual(
+          Math.min(cardBefore.y + cardBefore.height, height) + 1,
+        );
+      }
+      expect(await shell.evaluate((element) => getComputedStyle(element).position)).toBe(
+        shellPositionBefore,
+      ); // 聚焦不能让整个页面从普通布局切到 fixed
+      await expect(page.locator('[data-keyboard-open]')).toHaveCount(1);
+
+      // iOS PWA 的 offsetTop 可能在 resize/scroll 中先报 0、后报真实值；
+      // 任何时刻都不能再据此平移整页，否则顶栏会在两个数值之间闪动。
+      await page.evaluate(() => {
+        const vv = window.visualViewport!;
+        Object.defineProperty(vv, 'offsetTop', { configurable: true, get: () => 423 });
+        vv.dispatchEvent(new Event('scroll'));
+      });
+      expect(await shell.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
 
       const cardAfter = (await card.boundingBox())!;
       const headerAfter = (await header.boundingBox())!;
-      const navBox = (await nav.boundingBox())!;
       expect(headerAfter.y).toBe(headerBefore.y); // 顶栏不动
       expect(cardAfter.y).toBe(cardBefore.y); // 卡顶不动（压缩发生在底部）
       expect(cardAfter.height).toBeLessThan(cardBefore.height); // 卡身压缩
-      expect(navBox.y - (cardAfter.y + cardAfter.height)).toBeGreaterThanOrEqual(258); // 卡底 ≈ 键盘线
+      expect(cardAfter.y + cardAfter.height).toBeLessThanOrEqual(552); // 卡底不压键盘
       const inputBox = (await page.getByLabel('表达答案').boundingBox())!;
-      expect(navBox.y - (inputBox.y + inputBox.height)).toBeGreaterThanOrEqual(258); // 输入框在键盘线上
+      expect(inputBox.y + inputBox.height).toBeLessThanOrEqual(552); // 输入框在键盘线上
+      await expect(nav).toBeHidden();
+
+      await page.getByLabel('表达答案').evaluate((element) => (element as HTMLElement).blur());
+      await page.evaluate(() => {
+        const vv = window.visualViewport!;
+        Object.defineProperty(vv, 'height', { configurable: true, get: () => 812 });
+        Object.defineProperty(vv, 'offsetTop', { configurable: true, get: () => 0 });
+        vv.dispatchEvent(new Event('resize'));
+      });
+      await expect(page.locator('html[data-today-keyboard-primed]')).toHaveCount(0);
+      await expect(nav).toBeVisible();
+      const restoredCard = (await card.boundingBox())!;
+      expect(restoredCard.y).toBe(cardBefore.y);
+
+      // 普通页面滚动不是 iOS 键盘平移：失焦后不可把 fixed 顶栏再往下推。
+      await page.evaluate(() => {
+        document.body.style.minHeight = '2000px';
+        window.scrollTo(0, 107);
+      });
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(107);
+      expect((await header.boundingBox())!.y).toBe(headerBefore.y);
+      expect(runtimeErrors).toEqual([]);
     });
   });
 });

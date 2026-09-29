@@ -43,4 +43,23 @@ describe('Today 键盘期 body 滚动锁', () => {
     await screen.findByRole('heading', { name: 'stable' });
     expect(document.body.style.overflow).not.toBe('hidden');
   });
+
+  it('锁定期把顶起的 scrollY 立即回正并持续钉回 0，卸载后不再干预', async () => {
+    const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    kb.inset = 320;
+    renderActiveSession();
+    await screen.findByRole('heading', { name: 'stable' });
+    // iOS 键盘 reveal 已把页面顶起的场景：锁定生效即回正一次
+    expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
+
+    // 锁定期内再次被顶起（键盘动画/箭头工具条）：scroll 监听持续钉回
+    Object.defineProperty(window, 'scrollY', { value: 120, configurable: true });
+    window.dispatchEvent(new Event('scroll'));
+    expect(scrollToSpy).toHaveBeenCalledTimes(2);
+
+    cleanup();
+    window.dispatchEvent(new Event('scroll'));
+    expect(scrollToSpy).toHaveBeenCalledTimes(2); // 卸载后不再干预
+    scrollToSpy.mockRestore();
+  });
 });

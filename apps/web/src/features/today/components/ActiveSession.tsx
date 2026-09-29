@@ -145,15 +145,22 @@ export function ActiveSession({
     () => localStorage.getItem('el:auto-pronounce') !== '0',
   );
 
-  // 键盘期滚动锁（spec 键盘避让）：卡高已随 --kb-inset 压缩、dock 停靠键盘线，
-  // body 再滚动会露出底下内容——活动会话内键盘弹起锁 body，收起/卸载恢复原值
+  // 键盘期滚动锁（spec 键盘避让）：卡高已随 --kb-inset 压缩、dock 停靠键盘线。
+  // iOS 键盘 reveal 会先把 document 顶起滚动（fixed 顶栏/底 nav 随视觉视口位移），
+  // overflow 锁只防后续滚动——还需立即回正并持续把 scrollY 钉回 0。
   const keyboardInset = useKeyboardInset();
   const keyboardLocked = keyboardInset > 0;
   useEffect(() => {
     if (!keyboardLocked) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    window.scrollTo(0, 0);
+    const holdScroll = () => {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    };
+    window.addEventListener('scroll', holdScroll, { passive: true });
     return () => {
+      window.removeEventListener('scroll', holdScroll);
       document.body.style.overflow = prev;
     };
   }, [keyboardLocked]);

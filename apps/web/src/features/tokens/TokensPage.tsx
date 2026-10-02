@@ -36,7 +36,7 @@ export function TokensPage(): ReactNode {
         {TOKENS.map((t) => (
           <div key={t.cssVar} className="space-y-1">
             <div
-              className="h-10 rounded-lg border border-border"
+              className="h-10 rounded-lg border border-input"
               style={{ backgroundColor: `var(${t.cssVar})` }}
               aria-hidden
             />

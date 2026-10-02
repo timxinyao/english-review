@@ -155,8 +155,7 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
     await screen.findByRole('heading', { name: 'stable' });
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
 
-    // 显示答案 → 没想起来 → 留在当前卡看揭示 → 手动下一题进 make sense
-    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    // 揭示前直接没想起来 → 留在当前卡看揭示 → 手动下一题进 make sense
     fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
     expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
@@ -271,7 +270,6 @@ describe('Today 撤销最近一次作答（卡片右上单图标，PRODUCT §5.1
     await screen.findByRole('heading', { name: 'stable' });
 
     // 答错留在当前卡：反馈态出现撤销图标
-    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
     fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
     expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
     const undoIcon = screen.getByRole('button', { name: '撤销最近一次作答' });

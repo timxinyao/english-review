@@ -90,7 +90,7 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
   });
 
-  it('显示答案：meaning 展示、[没想起来][想起来了]；点想起来了 → POST {recall:"recalled"} → 自动进入下一题', async () => {
+  it('显示答案：meaning 展示、[想错了][想起来了]；点想起来了 → POST {recall:"recalled"} → 自动进入下一题', async () => {
     const withNotes = makeChoiceTask({
       item: {
         id: 'item-1',
@@ -111,7 +111,7 @@ describe('Recall Card（understanding）', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
     expect(await screen.findByText('稳定的')).toBeVisible();
-    expect(screen.getByRole('button', { name: '没想起来' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '想错了' })).toBeVisible();
     expect(screen.getByRole('button', { name: '想起来了' })).toBeVisible();
     const notesDetails = screen.getByText('笔记').closest('details');
     expect(notesDetails).toHaveAttribute('open');
@@ -192,7 +192,7 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('heading', { name: 'ambitious' })).not.toBeInTheDocument();
   });
 
-  it('没想起来：POST {recall:"forgot"} → 留在当前卡看揭示，手动下一题（§7.6 不会/答错不自动切）', async () => {
+  it('想错了（显示答案后）：POST {recall:"forgot"} → 评分即前进，不冻结重放答案（§7.1 揭示后自评两键均直接切）', async () => {
     const statusQueue = [makeActive(makeChoiceTask(), { completed: 1, total: 4 })];
     stubApi({
       '/api/today': () =>
@@ -202,7 +202,7 @@ describe('Recall Card（understanding）', () => {
     renderTodayApp();
 
     fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
-    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    fireEvent.click(await screen.findByRole('button', { name: '想错了' }));
 
     await waitFor(() => {
       expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1);
@@ -211,15 +211,9 @@ describe('Recall Card（understanding）', () => {
       recall: 'forgot',
     });
 
-    // 留在当前卡：判语 + 释义/原句揭示；不自动切下一题
-    expect(await verdictParagraph('没想起来')).toBeVisible();
-    expect(screen.getByText('稳定的')).toBeVisible();
-    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'ambitious' })).not.toBeInTheDocument();
-
-    // 手动下一题才切换
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    // 答案揭示时已在屏，评分即前进：不冻结重放、不出现下一题按钮，直接切下一张卡
     expect(await screen.findByRole('heading', { name: 'ambitious' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();
   });
 
   it('主动回忆入口：可直接点「没想起来」（§7.1）POST {recall:"forgot"} 并留在当前卡', async () => {
@@ -405,7 +399,7 @@ describe('Recall Card（understanding）', () => {
     renderTodayApp();
 
     fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
-    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    fireEvent.click(await screen.findByRole('button', { name: '想错了' }));
 
     const verdict = await verdictParagraph('没想起来');
     expect(verdict.className).toContain('text-destructive');

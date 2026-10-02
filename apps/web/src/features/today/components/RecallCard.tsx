@@ -61,7 +61,8 @@ function RecallFeedback({
 
 /** Understanding Recall Card：主动回忆优先（PRODUCT §7.1）；选择题降级为 Hint。
  *  沉浸式布局：词行/学习内容滚动，作答按钮停靠底部 dock；
- *  「想起来了」自评通过保留评分即前进，「没想起来」/主动不会留在当前卡（§7.6）。 */
+ *  揭示前「没想起来」/主动不会留在当前卡看答案（§7.6）；「显示答案」后自评两键
+ *  （想起来了/想错了）评分即前进——答案已在屏不冻结重放；两路均算未通过（同权）。 */
 export function RecallCard({
   task,
   question,
@@ -230,9 +231,9 @@ export function RecallCard({
               variant="outline"
               className="flex-1"
               disabled={answer.isPending}
-              onClick={() => submit({ recall: 'forgot' })}
+              onClick={() => submit({ recall: 'forgot' }, { autoAdvance: true })}
             >
-              没想起来
+              想错了
             </Button>
             <Button
               className="flex-1"

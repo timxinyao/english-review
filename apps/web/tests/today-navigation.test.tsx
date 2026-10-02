@@ -147,7 +147,6 @@ describe('Today 进度：结果分布（PRODUCT §5.1）', () => {
     expect(await screen.findByText('2 / 4')).toBeVisible();
 
     // 答错 → 留在当前卡看揭示 → 手动下一题；补强使总数变 5
-    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
     fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
     fireEvent.click(await screen.findByRole('button', { name: '下一题' }));
     expect(await screen.findByText('3 / 5')).toBeVisible();

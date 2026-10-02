@@ -29,14 +29,24 @@ export const PracticeStartResponse = z.object({
 });
 export type PracticeStartResponse = z.infer<typeof PracticeStartResponse>;
 
-export const PracticeAnswerRequest = z.object({
-  /** Recall 直判（主动回忆自评；与 selectedOptionId 二选一） */
-  recall: z.enum(['recalled', 'forgot']).optional(),
-  selectedOptionId: z.string().min(1).optional(),
-  /** Hint 模式提交的选择题标识（仅随 selectedOptionId） */
-  hintUsed: z.boolean().optional(),
-  answerText: z.string().min(1).max(500).optional(),
-});
+export const PracticeAnswerRequest = z
+  .object({
+    /** Recall 直判（主动回忆自评；与 selectedOptionId 二选一） */
+    recall: z.enum(['recalled', 'forgot']).optional(),
+    selectedOptionId: z.string().min(1).optional(),
+    /** Hint 模式提交的选择题标识（仅随 selectedOptionId） */
+    hintUsed: z.boolean().optional(),
+    answerText: z.string().min(1).max(500).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.recall && v.selectedOptionId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['recall'],
+        message: 'recall 与 selectedOptionId 互斥（直判 / Hint 二选一）',
+      });
+    }
+  });
 export type PracticeAnswerRequest = z.infer<typeof PracticeAnswerRequest>;
 
 export const PracticeAnswerResponse = z.object({

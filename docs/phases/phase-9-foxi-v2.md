@@ -58,9 +58,9 @@
 
 ## 遗留问题（不阻塞发布）
 
-1. **发布时序**：V2 为一次性整版切换，须在下一 `APP_TIMEZONE`（Asia/Shanghai）本地日边界之后部署；首次 V2 boot 自动执行迁移+cutover（幂等已验），切勿在边界前重启混布。切换日将出现 14 项 P 任务集中到期（旧 P 清零后的预期行为）。
+1. **发布时序**：V2 为一次性整版切换，原计划在下一 `APP_TIMEZONE`（Asia/Shanghai）本地日边界之后部署；实际于 2026-10-02 白天经用户授权提前上线——当日尚无进行中会话（最近会话 2026-10-01），不存在旧会话僵尸任务，边界前提不成立。首次 V2 boot 已自动执行迁移+cutover（生产库验证：foxi_v2 标记写入、63 P 重置 L0、14 项有效 P 当日到期、U/历史/统计保留）。
 2. **旧 P 证据作废**：旧 P level 混入 cloze 证据，一律清零重来（设计决策）；历史 attempt/例句/统计保留，用户可见学习进度（U 维度）不受影响。
 3. **E2E 服务不跑 cutover**（Task 9 已披露）：跨日 409 与 cutover 语义由集成/单测覆盖（today.test.ts 旧日全 409、v2-cutover.test.ts、migrate-smoke 等 41 项抽验通过）。
-4. Task 8 终审 triage 留档项：真实 AI 题的 recall Hint 选项文本可能≈释义（字段级防泄漏或 fetch-on-hint 待产品决策）；`practice.test.ts` 一处 `not.toContain('cloze')` 死断言；recall 与 selectedOptionId 并发送达时 recall 静默胜出（可改 400）；`insertAttempt` 单插包事务（既有）。
+4. Task 8 终审 triage 留档项（2026-10-02 用户决策收口）：recall Hint 选项随 start 载荷下发、真实 AI 题正确项文本可能≈释义——**维持现状不做 fetch-on-hint**（单用户学习应用无防作弊必要，devtools 提前可见可接受，与已上线 Today Recall 同款）；recall 与 selectedOptionId 并发送达已改 400（`PracticeAnswerRequest.superRefine` 互斥）；`practice.test.ts` 一处 `not.toContain('cloze')` 死断言与 `insertAttempt` 单插包事务维持既有，不再处理。
 5. Task 9 留档项：`read/service.ts` cutover 前幂等回放历史 Read check 可能回 `needsReinforcementMarked:true`（历史回放语义，注释已载）；archive 文档仍含 V1 描述（历史文档，不改）。
 6. iOS 真机键盘（Phase keyboard-inset 遗留，与本阶段无关但同批部署）：调试浮层仍在，待用户真机复验后移除。

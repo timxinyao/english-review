@@ -381,6 +381,11 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
       hintUsed: true,
     });
     expect(hintOnly.statusCode).toBe(400);
+    const both = await post(ctx, `/api/library/pr-12/practice/${recall.questionId}/answer`, {
+      recall: 'recalled',
+      selectedOptionId: 'o1',
+    });
+    expect(both.statusCode).toBe(400); // 直判与 Hint 互斥，不得静默取 recall
   });
 
   it('表达题：correction 返回、优质句沉淀 personal、attempt 携带 prompt 元数据、零状态影响', async () => {

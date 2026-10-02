@@ -24,7 +24,9 @@ export function TokensPage(): ReactNode {
   const [hexOf, setHexOf] = useState<Record<string, string>>({});
   useEffect(() => {
     const style = getComputedStyle(document.documentElement);
-    setHexOf(Object.fromEntries(TOKENS.map((t) => [t.cssVar, style.getPropertyValue(t.cssVar).trim()])));
+    setHexOf(
+      Object.fromEntries(TOKENS.map((t) => [t.cssVar, style.getPropertyValue(t.cssVar).trim()])),
+    );
   }, []);
 
   return (

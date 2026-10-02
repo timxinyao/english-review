@@ -38,7 +38,7 @@
   --card: #ffffff;
   --card-foreground: #3d3a34;
   --muted: #efece5;
-  --muted-foreground: #8a8378;
+  --muted-foreground: #6b6558; /* 2026-10-02 加深达 AA：暖白底 ~5.5:1（原 #8a8378 为 3.6:1） */
   --accent: #a8541f; /* 低饱和暖橙 */
   --accent-foreground: #ffffff;
   --accent-soft: #f5e7dc;

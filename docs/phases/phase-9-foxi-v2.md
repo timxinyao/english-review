@@ -63,4 +63,4 @@
 3. **E2E 服务不跑 cutover**（Task 9 已披露）：跨日 409 与 cutover 语义由集成/单测覆盖（today.test.ts 旧日全 409、v2-cutover.test.ts、migrate-smoke 等 41 项抽验通过）。
 4. Task 8 终审 triage 留档项（2026-10-02 用户决策收口）：recall Hint 选项随 start 载荷下发、真实 AI 题正确项文本可能≈释义——**维持现状不做 fetch-on-hint**（单用户学习应用无防作弊必要，devtools 提前可见可接受，与已上线 Today Recall 同款）；recall 与 selectedOptionId 并发送达已改 400（`PracticeAnswerRequest.superRefine` 互斥）；`practice.test.ts` 一处 `not.toContain('cloze')` 死断言与 `insertAttempt` 单插包事务维持既有，不再处理。
 5. Task 9 留档项：`read/service.ts` cutover 前幂等回放历史 Read check 可能回 `needsReinforcementMarked:true`（历史回放语义，注释已载）；archive 文档仍含 V1 描述（历史文档，不改）。
-6. iOS 真机键盘（Phase keyboard-inset 遗留，与本阶段无关但同批部署）：调试浮层仍在，待用户真机复验后移除。
+6. iOS 真机键盘（Phase keyboard-inset 遗留，与本阶段无关但同批部署）：四项修复已上线且经用户确认；临时诊断浮层（79b5233 组件 + vite `__BUILD_TAG__`）于 2026-10-02 移除，shell 挂载已在 9a7dad1 先行摘除。

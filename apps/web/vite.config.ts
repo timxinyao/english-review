@@ -4,10 +4,6 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  // 【临时调试】键盘避让诊断浮层的 build 标识，问题定位后随浮层一并删除
-  define: {
-    __BUILD_TAG__: JSON.stringify(new Date().toISOString()),
-  },
   plugins: [
     react(),
     tailwindcss(),

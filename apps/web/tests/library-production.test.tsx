@@ -349,6 +349,22 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(screen.getByRole('heading', { name: 'resilient' })).toBeVisible();
   });
 
+  it('表达题目标词一键复制（与 Today 共用卡）', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderDetailWithPractice();
+    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
+
+    // recall 直判通过 → 表达题
+    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+    await screen.findByText('放弃');
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '复制目标词' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('give up'));
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeVisible();
+  });
+
   it('生成练习失败：显示错误并可返回详情', async () => {
     detailApi.mockResolvedValue(makeDetail());
     stubApi({

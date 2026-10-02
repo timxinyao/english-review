@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { CorrectionDiff } from './correction-diff';
@@ -41,11 +42,19 @@ export function ProductionQuestionCard({
   variant,
 }: ProductionQuestionCardProps) {
   const [text, setText] = useState('');
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
 
-  function submit() {
-    const trimmed = text.trim();
-    if (!trimmed || pending) return;
-    onSubmitText(trimmed);
+  async function copyTarget() {
+    try {
+      await navigator.clipboard.writeText(question.mustUse);
+      setCopied(true);
+      window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // 剪贴板被拒（非用户手势等）：静默保持原样，不打断作答
+    }
   }
 
   const prompt = (
@@ -55,9 +64,23 @@ export function ProductionQuestionCard({
       <p className="text-sm text-muted-foreground">
         必须使用：
         <span className="font-medium text-accent">{question.mustUse}</span>
+        <button
+          type="button"
+          aria-label={copied ? '已复制' : '复制目标词'}
+          onClick={copyTarget}
+          className="-my-1 ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
       </p>
     </div>
   );
+
+  function submit() {
+    const trimmed = text.trim();
+    if (!trimmed || pending) return;
+    onSubmitText(trimmed);
+  }
 
   const errorBlock = error && !result && (
     <p role="alert" className="text-sm text-destructive">

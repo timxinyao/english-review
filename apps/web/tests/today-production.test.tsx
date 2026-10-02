@@ -48,6 +48,16 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(screen.getByRole('button', { name: '提交' })).toBeDisabled();
   });
 
+  it('目标词一键复制：点击写入剪贴板并短暂反馈已复制', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderTodayApp();
+
+    fireEvent.click(await screen.findByRole('button', { name: '复制目标词' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('give up'));
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeVisible();
+  });
+
   it('提交答案：POST answerText；不显示“查看原句/蒙的/太简单”，保留稍后再做', async () => {
     renderTodayApp();
 

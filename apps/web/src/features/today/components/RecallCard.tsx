@@ -1,20 +1,13 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type {
-  AnswerRequest,
-  AnswerResponse,
-  ChoiceQuestionView as ChoiceQuestion,
-  TodayTaskView,
-} from '@el/shared';
+import type { AnswerRequest, AnswerResponse, TodayTaskView } from '@el/shared';
 import { Volume2 } from 'lucide-react';
-import { ChoiceQuestionCard } from '../../../components/choice-question-card';
 import { Button } from '../../../components/ui/button';
 import { todayKeys, useAnswer } from '../api';
 import { speak } from '../../../lib/tts';
 
 interface Props {
   task: TodayTaskView;
-  question: ChoiceQuestion;
   result: AnswerResponse | null;
   outcomeSource: AnswerResponse['outcomeSource'];
   onAnswered: (result: AnswerResponse, opts?: { autoAdvance?: boolean }) => void;
@@ -59,28 +52,17 @@ function RecallFeedback({
   );
 }
 
-/** Understanding Recall Card：主动回忆优先（PRODUCT §7.1）；选择题降级为 Hint。
+/** Understanding Recall Card：主动回忆优先（PRODUCT §7.1）。
  *  沉浸式布局：词行/学习内容滚动，作答按钮停靠底部 dock；
- *  揭示前「没想起来」/主动不会留在当前卡看答案（§7.6）；「显示答案」后自评两键
+ *  揭示前「没想起来」留在当前卡看答案（§7.6）；「显示答案」后自评两键
  *  （想起来了/想错了）评分即前进——答案已在屏不冻结重放；两路均算未通过（同权）。 */
-export function RecallCard({
-  task,
-  question,
-  result,
-  outcomeSource,
-  onAnswered,
-  onAdvance,
-}: Props) {
+export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance }: Props) {
   const answer = useAnswer();
   const queryClient = useQueryClient();
   const [revealed, setRevealed] = useState(false);
-  const [hint, setHint] = useState(false);
 
   const frozen = result !== null;
   const word = task.item;
-  // Hint 路径的冻结（提交过选项或主动不会）：复用选择题统一纠错（勾正确项/错选项+理由）
-  const choiceFrozen =
-    result !== null && (result.selectedOptionId !== null || result.gaveUp === true);
   const answerError =
     answer.isError && !frozen ? (
       <div role="alert" className="flex shrink-0 flex-col gap-2">
@@ -119,56 +101,6 @@ export function RecallCard({
       </Button>
     </div>
   );
-
-  if (hint) {
-    // Hint 态：词行置顶。作答中用选择题 today 版式（题干滚动 + 选项/不会停靠底部 dock）；
-    // 冻结时判语/释义/原句（RecallFeedback）+ 统一纠错（练习版式行内渲染，勾选回放走
-    // 服务端 selectedOptionId/correctOptionId）合并进单一滚动区，下一题停靠底部 dock——
-    // 短屏（375x480）三段内容叠加超出卡高时整体可滚，dock 不被导航遮挡。
-    if (frozen) {
-      return (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="shrink-0 pb-3">{wordRow}</div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto" data-slot="body">
-            <RecallFeedback task={task} result={result} outcomeSource={outcomeSource} />
-            <ChoiceQuestionCard
-              question={question}
-              target={word.target}
-              result={result}
-              pending={answer.isPending}
-              hideVerdict={choiceFrozen}
-              hideAdvanceRow
-              onSubmitOption={(optionId) => submit({ selectedOptionId: optionId, hintUsed: true })}
-              onAdvance={onAdvance}
-            />
-          </div>
-          <div
-            className="mt-3 flex shrink-0 justify-end border-t border-border pt-3"
-            data-slot="dock"
-          >
-            <Button onClick={onAdvance}>下一题</Button>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 pb-3">{wordRow}</div>
-        {answerError}
-        <ChoiceQuestionCard
-          variant="today"
-          question={question}
-          target={word.target}
-          result={result}
-          pending={answer.isPending}
-          hideVerdict={choiceFrozen}
-          onSubmitOption={(optionId) => submit({ selectedOptionId: optionId, hintUsed: true })}
-          onGiveUp={frozen ? undefined : () => submit({ giveUp: true })}
-          onAdvance={onAdvance}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -218,9 +150,6 @@ export function RecallCard({
               没想起来
             </Button>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setHint(true)}>
-            给我提示
-          </Button>
         </div>
       )}
 

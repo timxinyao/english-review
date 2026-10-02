@@ -166,7 +166,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(await screen.findByText('1 / 2')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'give up' })).toBeVisible();
     expect(screen.getByText('After months of failure, he refused to give up.')).toBeVisible();
-    // 释义（reveal 内容）与 Hint 选项在作答前都不渲染
+    // 释义（reveal 内容）与选项在作答前都不渲染
     expect(screen.queryByText('放弃', { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '放弃（动词）' })).not.toBeInTheDocument();
     const startCalls = apiCalls('/api/library/item-1/practice');
@@ -219,63 +219,6 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(screen.getByText('放弃', { exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
     expect(await screen.findByText('2 / 2')).toBeVisible();
-  });
-
-  it('Recall Hint：给我提示 → 选项作答（对=提示后想起）→ 释义揭示', async () => {
-    renderDetailWithPractice({
-      '/api/library/item-1/practice/pq-1/answer': makeRecallAnswer({
-        result: 'basic_pass',
-        correct: true,
-      }),
-    });
-
-    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-    fireEvent.click(await screen.findByRole('button', { name: '给我提示' }));
-
-    const option = await screen.findByRole('button', { name: '放弃（动词）' });
-    fireEvent.click(option);
-
-    await waitFor(() => {
-      expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);
-    });
-    expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
-      selectedOptionId: 'po1',
-      hintUsed: true,
-    });
-    expect(await screen.findByText('提示后想起（基本通过）')).toBeVisible();
-    expect(screen.getByText('放弃', { exact: true })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-    expect(await screen.findByText('2 / 2')).toBeVisible();
-  });
-
-  it('Recall Hint 答错：fail 判语 + 正确答案揭示 + 释义揭示', async () => {
-    renderDetailWithPractice({
-      '/api/library/item-1/practice/pq-1/answer': makeRecallAnswer({
-        result: 'fail',
-        correct: false,
-        explanation: 'give up 是放弃。',
-        correctOptionId: 'po1',
-      }),
-    });
-
-    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-    fireEvent.click(await screen.findByRole('button', { name: '给我提示' }));
-    fireEvent.click(await screen.findByRole('button', { name: '坚持（动词）' }));
-
-    await waitFor(() => {
-      expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);
-    });
-    expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
-      selectedOptionId: 'po2',
-      hintUsed: true,
-    });
-    expect(await screen.findByText('没想起来')).toBeVisible();
-    expect(
-      screen.getByText(
-        (_, el) => el?.tagName === 'P' && el.textContent === '正确答案：放弃（动词）',
-      ),
-    ).toBeVisible();
-    expect(screen.getByText('放弃', { exact: true })).toBeVisible();
   });
 
   it('单题（word，production 关）：Recall 完成即练习完成 → 返回详情', async () => {

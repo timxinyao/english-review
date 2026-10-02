@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
 import type { PracticeAnswerRequest, PracticeAnswerResponse, PracticeQuestion } from '@el/shared';
-import { ChoiceQuestionCard } from '../../components/choice-question-card';
 import { ProductionQuestionCard } from '../../components/production-question-card';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
@@ -33,7 +32,7 @@ interface RecallPracticeCardProps {
 
 /**
  * Recall 练习卡（V2 / Phase 9；PRODUCT §7.1 主动回忆优先）：
- * 复用 Today RecallCard 交互原语（自评直判 + Hint 降级选择题），
+ * 复用 Today RecallCard 交互原语（自评直判；2026-10-03 起无「给我提示」入口），
  * 但释义只由作答响应揭示（start 载荷不含 meaning，无 reveal 前泄漏）。
  * 非正式练习：不出「不会」，也不触发任何正式进度。
  */
@@ -44,7 +43,6 @@ function RecallPracticeCard({
   onSubmit,
   onAdvance,
 }: RecallPracticeCardProps) {
-  const [hint, setHint] = useState(false);
   const frozen = result !== null;
   const verdict = frozen ? RECALL_VERDICTS[result.result] : null;
 
@@ -82,42 +80,26 @@ function RecallPracticeCard({
         </div>
       )}
 
-      {hint ? (
-        <ChoiceQuestionCard
-          question={question.hint}
-          target={question.target}
-          result={result}
-          pending={pending}
-          hideVerdict={frozen}
-          hideAdvanceRow={frozen}
-          onSubmitOption={(optionId) => onSubmit({ selectedOptionId: optionId, hintUsed: true })}
-          onAdvance={onAdvance}
-        />
-      ) : (
-        !frozen && (
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <Button
-                variant="negative"
-                className="flex-1"
-                disabled={pending}
-                onClick={() => onSubmit({ recall: 'forgot' })}
-              >
-                没想起来
-              </Button>
-              <Button
-                className="flex-1"
-                disabled={pending}
-                onClick={() => onSubmit({ recall: 'recalled' })}
-              >
-                想起来了
-              </Button>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => setHint(true)}>
-              给我提示
+      {!frozen && (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <Button
+              variant="negative"
+              className="flex-1"
+              disabled={pending}
+              onClick={() => onSubmit({ recall: 'forgot' })}
+            >
+              没想起来
+            </Button>
+            <Button
+              className="flex-1"
+              disabled={pending}
+              onClick={() => onSubmit({ recall: 'recalled' })}
+            >
+              想起来了
             </Button>
           </div>
-        )
+        </div>
       )}
 
       {frozen && (

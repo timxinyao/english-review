@@ -10,7 +10,7 @@
 
 - 每项长期保存三态 `production_enabled_override`：`null` 随类型默认，`true` 明确需要造句，`false` 明确不需要。有效值为 `override ?? (type === 'chunk')`；Word 默认关闭，Chunk 默认开启。无需 AI 分类，类型不因覆盖而变化。
 - `mastered` 只按当前目标判定：Understanding 稳定且（不需 Production 或 Production 稳定）。目标变化时由服务端重算 active/mastered 与任务资格，保留两个维度的历史、Stage 和排期；paused/archived 不自动恢复。关闭 Production 立即取消当前 Session 未答 P 题；重新开启沿用 V2 中已有的 P 状态。新开启的 P 最早加入下一次 Today，不中途插题。
-- Learn 建立 Understanding；需要 Production 的新词条，首道正式造句最早在 Learn 后下一本地日，不需等待 Understanding 升级。之后 U/P 独立按 1/3/7/14/30/60/120 天阶梯调度。U 正式任务只使用 Recall：看 target 与语境主动回忆，答案揭晓后自评；四选一仅作 Hint，答错或选择不认识应标出正确选项及理由。P 正式任务只要求在 target 可见时完成具体中文语义任务的完整英语句子，由 AI 判目标用法、语法、搭配及语境；失败不强制当天再次造句。
+- Learn 建立 Understanding；需要 Production 的新词条，首道正式造句最早在 Learn 后下一本地日，不需等待 Understanding 升级。之后 U/P 独立按 1/3/7/14/30/60/120 天阶梯调度。U 正式任务只使用 Recall：看 target 与语境主动回忆，答案揭晓后自评（2026-10-03 起无「给我提示」入口）；历史四选一作答回放仍标出正确选项及理由。P 正式任务只要求在 target 可见时完成具体中文语义任务的完整英语句子，由 AI 判目标用法、语法、搭配及语境；失败不强制当天再次造句。
 - 不再生成、预取、分配新的填空题。Library「练一下」不凑固定题量：不需 P 时一道 Recall，需 P 时一道 Recall 加一道完整造句；不改变正式 Stage、排期、Today 结算或 mastered，单题生成失败可重试，不用填空或选择题补位。
 - Read 仅提供可选文章和已学表达自然复现，不生成新检查题，不改变 Stage、Today 排期或 reinforcement。旧文章与旧检查作答保留只读；V2 切换时清除旧 Read 检查遗留的 `needs_reinforcement`，不改正式 Stage。
 - Today 显示全部到期任务，无每日旧复习上限或迁移限流；未完成不算失败，次日本地日新 Session 重新纳入。创建 Session 先快速返回任务和进度，仅当前题及少量前瞻题按需生成/绑定；生成失败留下可重试 pending 任务，不计作答或降级，也不从总数消失。题目生成不能在 SQLite 写事务内等待 AI，绑定需并发保护。
@@ -169,11 +169,11 @@ Learn 页面
   ↓
 target + IPA + source example（回忆上下文，不展示释义）——初见即 Recall Card（2026-09-28 起用）
   ↓
-自己回忆 → 显示答案 → 想起来了 / 想错了（Hint 四选一可用）
+自己回忆 → 显示答案 → 想起来了 / 想错了
   ↓
-三路径都完成新学（消耗额度）：recalled=pass / assisted=basic_pass / forgot=fail，均建立 Understanding 初始状态并激活 Production
+两路径都完成新学（消耗额度）：recalled=pass / forgot=fail，均建立 Understanding 初始状态并激活 Production（历史 assisted=basic_pass 数据保留兼容）
   ↓
-Production 从下一次到期开始为整句表达（V2）；forgot/assisted 明日以 Recall 短间隔回归
+Production 从下一次到期开始为整句表达（V2）；forgot 明日以 Recall 短间隔回归
 ```
 
 Recall「显示答案」后自评「想起来了 / 想错了」，两键均评分即前进（答案已在屏，不冻结重放）；揭示前主动「没想起来」停留在当前卡，先看答案再继续。「想错了」与「没想起来」同权（均未通过）。误操作可用卡片右上角的撤销图标撤销最近一次作答；坏题另在「今日学习」的答题记录中标记。
@@ -308,7 +308,7 @@ V1.2 使用透明的阶梯式间隔，不引入 FSRS。默认间隔：1 → 3 �
 | P-L3 | 填空 + 表达题混合。 |
 | P-L4 ～ P-L7 | 表达题为主，必要时少量填空。 |
 
-Understanding 到期时使用 Recall Card（主动回忆优先，选择题为 Hint，见 §7.1）；Production 到期时按上表选题。Today 不要求每个 Learning Item 每次做完整套题，只处理真正到期的维度。
+Understanding 到期时使用 Recall Card（主动回忆优先，见 §7.1）；Production 到期时按上表选题。Today 不要求每个 Learning Item 每次做完整套题，只处理真正到期的维度。
 
 ## 6.4 查看原句
 
@@ -332,19 +332,19 @@ Understanding 到期时使用 Recall Card（主动回忆优先，选择题为 Hi
 
 Understanding 复习任务的默认形式是 **Recall Card**：展示 target（+IPA+发音）与 source_example，不展示释义与选项；用户可直接点「没想起来」，或先点「显示答案」再自评 **想起来了 / 想错了**。答案含 meaning 与默认展开的 notes。
 
-**四选一选择题降级为 Hint**："给我提示"后展示选择题（选项仍为中文释义，不使用错误英文句作干扰项），帮助 recognition 而非替代主动回忆。
+**选择题不再出现在正式 Recall 流**（2026-10-03 起无「给我提示」入口——再认弱于回忆、显示答案自评已覆盖中间档）；选择题组件与 hintUsed/基础通过判定仅用于历史作答回放与旧数据兼容。
 
-### 三档学习证据（复用现有调度，零新算法）
+### 三档学习证据（复用现有调度，零新算法；assisted 档仅历史数据）
 
 | 证据 | 触发路径 | result | 调度 |
 | --- | --- | --- | --- |
 | recalled | 未用提示，自己想起 | pass | 正常晋升 |
-| assisted | Hint 后选对 | basic_pass | 不升级，更短间隔再现 |
-| forgot | 没想起 / Hint 仍错 | fail | 退 1 级 + 缩短间隔 + 补强 |
+| assisted | 历史数据：提示后选对（入口已移除） | basic_pass | 不升级，更短间隔再现 |
+| forgot | 没想起 | fail | 退 1 级 + 缩短间隔 + 补强 |
 
 - attempts.outcome_source 记录三档来源（历史行为 NULL，回看展示按 result 回退），供未来统计区分"看选项会、主动想不起来"。
 - Recall 卡默认展示 source_example（回忆上下文，不是答案），understanding 不再有"查看原句降档"；forgot 时反馈区突出展示 source_example。
-- 新词首触同 为 Recall Card（2026-09-28"初见即回忆"：导入词已在 ChatGPT 理解过，首触检验回忆；三路径都完成新学，forgot 揭示即教学、明日短间隔回归，learn 不再插同会话补强）。选择题缓存与前端 shuffle 机制保留（即 Hint 题源）。
+- 新词首触同 为 Recall Card（2026-09-28"初见即回忆"：导入词已在 ChatGPT 理解过，首触检验回忆；两路径都完成新学，forgot 揭示即教学、明日短间隔回归，learn 不再插同会话补强）。选择题缓存与前端 shuffle 机制保留（供历史作答回放与旧数据兼容）。
 
 ## 7.2 填空题
 
@@ -395,7 +395,7 @@ Personal Example 最多 3 条。系统可自动替换 unpinned 低质量项，�
 
 | 题型 | 正确 | 错误 |
 | --- | --- | --- |
-| Recall/选择题 Hint | 「想起来了」成功后自动下一题；提示后答对显示答案后手动下一题。 | 显示答案后「想错了」评分即前进（答案已在屏）；揭示前「没想起来」、Hint 选错或主动不会留在当前卡：Recall 揭示释义与原句；选择题勾选正确选项、仅在选错时标记错误选项，并展示选择理由。手动下一题；复习题按上限插补强。 |
+| Recall | 「想起来了」自动下一题。 | 显示答案后「想错了」评分即前进；揭示前「没想起来」留卡揭示释义与原句，手动下一题；复习题按上限插补强。 |
 | 填空题 | 显示完整句子，手动下一题。 | 主动「不会填」或填错都展示正确填空、完整句子、可接受变形和简短解释；手动下一题，按上限插补强。 |
 | 表达题 | 显示批改结果，手动下一题。 | 主动「不会表达」展示参考句、目标用法和简短说明；写过答案后答错则展示最小纠错 diff 与解释。两者都手动下一题；不强制当天补强。 |
 

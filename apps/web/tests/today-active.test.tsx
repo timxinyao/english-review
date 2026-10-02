@@ -19,7 +19,7 @@ afterEach(cleanup);
 describe('V2 pending 题目准备', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('pending 显示正在准备且无答案，prepare 成功后显示 Recall；选项仅经 Hint 可达', async () => {
+  it('pending 显示正在准备且无答案，prepare 成功后显示 Recall；选项不可达', async () => {
     const pending = makeChoiceTask({ question: null });
     const ready = makeChoiceTask();
     let prepared = false;
@@ -42,9 +42,9 @@ describe('V2 pending 题目准备', () => {
     await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/prepare')).toHaveLength(1));
     resolve(ready);
     expect(await screen.findByRole('button', { name: '显示答案' })).toBeVisible();
+    // 选择题不再出现在正式 Recall 流（仅历史作答回放）
     expect(screen.queryByRole('group', { name: '选项' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '给我提示' }));
-    expect(screen.getByRole('group', { name: '选项' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '给我提示' })).toBeNull();
   });
 
   it('生成失败保留任务和总数，重试后 Production target 与底部输入可达', async () => {

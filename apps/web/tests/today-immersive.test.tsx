@@ -59,7 +59,7 @@ describe('Today 沉浸式卡布局', () => {
     expect(body!.contains(screen.getByText('data has not been processed yet.'))).toBe(true);
   });
 
-  it('Recall 卡：词行/原句在滚动区，作答按钮（显示答案/没想起来/给我提示）停靠底部 dock', async () => {
+  it('Recall 卡：词行/原句在滚动区，作答按钮（显示答案/没想起来）停靠底部 dock', async () => {
     stubApi({ '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }) });
     const { container } = renderTodayApp();
     await screen.findByRole('button', { name: '显示答案' });
@@ -69,7 +69,7 @@ describe('Today 沉浸式卡布局', () => {
     expect(body).not.toBeNull();
     expect(dock).not.toBeNull();
     expect(body!.contains(screen.getByText('The ladder feels stable.'))).toBe(true);
-    for (const name of ['显示答案', '没想起来', '给我提示']) {
+    for (const name of ['显示答案', '没想起来']) {
       expect(body!.contains(screen.getByRole('button', { name }))).toBe(false);
       expect(dock!.contains(screen.getByRole('button', { name }))).toBe(true);
     }

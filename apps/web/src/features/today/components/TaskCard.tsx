@@ -86,14 +86,13 @@ export function TaskCard({ task, result, undoControl, onAnswered, onAdvance }: P
         </div>
       )}
 
-      {/* 理解题（learn 新词 + understanding 复习）：Recall Card——主动回忆优先，选择题降级为 Hint */}
+      {/* 理解题（learn 新词 + understanding 复习）：Recall Card——主动回忆优先，直判/显示答案两条路 */}
       {!question ? (
         <PendingQuestion taskId={task.taskId} />
       ) : 'options' in question ? (
         task.taskType === 'understanding' || task.taskType === 'learn' ? (
           <RecallCard
             task={task}
-            question={question}
             result={result}
             outcomeSource={result?.outcomeSource ?? null}
             onAnswered={onAnswered ?? (() => {})}

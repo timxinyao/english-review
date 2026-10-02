@@ -6,8 +6,9 @@ import { expect, test, type Page } from '@playwright/test';
  * start 后会话为固定序（到期按 next_review_at+item.id，New Queue learn 殿后，混排不改变）：
  * give up 表达 → make sense 理解 → stable 理解 → wear down 理解 → gravity learn
  * understanding 与 learn 卡均为 Recall Card（PRODUCT §7.1"新词初见即回忆"）：主流程覆盖——
- * gravity（learn）与 make sense/wear down 走 recalled（显示答案→想起来了）、stable 走 hint 选错
- * （给我提示→选错误项→冻结"没想起来"+正确释义/原句揭示）；assisted（提示后想起）由组件单测覆盖。
+ * gravity（learn）与 make sense/wear down 走 recalled（显示答案→想起来了）、stable 走揭示前
+ * 「没想起来」直判（冻结"没想起来"+正确释义/原句揭示，手动下一题）；assisted（提示后想起）
+ * 仅历史数据回放——2026-10-03 起 Recall 无「给我提示」入口，学习流只剩直判/显示答案两条路。
  * 第三个用例覆盖同日追加学习（PRODUCT §3.4）：完成页"再学 N 个新词"→ extend → 新 Learn 卡（同 recall 路径）。
  */
 test.use({ viewport: { width: 1280, height: 720 } });
@@ -49,7 +50,7 @@ async function recallPass(page: Page, meaning: string) {
 /**
  * 驱动会话循环直至完成摘要（主流程骨架，会话型用例共用）。返回是否在步数内完成。
  * 计划：gravity（learn）与 make sense / wear down 走 recall recalled（想起来了）；
- * stable 走 hint 选错（没想起来，错题可见于今日学习）；raw 填空答对；
+ * stable 走揭示前「没想起来」直判（fail，错题可见于今日学习）；raw 填空答对；
  * give up 表达题答对；未知补强卡兜底处理。
  */
 async function driveSessionToCompleted(page: Page): Promise<boolean> {
@@ -86,24 +87,13 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
       continue;
     }
 
-    // 4) stable：首次出现走 Hint 选错（给我提示 → 选错误项）
-    //    → 冻结"没想起来" + 正确释义与原句揭示 + 统一纠错勾选正确选项（fail，记录进今日学习）
+    // 4) stable：首次出现走揭示前直判失败（「没想起来」）
+    //    → 冻结"没想起来" + 正确释义与原句揭示（fail，记录进今日学习），手动下一题
     if (!stableFailed && (await page.getByRole('heading', { name: 'stable' }).isVisible())) {
       stableFailed = true;
-      await page.getByRole('button', { name: '给我提示' }).click();
-      await expect(page.getByText('stable 在这里最接近什么意思？')).toBeVisible();
-      await page
-        .getByRole('group', { name: '选项' })
-        .getByRole('button')
-        .filter({ hasNotText: '稳定的' })
-        .first()
-        .click();
+      await page.getByRole('button', { name: '没想起来' }).click();
       await expect(page.getByText('没想起来', { exact: true })).toBeVisible();
       await expect(page.getByText('正确释义：', { exact: true })).toBeVisible();
-      // 统一纠错：冻结后选项仍可见，正确选项「稳定的」被勾选
-      await expect(
-        page.getByRole('group', { name: '选项' }).getByRole('button', { name: '稳定的' }),
-      ).toBeVisible();
       await expect(page.getByText('原句', { exact: true })).toBeVisible();
       await expect(page.getByText('The connection has been stable all week.')).toBeVisible();
       await page.getByRole('button', { name: '下一题' }).click();
@@ -214,7 +204,7 @@ test.describe('Today 复习全流程', () => {
     await page.screenshot({ path: '/tmp/task7-today-desktop.png' });
     await expect(page.locator('vite-error-overlay')).toHaveCount(0);
   });
-  test('idle → 开始 → Recall（learn/理解 想起来了、提示选错）+ 完整表达 → 完成摘要', async ({
+  test('idle → 开始 → Recall（learn/理解 想起来了、没想起来直判）+ 完整表达 → 完成摘要', async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -249,7 +239,7 @@ test.describe('Today 复习全流程', () => {
     const stableGroup = learning.getByRole('button', { name: /stable/ });
     await expect(stableGroup).toContainText('错');
     await stableGroup.click();
-    // 分组 li（按钮的父节点）内展开作答记录（fail 可能另插补强题，同组多行）：首行即 hint 选错
+    // 分组 li（按钮的父节点）内展开作答记录（fail 可能另插补强题，同组多行）：首行即没想起来直判
     const stableRecords = stableGroup.locator('..').locator('ul li');
     const recordCount = await stableRecords.count();
     expect(recordCount).toBeGreaterThanOrEqual(1);

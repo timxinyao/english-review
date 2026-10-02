@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api';
 import {
@@ -23,11 +23,9 @@ vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
 
 const apiMock = vi.mocked(api);
 
-// Task 1 判定映射：recalled→pass / assisted→basic_pass / forgot→fail
-// （hint 选择题路径的冻结勾选回放依赖服务端 selectedOptionId，与 API 契约一致）
+// Task 1 判定映射：recalled→pass / forgot→fail
+// （assisted=basic_pass 仅历史数据，RecallFeedback 保留其回放判语）
 const recalledAnswer = () => makeCorrectAnswer({ outcomeSource: 'recalled' });
-const assistedAnswer = () =>
-  makeCorrectAnswer({ result: 'basic_pass', outcomeSource: 'assisted', selectedOptionId: 'o1' });
 const forgotAnswer = () => makeWrongAnswer({ outcomeSource: 'forgot', selectedOptionId: 'o2' });
 
 /** 第 2 张卡（用于断言"下一题"确实切换了任务） */
@@ -50,11 +48,6 @@ function verdictParagraph(text: string): Promise<HTMLElement> {
   return screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === text);
 }
 
-/** 冻结反馈的释义行 <p>（Hint 冻结时与选项按钮/正确答案行文案可能相同，按整段区分） */
-function meaningParagraph(): HTMLElement {
-  return screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '正确释义：稳定的');
-}
-
 describe('Recall Card（understanding）', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -73,7 +66,7 @@ describe('Recall Card（understanding）', () => {
     await waitFor(() => expect(apiCalls('/api/today').length).toBeGreaterThan(before));
   });
 
-  it('初始：显示 target/IPA/source_example 与 [给我提示][显示答案]，不显示 meaning 与选项', async () => {
+  it('初始：显示 target/IPA/source_example 与 [显示答案][没想起来]，不显示 meaning 与选项', async () => {
     stubApi({ '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }) });
     renderTodayApp();
 
@@ -82,8 +75,8 @@ describe('Recall Card（understanding）', () => {
     // 原句默认展示（Recall Card 不再有"查看原句"）
     expect(screen.getByText('The ladder feels stable.')).toBeVisible();
     expect(screen.getByRole('button', { name: '发音' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '给我提示' })).toBeVisible();
     expect(screen.getByRole('button', { name: '显示答案' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '没想起来' })).toBeVisible();
     // 不剧透：meaning、题面与选项都不出现
     expect(screen.queryByText('稳定的')).not.toBeInTheDocument();
     expect(screen.queryByText('"stable" 的意思是？')).not.toBeInTheDocument();
@@ -119,7 +112,6 @@ describe('Recall Card（understanding）', () => {
     const notesDetails = screen.getByText('笔记').closest('details');
     expect(notesDetails).toHaveAttribute('open');
     expect(notesDetails).toHaveTextContent('也作名词：马厩');
-    expect(screen.queryByRole('button', { name: '给我提示' })).not.toBeInTheDocument();
 
     // 评分即前进：不出现"下一题"，refetch 落地即切下一张卡
     fireEvent.click(screen.getByRole('button', { name: '想起来了' }));
@@ -247,117 +239,6 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('heading', { name: 'ambitious' })).not.toBeInTheDocument();
   });
 
-  it('Hint 主动不会：点「不会」POST {giveUp:true} → 留在当前卡；只勾正确选项与理由，不虚构错误标记', async () => {
-    stubApi({
-      '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }),
-      '/api/today/tasks/task-1/answer': makeWrongAnswer({
-        gaveUp: true,
-        selectedOptionId: null,
-        outcomeSource: 'forgot',
-      }),
-    });
-    renderTodayApp();
-
-    fireEvent.click(await screen.findByRole('button', { name: '给我提示' }));
-    fireEvent.click(await screen.findByRole('button', { name: '不会' }));
-
-    await waitFor(() => {
-      expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1);
-    });
-    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-1/answer')[0])).toEqual({ giveUp: true });
-
-    // 留在当前卡：判语 + 释义/原句 + 选项纠错（只勾正确项）
-    expect(await verdictParagraph('没想起来')).toBeVisible();
-    expect(meaningParagraph()).toBeVisible();
-    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
-    const group = screen.getByRole('group', { name: '选项' });
-    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain(
-      'text-success',
-    );
-    expect(within(group).getByRole('button', { name: '摇晃的' }).className).not.toContain(
-      'text-destructive',
-    );
-    expect(screen.getByText('stable 在这里指结构上的稳固。')).toBeVisible();
-
-    // 手动下一题；未自动切换
-    expect(screen.getByRole('button', { name: '下一题' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'ambitious' })).not.toBeInTheDocument();
-  });
-
-  it('Hint：点给我提示出现选择题；选对 → POST {selectedOptionId, hintUsed:true} → 冻结"提示后想起（基础通过）"', async () => {
-    stubApi({
-      '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }),
-      '/api/today/tasks/task-1/answer': assistedAnswer(),
-    });
-    renderTodayApp();
-
-    fireEvent.click(await screen.findByRole('button', { name: '给我提示' }));
-
-    // Hint 复用选择题：题面 + 选项；仅答题形态（无查看原句、无反馈 chips）
-    expect(await screen.findByText('"stable" 的意思是？')).toBeVisible();
-    expect(screen.getByRole('group', { name: '选项' })).toBeVisible();
-    // hint 态原句块隐藏：不与题面重复展示源句
-    expect(screen.queryByText('The ladder feels stable.')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '查看原句' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '给我提示' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '显示答案' })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '稳定的' }));
-    await waitFor(() => {
-      expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1);
-    });
-    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-1/answer')[0])).toEqual({
-      selectedOptionId: 'o1',
-      hintUsed: true,
-    });
-
-    // 提交后父级立即冻结：assisted 基础通过判语 + 释义/原句 + 勾选正确选项；
-    // Hint 答对无「其实是蒙的」入口（§7.6：蒙的已移除）
-    const assistedVerdict = await verdictParagraph('提示后想起（基础通过）');
-    expect(assistedVerdict.className).toContain('text-warning');
-    expect(screen.queryByText('其实是蒙的')).not.toBeInTheDocument();
-    expect(screen.queryByText('其实我蒙的')).not.toBeInTheDocument();
-    expect(screen.queryByText('太简单了')).not.toBeInTheDocument();
-    const group = screen.getByRole('group', { name: '选项' });
-    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain(
-      'text-success',
-    );
-    expect(screen.getByText('释义：')).toBeVisible();
-    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
-  });
-
-  it('Hint 选错 → 冻结"没想起来"+正确释义揭示+统一纠错（勾错选/正确项并展示理由）', async () => {
-    stubApi({
-      '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }),
-      '/api/today/tasks/task-1/answer': forgotAnswer(),
-    });
-    renderTodayApp();
-
-    fireEvent.click(await screen.findByRole('button', { name: '给我提示' }));
-    fireEvent.click(await screen.findByRole('button', { name: '摇晃的' }));
-
-    await waitFor(() => {
-      expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1);
-    });
-    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-1/answer')[0])).toEqual({
-      selectedOptionId: 'o2',
-      hintUsed: true,
-    });
-
-    expect(await verdictParagraph('没想起来')).toBeVisible();
-    expect(meaningParagraph()).toBeVisible();
-    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
-    // 统一纠错：错误选项与正确选项都标记，并展示选择理由（result.selectedOptionId 回放也生效）
-    const group = screen.getByRole('group', { name: '选项' });
-    expect(within(group).getByRole('button', { name: '摇晃的' }).className).toContain(
-      'text-destructive',
-    );
-    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain(
-      'text-success',
-    );
-    expect(screen.getByText('stable 在这里指结构上的稳固。')).toBeVisible();
-  });
-
   // 回看（readOnly 冻结态）已随顺序导航删除（2026-09-28 决策）：历史记录只在「今日学习」只读列表展示，
   // 冻结反馈的只读断言由 today-navigation / today-active 的弹层用例覆盖。
 
@@ -431,7 +312,7 @@ describe('learn 分派 RecallCard（新词首触即回忆）', () => {
     expect(screen.queryByText('重力')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '显示答案' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '给我提示' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '没想起来' })).toBeVisible();
 
     // 显示答案 → 想起来了（recall 直判）
     fireEvent.click(screen.getByRole('button', { name: '显示答案' }));

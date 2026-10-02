@@ -241,6 +241,8 @@ steady
 
 同一个 Learning Item 在单个 Session 内最多动态追加 2 道补强题。补强题不得立刻重复出现，应至少间隔若干题或进入队列后段，避免形成机械短时记忆与无限增长。
 
+按钮颜色全局唯一出处是 Button 组件语义变体（primary/neutral/negative/destructive/ghost）；应用内 `/tokens` 页真渲染色板与按钮矩阵，为权威色卡（2026-10-02 起）。
+
 ## 5.2 Library
 
 Library 使用简洁列表，展示 target、中文释义、理解/输出自然语言状态和来源。详情页展开具体阶段、下次复习时间和长期例句。

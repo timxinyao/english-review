@@ -26,7 +26,7 @@ describe('Button 基础组件', () => {
       </Button>,
     );
     const btn = screen.getByRole('button', { name: '继续' });
-    expect(btn.className).toContain('border');
+    expect(btn.className).toContain('border border-input bg-accent-soft');
     expect(btn.className).toContain('w-full');
   });
 });

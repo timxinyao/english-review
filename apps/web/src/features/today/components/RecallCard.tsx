@@ -210,8 +210,8 @@ export function RecallCard({
               显示答案
             </Button>
             <Button
-              variant="outline"
-              className="flex-1 border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
+              variant="negative"
+              className="flex-1"
               disabled={answer.isPending}
               onClick={() => submit({ recall: 'forgot' })}
             >
@@ -228,8 +228,8 @@ export function RecallCard({
         <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
           <div className="flex gap-2">
             <Button
-              variant="outline"
-              className="flex-1 border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
+              variant="negative"
+              className="flex-1"
               disabled={answer.isPending}
               onClick={() => submit({ recall: 'forgot' }, { autoAdvance: true })}
             >

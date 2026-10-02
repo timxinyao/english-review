@@ -1,7 +1,9 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Button } from '../src/components/ui/button';
 import { cn } from '../src/lib/utils';
+
+afterEach(cleanup);
 
 describe('cn 工具', () => {
   it('合并并去重 tailwind 类', () => {
@@ -26,5 +28,20 @@ describe('Button 基础组件', () => {
     const btn = screen.getByRole('button', { name: '继续' });
     expect(btn.className).toContain('border');
     expect(btn.className).toContain('w-full');
+  });
+});
+
+/** 变体类串是全局按钮颜色唯一出处（spec 2026-10-02），锁死防漂移 */
+describe('Button 语义变体类名', () => {
+  it.each([
+    ['primary', 'bg-accent text-accent-foreground'],
+    ['default', 'bg-accent text-accent-foreground'],
+    ['neutral', 'border-input bg-accent-soft text-foreground'],
+    ['negative', 'border-destructive/50 bg-transparent text-destructive'],
+    ['destructive', 'bg-destructive text-white'],
+    ['ghost', 'hover:bg-muted'],
+  ] as const)('%s → %s', (variant, expected) => {
+    render(<Button variant={variant}>按钮</Button>);
+    expect(screen.getByRole('button', { name: '按钮' }).className).toContain(expected);
   });
 });

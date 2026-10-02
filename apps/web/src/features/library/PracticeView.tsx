@@ -98,8 +98,8 @@ function RecallPracticeCard({
           <div className="space-y-2">
             <div className="flex gap-2">
               <Button
-                variant="outline"
-                className="flex-1 border-destructive/50 text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
+                variant="negative"
+                className="flex-1"
                 disabled={pending}
                 onClick={() => onSubmit({ recall: 'forgot' })}
               >

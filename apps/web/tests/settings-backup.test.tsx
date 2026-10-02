@@ -231,7 +231,8 @@ describe('恢复向导', () => {
     expect(screen.getByText('每日新学额度取值将在恢复后生效')).toBeVisible();
 
     const confirm = screen.getByRole('button', { name: '确认覆盖恢复' });
-    expect(confirm.className).toContain('text-destructive');
+    // destructive 变体已改实心（Task 1 语义变体），标记类随之更新
+    expect(confirm.className).toContain('bg-destructive');
   });
 
   it('步骤 3：需二次确认才提交；成功后延迟 reload 并提示刷新中', async () => {

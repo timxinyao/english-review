@@ -8,9 +8,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: 'bg-accent text-accent-foreground hover:opacity-90',
-        outline: 'border border-border bg-transparent hover:bg-muted',
+        primary: 'bg-accent text-accent-foreground hover:opacity-90',
+        neutral: 'border border-input bg-accent-soft text-foreground hover:brightness-95',
+        negative:
+          'border border-destructive/50 bg-transparent text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive',
         ghost: 'hover:bg-muted',
-        destructive: 'text-destructive hover:bg-destructive/10',
+        destructive: 'bg-destructive text-white hover:opacity-90',
+        // 旧中性样式，全量 sweep 后在 Task 3 删除
+        outline: 'border border-border bg-transparent hover:bg-muted',
       },
       size: {
         default: 'h-10 px-4',

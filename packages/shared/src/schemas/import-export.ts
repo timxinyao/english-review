@@ -4,6 +4,7 @@ import { LearningItemType } from './learning-item.js';
 /** 学习库导入/导出 JSON（PRODUCT_DESIGN §9.1） */
 export const LibraryImportItem = z.object({
   type: LearningItemType,
+  production_enabled_override: z.boolean().nullable().optional(),
   target: z.string().min(1),
   meaning: z.string().min(1),
   ipa: z.string().nullable().optional(),
@@ -17,7 +18,7 @@ export const LibraryImportItem = z.object({
 export type LibraryImportItem = z.infer<typeof LibraryImportItem>;
 
 export const LibraryImport = z.object({
-  version: z.literal('1.2'),
+  version: z.enum(['1.2', '2.0']),
   items: z.array(LibraryImportItem).min(1),
 });
 export type LibraryImport = z.infer<typeof LibraryImport>;

@@ -39,9 +39,7 @@ describe('Today 完成摘要', () => {
     expect(await screen.findByRole('heading', { name: '今天完成了' })).toBeVisible();
     expect(
       screen.getByText(
-        (_, el) =>
-          el?.tagName === 'P' &&
-          el.textContent === '通过 3 · 基础通过 1 · 未通过 1',
+        (_, el) => el?.tagName === 'P' && el.textContent === '通过 3 · 基础通过 1 · 未通过 1',
       ),
     ).toBeVisible();
     expect(
@@ -96,7 +94,10 @@ describe('Today 完成页撤销入口（PRODUCT §5.1）', () => {
         undone ? makeActive(replacement, { completed: 0, total: 1 }) : makeCompleted(),
       '/api/today/tasks': () =>
         undone
-          ? makeTasksResponse([makeCanceledEntry(answeredTask), makeSessionEntry(replacement, null)])
+          ? makeTasksResponse([
+              makeCanceledEntry(answeredTask),
+              makeSessionEntry(replacement, null),
+            ])
           : makeTasksResponse([makeSessionEntry(answeredTask, makeWrongAnswer())], 'task-1'),
       '/api/today/tasks/task-1/undo': () => {
         undone = true;
@@ -134,9 +135,7 @@ describe('Today 完成页撤销入口（PRODUCT §5.1）', () => {
     // 已撤销的原题不回放（result 为 null、canceled 条目不进分布）
     expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
     expect(await screen.findByText('0 / 1')).toBeVisible();
-    await waitFor(() =>
-      expect(screen.queryByRole('heading', { name: '今天完成了' })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '今天完成了' })).toBeNull());
     await new Promise((r) => setTimeout(r, 50));
     expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(1); // 仍只有一次
   });

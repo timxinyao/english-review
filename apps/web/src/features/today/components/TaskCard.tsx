@@ -1,9 +1,58 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { AnswerResponse, TodayTaskView } from '@el/shared';
 import { ChoiceQuestionView } from './ChoiceQuestionView';
 import { ClozeQuestionView } from './ClozeQuestionView';
 import { ProductionQuestionView } from './ProductionQuestionView';
 import { RecallCard } from './RecallCard';
+import { Button } from '../../../components/ui/button';
+import { todayKeys, useLater, usePrepareTask } from '../api';
+
+function PendingQuestion({ taskId }: { taskId: string }) {
+  const prepare = usePrepareTask();
+  const later = useLater();
+  const queryClient = useQueryClient();
+  const started = useRef(false);
+  const { mutate } = prepare;
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    mutate(taskId);
+  }, [taskId, mutate]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div
+        className="flex min-h-0 flex-1 items-center justify-center"
+        role="status"
+        aria-live="polite"
+      >
+        <p className="text-sm text-muted-foreground">
+          {prepare.isError ? prepare.error.message : '正在准备…'}
+        </p>
+      </div>
+      {later.isError && (
+        <p role="alert" className="text-sm text-destructive">
+          {later.error.message}
+        </p>
+      )}
+      <div className="flex shrink-0 gap-2" data-slot="dock">
+        {prepare.isError && <Button onClick={() => mutate(taskId)}>重试</Button>}
+        <Button variant="outline" disabled={later.isPending} onClick={() => later.mutate(taskId)}>
+          稍后再做
+        </Button>
+        {(prepare.isError || later.isError) && (
+          <Button
+            variant="ghost"
+            onClick={() => void queryClient.invalidateQueries({ queryKey: todayKeys.all })}
+          >
+            刷新今日学习
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   task: TodayTaskView;
@@ -38,7 +87,9 @@ export function TaskCard({ task, result, undoControl, onAnswered, onAdvance }: P
       )}
 
       {/* 理解题（learn 新词 + understanding 复习）：Recall Card——主动回忆优先，选择题降级为 Hint */}
-      {question && 'options' in question ? (
+      {!question ? (
+        <PendingQuestion taskId={task.taskId} />
+      ) : 'options' in question ? (
         task.taskType === 'understanding' || task.taskType === 'learn' ? (
           <RecallCard
             task={task}

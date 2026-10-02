@@ -29,7 +29,7 @@ export const REINFORCEMENT_MIN_GAP = 3;
 /** 或队列后 30% 区域 */
 export const REINFORCEMENT_TAIL_RATIO = 0.3;
 
-/** 题库存量 */
+/** 题库存量；cloze 只供旧题生命周期清理读取，不再预取或生成。 */
 export const QUESTION_TARGET_STOCK = {
   understanding: 3,
   cloze: 3,
@@ -62,19 +62,6 @@ export const MAX_NEW_ITEMS_CHOICES = [5, 10, 15, 20] as const;
 export const MAX_NEW_ITEMS_UNLIMITED = -1;
 /** 同日追加学习（extend）：不限制模式下每批追加数量 */
 export const EXTEND_BATCH_UNLIMITED = 10;
-
-/** 题型按 Production 阶段的映射（PRODUCT_DESIGN 6.3） */
-export const PRODUCTION_STAGE_QUESTION_MIX = {
-  early: 'cloze', // P-L1 ~ P-L2 填空为主
-  middle: 'mixed', // P-L3 填空 + 表达混合
-  late: 'production', // P-L4 ~ P-L7 表达为主
-} as const;
-
-export function productionStageOf(level: number): keyof typeof PRODUCTION_STAGE_QUESTION_MIX {
-  if (level <= 2) return 'early';
-  if (level === 3) return 'middle';
-  return 'late';
-}
 
 /** 列表展示用的自然语言阶段（PRODUCT_DESIGN §6.1） */
 export type ReviewStageLabel = '未开始' | '初学' | '练习中' | '稳定';

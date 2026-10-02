@@ -2,9 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Today 复习全流程（PC viewport；E2E_SEED=1 播种：
- * 5 个到期任务（give up/make sense/raw/stable/wear down）+ 1 个 New Queue 项 gravity）。
+ * V2：4 个到期任务（give up/make sense/stable/wear down）+ 1 个 New Queue 项 gravity）。
  * start 后会话为固定序（到期按 next_review_at+item.id，New Queue learn 殿后，混排不改变）：
- * give up 表达 → make sense 理解 → raw 填空 → stable 理解 → wear down 理解 → gravity learn
+ * give up 表达 → make sense 理解 → stable 理解 → wear down 理解 → gravity learn
  * understanding 与 learn 卡均为 Recall Card（PRODUCT §7.1"新词初见即回忆"）：主流程覆盖——
  * gravity（learn）与 make sense/wear down 走 recalled（显示答案→想起来了）、stable 走 hint 选错
  * （给我提示→选错误项→冻结"没想起来"+正确释义/原句揭示）；assisted（提示后想起）由组件单测覆盖。
@@ -57,6 +57,7 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
   let completed = false;
 
   for (let step = 0; step < 30 && !completed; step++) {
+    await expect(page.getByLabel('填空答案')).toHaveCount(0);
     if (await page.getByRole('heading', { name: '今天完成了' }).isVisible()) {
       completed = true;
       break;
@@ -76,16 +77,6 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
     if (await page.getByText('I laugh at gravity all the time.').isVisible()) {
       await expect(page.getByRole('heading', { name: 'gravity' })).toBeVisible();
       await recallPass(page, '重力');
-      continue;
-    }
-
-    // 2) 填空卡（raw）：输入答案提交，正确后手动下一题
-    const blank = page.getByLabel('填空答案');
-    if (await blank.isVisible()) {
-      await blank.fill('raw');
-      await page.getByRole('button', { name: '提交' }).click();
-      await expect(page.getByText('回答正确')).toBeVisible();
-      await page.getByRole('button', { name: '下一题' }).click();
       continue;
     }
 
@@ -155,7 +146,75 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
 }
 
 test.describe('Today 复习全流程', () => {
-  test('idle → 开始 → Recall（learn/理解 想起来了、提示选错）+ 填空/表达 → 完成摘要', async ({
+  test('正在准备不露答案，失败后稍后再做仍保留总量', async ({ page }) => {
+    const runtimeErrors: string[] = [];
+    page.on('pageerror', (error) => runtimeErrors.push(error.message));
+    await login(page);
+    await resetSeedData(page);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    await page.route('**/api/today/tasks/*/prepare', async (route) => {
+      if (!first) return route.continue();
+      first = false;
+      await held;
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: { code: 'AI_PROVIDER_ERROR', message: '题目暂时无法生成，请稍后重试' },
+        }),
+      });
+    });
+    await page.goto('/today');
+    await expect(page).toHaveURL(/\/today$/);
+    await expect(page).toHaveTitle('Foxi');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+    await expect(page.getByText('正在准备…')).toBeVisible();
+    await expect(page.getByLabel('表达答案')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '显示答案' })).toHaveCount(0);
+    release();
+    await expect(page.getByText('题目暂时无法生成，请稍后重试')).toBeVisible();
+    await page.getByRole('button', { name: '稍后再做' }).click();
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+    await expect(page.getByText('0 / 5', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '显示答案' })).toBeVisible();
+    await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+    expect(runtimeErrors).toEqual([]);
+  });
+  test('pending → 失败 → 重试 → 可答；稍后保留总量，不出现填空', async ({ page }) => {
+    await login(page);
+    await resetSeedData(page);
+    let prepareCount = 0;
+    await page.route('**/api/today/tasks/*/prepare', async (route) => {
+      prepareCount += 1;
+      if (prepareCount === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'AI_PROVIDER_ERROR', message: '题目暂时无法生成，请稍后重试' },
+          }),
+        });
+      } else await route.continue();
+    });
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+    await expect(page.getByText('题目暂时无法生成，请稍后重试')).toBeVisible();
+    await expect(page.getByLabel('表达答案')).toHaveCount(0);
+    await expect(page.getByLabel('填空答案')).toHaveCount(0);
+    await expect(page.getByText('0 / 5', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '稍后再做' })).toBeVisible();
+    await page.getByRole('button', { name: '重试' }).click();
+    await expect(page.getByLabel('表达答案')).toBeVisible();
+    await expect(page.getByText('give up', { exact: true })).toBeVisible();
+    await expect(page.getByText('0 / 5', { exact: true })).toBeVisible();
+    await page.screenshot({ path: '/tmp/task7-today-desktop.png' });
+    await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+  });
+  test('idle → 开始 → Recall（learn/理解 想起来了、提示选错）+ 完整表达 → 完成摘要', async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -166,7 +225,7 @@ test.describe('Today 复习全流程', () => {
     // idle 主卡片：种子 5 个到期（Phase 4 新增 give up 的 P 任务）；new today 为剩余新学额度
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
     await expect(
-      page.getByText(/^词汇总数 \d+ · 待学 \d+ · 今日到期 5 项 · 可新学 \d+$/),
+      page.getByText(/^词汇总数 \d+ · 待学 \d+ · 今日到期 4 项 · 可新学 \d+$/),
     ).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
@@ -319,6 +378,203 @@ test.describe('Today 复习全流程', () => {
   });
 });
 
+test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
+  interface ReviewStateDto {
+    dimension: string;
+    level: number;
+    nextReviewAt: string | null;
+    lastReviewAt: string | null;
+  }
+
+  async function libraryStates(
+    page: Page,
+    ids: string[],
+  ): Promise<Record<string, ReviewStateDto[]>> {
+    return page.evaluate(async (itemIds: string[]) => {
+      const out: Record<
+        string,
+        {
+          dimension: string;
+          level: number;
+          nextReviewAt: string | null;
+          lastReviewAt: string | null;
+        }[]
+      > = {};
+      for (const id of itemIds) {
+        const r = await fetch(`/api/library/${id}`, { credentials: 'include' });
+        const data = (await r.json()) as {
+          reviewStates: {
+            dimension: string;
+            level: number;
+            nextReviewAt: string | null;
+            lastReviewAt: string | null;
+          }[];
+        };
+        out[id] = data.reviewStates;
+      }
+      return out;
+    }, ids);
+  }
+
+  /**
+   * Learn→次日 Production：carry on（chunk）今日 Learn 完成初始化 P L0 次日到期；
+   * set off（chunk）为"昨日 Learn 完成、今日造句到期"的次日态，今日会话出现其表达题。
+   * e2e 时钟不可跨日，次日态由种子近似（Learn→次日排期数学由 API 单测钉死）。
+   */
+  test('Learn→次日 Production：chunk Learn 初始化造句、次日表达到期可作答', async ({ page }) => {
+    test.setTimeout(120_000);
+    await login(page);
+    await resetSeedData(page);
+    const seeded = await page.evaluate(async () => {
+      const r = await fetch('/api/__e2e/seed-v2-journeys', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      return r.status;
+    });
+    expect(seeded).toBe(200);
+
+    await page.goto('/today');
+    // 到期 5 = 基础 4 + set off 次日到期的 P；put off（显式关闭）与 raw（word 默认关）不计入
+    await expect(page.getByText(/今日到期 5 项/)).toBeVisible();
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+    await expect(page.getByText('0 / 7', { exact: true })).toBeVisible();
+
+    let setOffDone = false;
+    let carryOnDone = false;
+    let completed = false;
+    for (let step = 0; step < 40 && !completed; step++) {
+      await expect(page.getByLabel('填空答案')).toHaveCount(0); // V2：任何环节不出新填空
+      if (await page.getByRole('heading', { name: '今天完成了' }).isVisible()) {
+        completed = true;
+        break;
+      }
+      // 表达卡（give up / set off）：按「必须使用」取目标词作答（fake 批改按 mustUse 判定）
+      const prod = page.getByLabel('表达答案');
+      if (await prod.isVisible()) {
+        const mustUse =
+          (await page.getByText(/^必须使用：/).textContent())?.replace('必须使用：', '').trim() ??
+          '';
+        if (mustUse === 'set off') setOffDone = true;
+        await prod.fill(`I want to ${mustUse} now.`);
+        await page.getByRole('button', { name: '提交' }).click();
+        await expect(page.getByText('通过', { exact: true })).toBeVisible({ timeout: 10_000 });
+        await page.getByRole('button', { name: '下一题' }).click();
+        continue;
+      }
+      // Recall 卡（理解复习 / learn 新学）：显示答案 → 想起来了 → 评分即前进
+      const reveal = page.getByRole('button', { name: '显示答案' });
+      if (await reveal.isVisible()) {
+        if (await page.getByRole('heading', { name: 'carry on' }).isVisible()) carryOnDone = true;
+        await reveal.click();
+        await page.getByRole('button', { name: '想起来了' }).click();
+        await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
+        continue;
+      }
+      await page.waitForTimeout(300);
+    }
+    expect(completed, '会话应在有限步数内完成').toBe(true);
+    await expect(page.getByRole('heading', { name: '今天完成了' })).toBeVisible();
+    expect(setOffDone, '次日到期的 set off 表达题应出现并作答').toBe(true);
+    expect(carryOnDone, 'carry on 应以 Learn 卡（Recall）完成').toBe(true);
+
+    // 库状态核对：Learn 初始化 P L0 次日到期；set off 答对推进 L1；put off 显式关闭保持原状
+    const states = await libraryStates(page, [
+      'e2e-item-carry-on',
+      'e2e-item-set-off',
+      'e2e-item-put-off',
+    ]);
+    const dim = (id: string, d: string) =>
+      states[id]!.find((s) => s.dimension === d) ?? {
+        dimension: d,
+        level: -1,
+        nextReviewAt: null,
+        lastReviewAt: null,
+      };
+    const carryOnP = dim('e2e-item-carry-on', 'production');
+    expect(carryOnP.level).toBe(0);
+    expect(carryOnP.lastReviewAt).toBeNull();
+    expect(carryOnP.nextReviewAt, 'carry on 的 P 应排到明天（Learn 次日首排）').not.toBeNull();
+    expect(Date.parse(carryOnP.nextReviewAt!)).toBeGreaterThan(Date.now() + 20 * 3600 * 1000);
+
+    const setOffP = dim('e2e-item-set-off', 'production');
+    expect(setOffP.level).toBe(1); // L0 答对 → L1
+    expect(setOffP.lastReviewAt).not.toBeNull();
+    expect(setOffP.nextReviewAt).not.toBeNull();
+
+    const putOffP = dim('e2e-item-put-off', 'production');
+    expect(putOffP.level).toBe(2); // 显式关闭：被排除且状态不动
+    expect(putOffP.lastReviewAt).not.toBe(setOffP.lastReviewAt);
+  });
+
+  test('目标关闭取消当日 P：Library 关闭造句后 Today 队列收敛、当前卡顺延', async ({ page }) => {
+    await login(page);
+    await resetSeedData(page);
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+    // 首卡 give up 表达题（当日 P 任务，尚未作答）
+    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+    await expect(page.getByText('0 / 5', { exact: true })).toBeVisible();
+
+    // Library 详情：造句目标 显式开启 → 关闭（三态 override=0）
+    await page.goto('/library');
+    await page.getByLabel('搜索学习项').fill('give up');
+    await page
+      .getByRole('link', { name: /give up/ })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/library\/[a-z0-9-]+$/i);
+    await page.getByRole('button', { name: '编辑' }).click();
+    const goal = page.getByLabel('造句目标');
+    await expect(goal).toHaveValue('enabled'); // 种子 override=1
+    await goal.selectOption('disabled');
+    await page.getByRole('button', { name: '保存' }).click();
+    await expect(page.getByRole('button', { name: '编辑' })).toBeVisible();
+
+    // 回 Today：give up 的当日 P 任务被取消，总量 5→4，当前卡顺延为 make sense
+    await page.goto('/today');
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+    await expect(page.getByText('0 / 4', { exact: true })).toBeVisible();
+    await expect(page.getByText('长期的压力让我想放弃。')).toHaveCount(0);
+    await expect(page.getByLabel('表达答案')).toHaveCount(0);
+  });
+
+  test('大队列：44 到期全量 pending，start 不阻塞首屏、进度含未绑定任务', async ({ page }) => {
+    test.setTimeout(120_000);
+    await login(page);
+    await resetSeedData(page);
+    const seeded = await page.evaluate(async () => {
+      const r = await fetch('/api/__e2e/seed-large-queue', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      return r.status;
+    });
+    expect(seeded).toBe(200);
+
+    await page.goto('/today');
+    await expect(page.getByText(/今日到期 44 项/)).toBeVisible();
+    // start 建全量 pending 队列即返回：不逐题等 AI/库存（旧 V1 行为会分钟级阻塞）
+    const startedAt = Date.now();
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+    await expect(page.getByText('0 / 45', { exact: true })).toBeVisible({ timeout: 10_000 });
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+
+    // 首卡 give up 表达题（到期序早于 bulk 批次）；题目绑定走预置库存，不依赖 AI
+    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+    await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+    await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '下一题' }).click();
+    // 懒绑定逐题进行：次卡（make sense Recall）仍即时出现，进度推进且无填空
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText('1 / 45', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('填空答案')).toHaveCount(0);
+  });
+});
+
 test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', () => {
   // 375x480 模拟短屏 + 键盘弹出后的可视高度：输入与主操作必须仍可达
   test.use({ viewport: { width: 375, height: 480 } });
@@ -355,6 +611,7 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
     await expect(page.getByText('The constant stress makes me want to give up.')).toBeVisible();
     await expect(page.getByText('允许正常时态和人称变化。')).toBeVisible();
     await expect(page.getByText('纠正后')).toHaveCount(0);
+    await page.screenshot({ path: '/tmp/task7-today-mobile.png' });
     await page.getByRole('button', { name: '下一题' }).click();
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
   });
@@ -369,11 +626,13 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
       await resetSeedData(page);
       await page.goto('/today');
       await page.getByRole('button', { name: '开始今日复习' }).click();
-      for (let index = 0; index < 5; index++) await page.getByRole('button', { name: 'Foxi' }).click();
+      for (let index = 0; index < 5; index++)
+        await page.getByRole('button', { name: 'Foxi' }).click();
       await expect(page.locator('[data-kb-debug]')).toContainText('vv.height');
       await expect(page.locator('[data-kb-debug]')).toContainText('card');
       await page.screenshot({ path: '/tmp/foxi-kbdebug-local.png' });
-      for (let index = 0; index < 5; index++) await page.getByRole('button', { name: 'Foxi' }).click();
+      for (let index = 0; index < 5; index++)
+        await page.getByRole('button', { name: 'Foxi' }).click();
       await expect(page.locator('[data-kb-debug]')).toHaveCount(0);
     });
 
@@ -432,7 +691,9 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
       expect(await page.locator('html').getAttribute('data-last-today-click')).toBe('表达答案');
       expect(await page.locator('html').getAttribute('data-touch-pending')).toBe('true');
       expect(
-        Math.abs(Number(await page.locator('html').getAttribute('data-touch-input-top')) - inputBefore.y),
+        Math.abs(
+          Number(await page.locator('html').getAttribute('data-touch-input-top')) - inputBefore.y,
+        ),
       ).toBeLessThanOrEqual(1);
       await expect(page.getByLabel('表达答案')).toBeFocused();
       await page.waitForTimeout(400);

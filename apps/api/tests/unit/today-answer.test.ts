@@ -7,16 +7,24 @@ import {
   dailyStats,
   learningExamples,
   learningItems,
+  questions,
   reviewSessions,
   reviewStates,
   reviewTasks,
 } from '../../src/db/schema.js';
 import {
   answerTodayTask,
-  startTodaySession,
+  prepareTodayTask,
+  startTodaySession as startTodaySessionRaw,
   type TodayDeps,
 } from '../../src/modules/today/service.js';
-import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
+import {
+  seedExample,
+  seedItem,
+  seedLegacyBoundTask,
+  seedQuestion,
+  seedReviewState,
+} from '../helpers/seed.js';
 import { choicePayload, createFakeDeps, DEFAULT_OPTIONS } from '../helpers/today-fakes.js';
 
 const TZ = 'Asia/Shanghai';
@@ -32,6 +40,28 @@ beforeEach(() => {
   runMigrations(db);
   deps = createFakeDeps();
 });
+
+async function startTodaySession(
+  testDb: AppDatabase,
+  testDeps: TodayDeps,
+  timezone: string,
+  now: Date,
+) {
+  const result = await startTodaySessionRaw(testDb, testDeps, timezone, now);
+  if (result.status === 'active') {
+    for (const task of testDb.select().from(reviewTasks).all()) {
+      if (
+        task.sessionId === result.session.id &&
+        task.completedAt === null &&
+        task.canceledAt === null &&
+        task.questionId === null
+      ) {
+        await prepareTodayTask(testDb, testDeps, timezone, now, task.id);
+      }
+    }
+  }
+  return result;
+}
 
 async function seedDueChoiceItem(
   itemId: string,
@@ -59,17 +89,18 @@ async function seedDueClozeItem(itemId: string, accepted: string[]): Promise<str
     level: 1,
     nextReviewAt: '2026-09-23T00:00:00.000Z',
   });
-  await seedQuestion(db, itemId, {
+  const questionId = await seedQuestion(db, itemId, {
     type: 'cloze',
     payloadJson: JSON.stringify({ acceptedAnswers: accepted, explanation: 'cloze 解释' }),
     correctOptionId: null,
     contextText: `We need the ____ ${itemId} before processing.`,
   });
+  seedLegacyBoundTask(db, itemId, questionId, NOW, TZ);
   return itemId;
 }
 
 async function seedDueProductionItem(itemId: string, mustUse: string): Promise<string> {
-  await seedItem(db, { id: itemId, target: mustUse, queueState: 'started' });
+  await seedItem(db, { id: itemId, type: 'chunk', target: mustUse, queueState: 'started' });
   await seedReviewState(db, itemId, 'production', {
     level: 4,
     nextReviewAt: '2026-09-23T00:00:00.000Z',
@@ -91,6 +122,7 @@ async function seedDueProductionItem(itemId: string, mustUse: string): Promise<s
 async function seedLearnItem(itemId: string, withExample = true): Promise<void> {
   await seedItem(db, {
     id: itemId,
+    type: 'chunk',
     target: itemId,
     queueState: 'new',
     createdAt: '2026-09-01T00:00:00.000Z',
@@ -302,7 +334,7 @@ describe('answer：填空题（cloze）', () => {
       level: 1,
       nextReviewAt: '2026-09-23T00:00:00.000Z',
     });
-    await seedQuestion(db, 'item-a', {
+    const questionId = await seedQuestion(db, 'item-a', {
       type: 'cloze',
       payloadJson: JSON.stringify({ acceptedAnswers: ['raw'], explanation: 'cloze 解释' }),
       contextText: 'We need the ____ item-a before processing.',
@@ -314,6 +346,7 @@ describe('answer：填空题（cloze）', () => {
       contextText: 'Another ____ here.',
       createdAt: '2026-09-20T00:00:00.000Z',
     });
+    seedLegacyBoundTask(db, 'item-a', questionId, NOW, TZ);
     await startSession();
     const task = taskByItem('item-a')!;
     expect(task.questionId).not.toBeNull();
@@ -341,6 +374,27 @@ describe('answer：填空题（cloze）', () => {
 });
 
 describe('answer：Learn 任务', () => {
+  it.each([
+    ['word', null, false],
+    ['word', 1, true],
+    ['chunk', null, true],
+    ['chunk', 0, false],
+  ] as const)('Learn %s override=%s 仅有效目标开启时激活 P', async (type, override, enabled) => {
+    await seedLearnItem('goal');
+    db.update(learningItems)
+      .set({ type, productionEnabledOverride: override })
+      .where(eq(learningItems.id, 'goal'))
+      .run();
+    await seedReviewState(db, 'goal', 'production');
+    await startSession();
+    await answerTodayTask(db, deps, TZ, NOW, taskByItem('goal')!.id, { recall: 'forgot' });
+    expect(dim('goal', 'understanding')!.level).toBe(1);
+    expect(dim('goal', 'production')).toMatchObject({
+      level: 0,
+      nextReviewAt: enabled ? '2026-09-25T02:00:00.000Z' : null,
+    });
+    expect(stats()?.newItemsStarted).toBe(1);
+  });
   it('答对（recall=recalled）→ 激活 U/P 两维初始状态、queue_state=started、额度+1', async () => {
     await seedLearnItem('new-1');
     await startSession();
@@ -395,6 +449,84 @@ describe('answer：Learn 任务', () => {
 });
 
 describe('answer：幂等', () => {
+  it.each([false, true])('题目在批改%s时失效，拒绝结算且不写学习记录', async (duringEvaluation) => {
+    await seedDueProductionItem('edited', 'wear down');
+    await startSession();
+    const task = taskByItem('edited')!;
+    const retire = () =>
+      db
+        .update(questions)
+        .set({ status: 'retired' })
+        .where(eq(questions.id, task.questionId!))
+        .run();
+    const original = deps.evaluateProduction;
+    if (duringEvaluation)
+      deps.evaluateProduction = async (...args) => {
+        retire();
+        return original(...args);
+      };
+    else retire();
+    await expect(
+      answerTodayTask(db, deps, TZ, NOW, task.id, {
+        answerText: 'Stress will wear down everyone.',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(db.select().from(attempts).all()).toEqual([]);
+    expect(stats()).toBeNull();
+    expect(dim('edited', 'production')!.level).toBe(4);
+  });
+  it('批改期间跨本地日，事务再次拒绝且不产生学习写入', async () => {
+    await seedDueProductionItem('midnight', 'wear down');
+    await startSession();
+    const nextDay = new Date('2026-09-24T16:00:00.000Z');
+    await expect(
+      answerTodayTask(
+        db,
+        deps,
+        TZ,
+        NOW,
+        taskByItem('midnight')!.id,
+        { answerText: 'Stress will wear down everyone.' },
+        () => nextDay,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(db.select().from(attempts).all()).toEqual([]);
+    expect(stats()).toBeNull();
+    expect(dim('midnight', 'production')!.level).toBe(4);
+  });
+  it('跨本地日 answer 和已完成 replay 均拒绝，学习状态和统计不变', async () => {
+    await seedDueChoiceItem('expired');
+    await seedDueChoiceItem('answered');
+    await startSession();
+    const answered = taskByItem('answered')!;
+    await answerTodayTask(db, deps, TZ, NOW, answered.id, { recall: 'recalled' });
+    const before = {
+      attempts: db.select().from(attempts).all(),
+      stats: stats(),
+      states: db.select().from(reviewStates).all(),
+    };
+    const nextDay = new Date('2026-09-24T16:00:00.000Z');
+    for (const task of tasks()) {
+      await expect(
+        answerTodayTask(db, deps, TZ, nextDay, task.id, { recall: 'recalled' }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' });
+    }
+    expect({
+      attempts: db.select().from(attempts).all(),
+      stats: stats(),
+      states: db.select().from(reviewStates).all(),
+    }).toEqual(before);
+  });
+
+  it('题目未绑定时拒绝作答，不写 attempt 或统计', async () => {
+    await seedDueChoiceItem('pending');
+    await startTodaySessionRaw(db, deps, TZ, NOW);
+    await expect(
+      answerTodayTask(db, deps, TZ, NOW, tasks()[0]!.id, { recall: 'recalled' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(db.select().from(attempts).all()).toEqual([]);
+    expect(stats()).toBeNull();
+  });
   it('同任务重复提交 → alreadyCompleted=true，不重复写 attempt/推进/计数', async () => {
     await seedDueChoiceItem('item-a');
     await seedDueChoiceItem('item-b');
@@ -496,7 +628,7 @@ describe('answer：补强上限与降级', () => {
 describe('answer：完成检测与摘要', () => {
   it('全部完成后 session 完成，摘要来自 attempts；fail → recommendRead', async () => {
     await seedDueChoiceItem('item-a');
-    await seedDueClozeItem('item-b', ['raw']);
+    await seedDueProductionItem('item-b', 'wear down');
     await startSession();
 
     const a = taskByItem('item-a')!;
@@ -506,27 +638,19 @@ describe('answer：完成检测与摘要', () => {
     const resB = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 60_000), b.id, {
       answerText: 'wrong',
     });
-    // item-b fail → 补强仍待完成，session 未完成
-    expect(resB.completed).toBeNull();
-
-    const rf = tasks().find((t) => t.origin === 'reinforcement')!;
-    const resRf = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 120_000), rf.id, {
-      answerText: 'fake', // fake generate 产出的补强题 acceptedAnswers=['fake']
-    });
-
-    expect(resRf.completed).not.toBeNull();
-    expect(resRf.completed).toEqual({
-      totalTasks: 3, // 原 2 + 补强 1（item-b fail）
-      pass: 2, // item-a pass + 补强 pass
+    expect(resB.reinforcementAdded).toBe(false);
+    expect(resB.completed).toEqual({
+      totalTasks: 2,
+      pass: 1,
       basicPass: 0,
       fail: 1,
       newItemsStarted: 0,
       recommendRead: true,
     });
     expect(db.select().from(reviewSessions).get()?.completedAt).toBe(
-      iso(new Date(NOW.getTime() + 120_000)),
+      iso(new Date(NOW.getTime() + 60_000)),
     );
-    expect(resRf.progress).toEqual({ completed: 3, total: 3 });
+    expect(resB.progress).toEqual({ completed: 2, total: 2 });
   });
 
   it('全部 pass → recommendRead=false', async () => {

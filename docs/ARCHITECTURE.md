@@ -1,6 +1,8 @@
-# ARCHITECTURE.md — English Learning Tool V1.2
+# ARCHITECTURE.md — English Learning Tool V2
 
 > 前后端代码分层、目录组织、依赖方向与全局样式/组件约束。本文是 TECHNICAL_DESIGN.md 的实现细化，冲突时以 PRODUCT_DESIGN / TECHNICAL_DESIGN 为准。
+
+> V2 依赖边界：`modules/review/goals.ts` 是有效造句目标与条件化 mastered 的纯规则源；`modules/review/service.ts` 是 Stage 和 mastered 唯一写入层。Library、Today、Import/Restore 通过 review service 调用重算，不在 route、前端或 AI 中复制目标逻辑。Session 懒绑定时 AI 在事务外，事务内只作状态验证和原子绑定。旧 cloze/Read checks 路径保留只读兼容，不能参与 V2 新任务。
 
 ## 1. 总体依赖规则
 

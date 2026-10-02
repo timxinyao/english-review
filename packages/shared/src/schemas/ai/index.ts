@@ -122,20 +122,18 @@ export const ReadCoverageEntry = z.object({
   surface_form: z.string().min(1),
 });
 
-export const ReadCheck = z.object({
-  learning_item_id: z.string().min(1),
-  question: z.string().min(1),
-  options: z.array(UnderstandingOption).min(2).max(4),
-  correct_option_id: z.string().min(1),
-});
-
-export const GenerateReadResult = z.object({
-  title: z.string().min(1),
-  type: z.enum(['story', 'daily_scene', 'knowledge', 'short_opinion']),
-  body: z.string().min(1),
-  coverage: z.array(ReadCoverageEntry).min(1),
-  checks: z.array(ReadCheck).min(1).max(2),
-});
+/**
+ * V2（AI_RULES §11）：纯阅读——只含 title/type/body/coverage。
+ * strict：模型仍输出 V1 的 `checks` 字段时直接判非法（completeStructured 拒绝并重试）。
+ */
+export const GenerateReadResult = z
+  .object({
+    title: z.string().min(1),
+    type: z.enum(['story', 'daily_scene', 'knowledge', 'short_opinion']),
+    body: z.string().min(1),
+    coverage: z.array(ReadCoverageEntry).min(1),
+  })
+  .strict();
 export type GenerateReadResult = z.infer<typeof GenerateReadResult>;
 
 // ---------- judge_duplicate_meaning ----------

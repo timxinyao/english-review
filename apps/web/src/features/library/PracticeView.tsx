@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Volume2 } from 'lucide-react';
 import type { PracticeAnswerRequest, PracticeAnswerResponse, PracticeQuestion } from '@el/shared';
 import { ChoiceQuestionCard } from '../../components/choice-question-card';
-import { ClozeQuestionCard } from '../../components/cloze-question-card';
 import { ProductionQuestionCard } from '../../components/production-question-card';
 import { Button } from '../../components/ui/button';
+import { cn } from '../../lib/utils';
+import { speak } from '../../lib/tts';
 import { usePractice, usePracticeAnswer } from './api';
 
 interface PracticeViewProps {
@@ -11,9 +13,126 @@ interface PracticeViewProps {
   onExit: () => void;
 }
 
+/** Recall 判语（与 Today RecallCard 三态一致：recalled / assisted / forgot） */
+const RECALL_VERDICTS: Record<
+  PracticeAnswerResponse['result'],
+  { label: string; className: string }
+> = {
+  pass: { label: '想起来了', className: 'text-success' },
+  basic_pass: { label: '提示后想起（基本通过）', className: 'text-warning' },
+  fail: { label: '没想起来', className: 'text-destructive' },
+};
+
+interface RecallPracticeCardProps {
+  question: Extract<PracticeQuestion, { qtype: 'recall' }>;
+  result: PracticeAnswerResponse | null;
+  pending: boolean;
+  onSubmit: (body: PracticeAnswerRequest) => void;
+  onAdvance: () => void;
+}
+
 /**
- * Library 单项“练一下”（PRODUCT §4.4）：临时 3 题、复用 Today 题型卡渲染；
- * 不改正式进度（静默，无额外文案），表达题优质句仍可入 Personal Example。
+ * Recall 练习卡（V2 / Phase 9；PRODUCT §7.1 主动回忆优先）：
+ * 复用 Today RecallCard 交互原语（自评直判 + Hint 降级选择题），
+ * 但释义只由作答响应揭示（start 载荷不含 meaning，无 reveal 前泄漏）。
+ * 非正式练习：不出「不会」，也不触发任何正式进度。
+ */
+function RecallPracticeCard({
+  question,
+  result,
+  pending,
+  onSubmit,
+  onAdvance,
+}: RecallPracticeCardProps) {
+  const [hint, setHint] = useState(false);
+  const frozen = result !== null;
+  const verdict = frozen ? RECALL_VERDICTS[result.result] : null;
+
+  const wordRow = (
+    <div className="flex items-center gap-2">
+      <h3 className="text-lg font-semibold text-foreground">{question.target}</h3>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 text-muted-foreground"
+        aria-label="发音"
+        onClick={() => void speak(question.target, { userGesture: true })}
+      >
+        <Volume2 className="h-4 w-4" aria-hidden />
+      </Button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {wordRow}
+
+      {question.context !== null && (
+        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+          <span className="mr-1 text-xs text-muted-foreground">原句</span>
+          {question.context}
+        </p>
+      )}
+
+      {/* 冻结反馈：判语 + 释义揭示（reveal） */}
+      {verdict && (
+        <div className="space-y-2">
+          <p className={cn('text-sm', verdict.className)}>{verdict.label}</p>
+          <p className="text-base text-foreground">{result?.meaning}</p>
+        </div>
+      )}
+
+      {hint ? (
+        <ChoiceQuestionCard
+          question={question.hint}
+          target={question.target}
+          result={result}
+          pending={pending}
+          hideVerdict={frozen}
+          hideAdvanceRow={frozen}
+          onSubmitOption={(optionId) => onSubmit({ selectedOptionId: optionId, hintUsed: true })}
+          onAdvance={onAdvance}
+        />
+      ) : (
+        !frozen && (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                disabled={pending}
+                onClick={() => onSubmit({ recall: 'forgot' })}
+              >
+                没想起来
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={pending}
+                onClick={() => onSubmit({ recall: 'recalled' })}
+              >
+                想起来了
+              </Button>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setHint(true)}>
+              给我提示
+            </Button>
+          </div>
+        )
+      )}
+
+      {frozen && (
+        <div className="flex justify-end">
+          <Button onClick={onAdvance}>下一题</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Library 单项“练一下”（V2 / Phase 9）：恰好 [recall] 或 [recall, production]，
+ * 复用 Today 题型卡渲染；不改正式进度（静默，无额外文案），
+ * 表达题优质句仍可入 Personal Example。
  */
 export function PracticeView({ itemId, onExit }: PracticeViewProps) {
   const practice = usePractice(itemId);
@@ -91,20 +210,12 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
             {index + 1} / {total}
           </p>
           <article className="rounded-xl border border-border bg-card p-6">
-            {current.qtype === 'choice' ? (
-              <ChoiceQuestionCard
+            {current.qtype === 'recall' ? (
+              <RecallPracticeCard
                 question={current}
                 result={result}
                 pending={answer.isPending}
-                onSubmitOption={(optionId) => submit({ selectedOptionId: optionId })}
-                onAdvance={advance}
-              />
-            ) : current.qtype === 'cloze' ? (
-              <ClozeQuestionCard
-                question={current}
-                result={result}
-                pending={answer.isPending}
-                onSubmitText={(text) => submit({ answerText: text })}
+                onSubmit={submit}
                 onAdvance={advance}
               />
             ) : (

@@ -1,0 +1,1 @@
+ALTER TABLE `learning_items` ADD COLUMN `production_enabled_override` integer CONSTRAINT `chk_learning_items_production_enabled_override` CHECK (`production_enabled_override` IN (0, 1) OR `production_enabled_override` IS NULL);

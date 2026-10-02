@@ -14,6 +14,7 @@
 | 6 | 统计/备份/部署 | Stats+热力图、备份恢复、清理任务、Nginx/systemd/S3、PWA | done（2026-09-25，部署待域名/桶名） | [phase-6-ops.md](phases/phase-6-ops.md) |
 | 7 | Today 会话导航改版 | 全量列表跳做/回看、位置进度与按题着色、跟手翻页、回看词行 | done（2026-09-26） | [phase-7-today-navigation.md](phases/phase-7-today-navigation.md) |
 | 8 | Today 沉浸式答题改版 | 满屏卡片、主动不会与纠错、结果进度、今日学习、最近作答撤销 | done（2026-09-28） | [phase-8-today-card-flow.md](phases/phase-8-today-card-flow.md) |
+| 9 | Foxi V2 学习流程 | 条件化造句目标、Recall/Production、Read 自然复现与安全切换 | done（2026-10-02） | [phase-9-foxi-v2.md](phases/phase-9-foxi-v2.md) |
 
 > **V1.2 六个阶段全部完成（2026-09-25），已部署上线**：https://18-136-183-11.nip.io（HTTPS+PWA）与 http://18.136.183.11:8080 双入口。剩余可选优化见 phase-6 留档"遗留问题"。
 

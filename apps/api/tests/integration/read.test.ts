@@ -1,9 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { ReadArticleView, ReadHistoryResponse } from '@el/shared';
+import { GenerateReadResult, ReadArticleView, ReadHistoryResponse } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
 import {
+  appMetadata,
   attempts,
   dailyStats,
   learningItems,
@@ -18,6 +19,7 @@ import {
   type ReadGeneration,
   type ReadSelection,
 } from '../../src/modules/read/service.js';
+import { applyV2Cutover } from '../../src/modules/review/v2-cutover.js';
 import { createTestApp, loginCookie } from '../helpers/test-app';
 import { seedItem, seedReviewState } from '../helpers/seed';
 
@@ -60,6 +62,7 @@ function fakeReadResult(input: ReadSelection): ReadGeneration {
     PARA,
   ].join('\n\n');
   return {
+    // V2：纯阅读——title/type/body/coverage，无 checks
     data: {
       title: 'Fake Read',
       type: 'daily_scene',
@@ -68,19 +71,8 @@ function fakeReadResult(input: ReadSelection): ReadGeneration {
         learning_item_id: f.id,
         surface_form: f.target,
       })),
-      checks: input.focusItems.slice(0, 2).map((f) => ({
-        learning_item_id: f.id,
-        question: `文中 ${f.target} 的意思是什么？`,
-        options: [
-          { id: 'o1', text: f.meaning },
-          { id: 'o2', text: '干扰甲' },
-          { id: 'o3', text: '干扰乙' },
-          { id: 'o4', text: '干扰丙' },
-        ],
-        correct_option_id: 'o1',
-      })),
     },
-    meta: { key: 'generate_read', version: 1, hash: 'test-hash' },
+    meta: { key: 'generate_read', version: 2, hash: 'test-hash' },
     model: 'mock-model',
   };
 }
@@ -111,8 +103,92 @@ async function seedForGenerate(): Promise<void> {
   await seedReviewState(db, 'old-1', 'understanding', { level: 7, stable: 1 });
 }
 
+/** 遗留（V1）文章：checks_json 含一答对 + 一未答检查题 */
+function seedLegacyArticle(id = 'legacy-art'): void {
+  const nowIso = NOW.toISOString();
+  db.insert(readArticles)
+    .values({
+      id,
+      title: 'Legacy Article',
+      body: 'The plan felt stable all week.\n\nThe raw data wore her down.',
+      type: 'story',
+      contentLevel: 'B1',
+      favorite: 0,
+      promptKey: 'generate_read',
+      promptVersion: 1,
+      promptHash: 'legacy-hash',
+      model: 'legacy-model',
+      checksJson: JSON.stringify([
+        {
+          id: 'chk-answered',
+          learningItemId: 'focus-1',
+          question: '文中 wear down 的意思是什么？',
+          options: [
+            { id: 'o1', text: '逐渐消耗' },
+            { id: 'o2', text: '干扰甲' },
+          ],
+          correctOptionId: 'o1',
+          answered: {
+            selectedOptionId: 'o2',
+            correct: false,
+            needsReinforcementMarked: true,
+          },
+        },
+        {
+          id: 'chk-open',
+          learningItemId: 'focus-2',
+          question: '文中 raw 的意思是什么？',
+          options: [
+            { id: 'o1', text: '未经处理的' },
+            { id: 'o2', text: '干扰乙' },
+          ],
+          correctOptionId: 'o1',
+        },
+      ]),
+      createdAt: nowIso,
+      expiresAt: new Date(NOW.getTime() + 30 * DAY_MS).toISOString(),
+    })
+    .run();
+  for (const [itemId, role] of [
+    ['focus-1', 'focus'],
+    ['focus-2', 'focus'],
+  ] as const) {
+    db.insert(readArticleItems)
+      .values({ readArticleId: id, learningItemId: itemId, role, highlighted: 1 })
+      .run();
+  }
+}
+
+describe('GenerateReadResult V2 Schema（纯阅读，无 checks）', () => {
+  it('接受 title/type/body/coverage；模型输出含 checks 字段必须拒绝', () => {
+    const base = {
+      title: 'A Quiet Morning',
+      type: 'story',
+      body: 'word '.repeat(200).trim(),
+      coverage: [{ learning_item_id: 'item-1', surface_form: 'word' }],
+    };
+    expect(GenerateReadResult.safeParse(base).success).toBe(true);
+    // 模型若仍输出 V1 的 checks，视为违反契约（completeStructured 拒绝并重试）
+    const withChecks = {
+      ...base,
+      checks: [
+        {
+          learning_item_id: 'item-1',
+          question: '文中 word 的意思是什么？',
+          options: [
+            { id: 'o1', text: '词' },
+            { id: 'o2', text: '干扰' },
+          ],
+          correct_option_id: 'o1',
+        },
+      ],
+    };
+    expect(GenerateReadResult.safeParse(withChecks).success).toBe(false);
+  });
+});
+
 describe('POST /api/read/generate', () => {
-  it('生成入库：article/items/checks_json 字段完整，返回视图不含 correctOptionId', async () => {
+  it('生成入库：纯文章无 checks，checks_json 存 []，返回视图 checks=[]', async () => {
     await seedForGenerate();
 
     const { statusCode, json } = await inject('POST', '/api/read/generate');
@@ -127,12 +203,7 @@ describe('POST /api/read/generate', () => {
     expect(view.focusItems.map((f) => f.surfaceForm)).toEqual(['wear down', 'raw', 'make sense']);
     expect(view.oldItems.map((o) => o.learningItemId)).toEqual(['old-1']);
     expect(view.body.split('\n\n')).toHaveLength(3);
-    // 检查题视图不含正确答案
-    expect(view.checks).toHaveLength(2);
-    for (const c of view.checks) {
-      expect('correctOptionId' in c).toBe(false);
-      expect(c.options).toHaveLength(4);
-    }
+    expect(view.checks).toEqual([]);
 
     // 入库断言
     const article = db.select().from(readArticles).where(eq(readArticles.id, view.id)).get()!;
@@ -142,7 +213,7 @@ describe('POST /api/read/generate', () => {
     expect(article.contentLevel).toBe('B1');
     expect(article.favorite).toBe(0);
     expect(article.promptKey).toBe('generate_read');
-    expect(article.promptVersion).toBe(1);
+    expect(article.promptVersion).toBe(2);
     expect(article.promptHash).toBe('test-hash');
     expect(article.model).toBe('mock-model');
     expect(article.createdAt).toBe(view.createdAt);
@@ -150,6 +221,8 @@ describe('POST /api/read/generate', () => {
     expect(article.expiresAt).toBe(
       new Date(new Date(view.createdAt).getTime() + 30 * DAY_MS).toISOString(),
     );
+    // V2：新文章不再携带检查题
+    expect(article.checksJson).toBe('[]');
 
     const items = db
       .select()
@@ -159,16 +232,6 @@ describe('POST /api/read/generate', () => {
     expect(items.filter((i) => i.role === 'focus').every((i) => i.highlighted === 1)).toBe(true);
     expect(items.filter((i) => i.role === 'old').every((i) => i.highlighted === 0)).toBe(true);
     expect(items).toHaveLength(4);
-
-    // checks_json 含服务端判题信息
-    const checks = JSON.parse(article.checksJson) as Array<{
-      id: string;
-      correctOptionId: string;
-      answered?: unknown;
-    }>;
-    expect(checks).toHaveLength(2);
-    expect(checks.every((c) => c.correctOptionId === 'o1' && !c.answered)).toBe(true);
-    expect(view.checks.map((c) => c.checkId)).toEqual(checks.map((c) => c.id));
   });
 
   it('无可用学习项 → 409 CONFLICT', async () => {
@@ -204,7 +267,7 @@ describe('GET /api/read/history', () => {
         contentLevel: 'B1',
         favorite: opts.favorite ?? 0,
         promptKey: 'generate_read',
-        promptVersion: 1,
+        promptVersion: 2,
         promptHash: 'h',
         model: 'm',
         checksJson: '[]',
@@ -298,38 +361,85 @@ describe('POST /api/read/:id/favorite', () => {
   });
 });
 
-describe('POST /api/read/:id/check', () => {
+describe('POST /api/read/:id/check（V2 cutover 后停用）', () => {
+  beforeEach(async () => {
+    await seedForGenerate();
+    await inject('POST', '/api/read/generate'); // 新文章（无 checks）
+    seedLegacyArticle();
+    // 模拟 V2 首次启动：写入 foxi_v2 标记
+    applyV2Cutover(db, NOW, 'UTC');
+    expect(db.select().from(appMetadata).where(eq(appMetadata.key, 'foxi_v2')).get()).toBeTruthy();
+  });
+
+  it('旧文章的检查题提交 → 409，不写 attempt、不置旗、checks_json 原样', async () => {
+    const before = db.select().from(readArticles).where(eq(readArticles.id, 'legacy-art')).get()!;
+
+    const { statusCode, json } = await inject('POST', '/api/read/legacy-art/check', {
+      checkId: 'chk-open',
+      selectedOptionId: 'o1',
+    });
+    expect(statusCode).toBe(409);
+    expect((json as { error: { code: string } }).error.code).toBe('CONFLICT');
+
+    expect(db.select().from(attempts).where(eq(attempts.mode, 'read_check')).all()).toHaveLength(0);
+    expect(
+      db
+        .select()
+        .from(learningItems)
+        .all()
+        .every((i) => i.needsReinforcement === 0),
+    ).toBe(true);
+    const after = db.select().from(readArticles).where(eq(readArticles.id, 'legacy-art')).get()!;
+    expect(after.checksJson).toBe(before.checksJson);
+  });
+
+  it('新文章（无 checks）的提交同样 → 409', async () => {
+    const article = db
+      .select()
+      .from(readArticles)
+      .all()
+      .find((a) => a.id !== 'legacy-art')!;
+    const { statusCode } = await inject('POST', `/api/read/${article.id}/check`, {
+      checkId: 'any',
+      selectedOptionId: 'o1',
+    });
+    expect(statusCode).toBe(409);
+    expect(db.select().from(attempts).where(eq(attempts.mode, 'read_check')).all()).toHaveLength(0);
+  });
+});
+
+describe('POST /api/read/:id/check（cutover 前遗留窗口：可判定但不再置旗）', () => {
   let articleId: string;
   let check1: { checkId: string; options: Array<{ id: string }> };
   let check2: { checkId: string; options: Array<{ id: string }> };
 
   beforeEach(async () => {
     await seedForGenerate();
-    const view = ReadArticleView.parse((await inject('POST', '/api/read/generate')).json);
-    articleId = view.id;
-    check1 = view.checks[0]!;
-    check2 = view.checks[1]!;
+    seedLegacyArticle();
+    articleId = 'legacy-art';
+    const stored = JSON.parse(
+      db.select().from(readArticles).where(eq(readArticles.id, articleId)).get()!.checksJson,
+    ) as Array<{ id: string }>;
+    check1 = { checkId: stored[0]!.id, options: [] };
+    check2 = { checkId: stored[1]!.id, options: [] };
   });
 
-  it('答错：correct=false、置 needs_reinforcement、写 read_check attempt；不影响 review/daily_stats/Today', async () => {
+  it('未答检查题判定：写 read_check attempt，但绝不置 needs_reinforcement；不影响 review/daily_stats/Today', async () => {
     const before = db.select().from(reviewStates).all();
     const { statusCode, json } = await inject('POST', `/api/read/${articleId}/check`, {
-      checkId: check1.checkId,
+      checkId: check2.checkId,
       selectedOptionId: 'o2',
     });
     expect(statusCode).toBe(200);
-    expect(json).toMatchObject({
-      correct: false,
-      correctOptionId: 'o1',
-      needsReinforcementMarked: true,
-    });
+    expect(json).toMatchObject({ correct: false, correctOptionId: 'o1' });
 
-    const item = db.select().from(learningItems).where(eq(learningItems.id, 'focus-1')).get()!;
-    expect(item.needsReinforcement).toBe(1);
+    // V2：Read 路径不置补强旗
+    const item = db.select().from(learningItems).where(eq(learningItems.id, 'focus-2')).get()!;
+    expect(item.needsReinforcement).toBe(0);
 
     const rows = db.select().from(attempts).where(eq(attempts.mode, 'read_check')).all();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.learningItemId).toBe('focus-1');
+    expect(rows[0]!.learningItemId).toBe('focus-2');
     expect(rows[0]!.questionId).toBeNull();
     expect(rows[0]!.reviewTaskId).toBeNull();
     expect(rows[0]!.result).toBe('fail');
@@ -341,52 +451,18 @@ describe('POST /api/read/:id/check', () => {
     expect(db.select().from(reviewSessions).all()).toEqual([]);
   });
 
-  it('答对：correct=true、不置旗、也不清已有旗', async () => {
-    // 预置另一项的旗（应由正式复习清除，Read 答对不清）
-    db.update(learningItems)
-      .set({ needsReinforcement: 1 })
-      .where(eq(learningItems.id, 'focus-2'))
-      .run();
-
-    const { statusCode, json } = await inject('POST', `/api/read/${articleId}/check`, {
-      checkId: check2.checkId,
-      selectedOptionId: 'o1',
-    });
-    expect(statusCode).toBe(200);
-    expect(json).toMatchObject({ correct: true, needsReinforcementMarked: false });
-
-    const item = db.select().from(learningItems).where(eq(learningItems.id, 'focus-2')).get()!;
-    expect(item.needsReinforcement).toBe(1); // 旗保持
-    const rows = db.select().from(attempts).where(eq(attempts.mode, 'read_check')).all();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.result).toBe('pass');
-  });
-
-  it('幂等：同 checkId 重复提交返回首次结果，不重复记 attempt', async () => {
+  it('已答检查题幂等回放：返回首次结果，不重复记 attempt，不置旗', async () => {
     const first = await inject('POST', `/api/read/${articleId}/check`, {
       checkId: check1.checkId,
-      selectedOptionId: 'o2',
-    });
-    expect(first.json).toMatchObject({ correct: false });
-
-    // 换一个选项重提交：仍返回首次判定
-    const again = await inject('POST', `/api/read/${articleId}/check`, {
-      checkId: check1.checkId,
       selectedOptionId: 'o1',
     });
-    expect(again.statusCode).toBe(200);
-    expect(again.json).toMatchObject({
-      correct: false,
-      correctOptionId: 'o1',
-      needsReinforcementMarked: true,
-    });
+    expect(first.statusCode).toBe(200);
+    // 首答记录是 V1 历史数据（selectedOptionId=o2、needsReinforcementMarked=true）
+    expect(first.json).toMatchObject({ correct: false, correctOptionId: 'o1' });
 
-    expect(db.select().from(attempts).where(eq(attempts.mode, 'read_check')).all()).toHaveLength(1);
-    // answered 已持久化到 checks_json（重启安全）
-    const stored = JSON.parse(
-      db.select().from(readArticles).where(eq(readArticles.id, articleId)).get()!.checksJson,
-    ) as Array<{ answered?: unknown }>;
-    expect(stored[0]!.answered).toBeTruthy();
+    expect(db.select().from(attempts).where(eq(attempts.mode, 'read_check')).all()).toHaveLength(0);
+    const item = db.select().from(learningItems).where(eq(learningItems.id, 'focus-1')).get()!;
+    expect(item.needsReinforcement).toBe(0);
   });
 
   it('checkId 不存在 → 404', async () => {

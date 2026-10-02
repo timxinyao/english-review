@@ -280,13 +280,9 @@ describe('generateReadArticle：AI 生成失败', () => {
     try {
       const deps: ReadDeps = {
         generate: () =>
-          Promise.reject(
-            new AiStructuredError('输出违反不变式：focus item xxx 未出现在 coverage'),
-          ),
+          Promise.reject(new AiStructuredError('输出违反不变式：focus item xxx 未出现在 coverage')),
       };
-      await expect(generateReadArticle(db, deps, NOW)).rejects.toThrow(
-        '文章生成失败，请稍候重试',
-      );
+      await expect(generateReadArticle(db, deps, NOW)).rejects.toThrow('文章生成失败，请稍候重试');
       // 真实原因（不变式违规详情）落服务端日志
       const last = errSpy.mock.calls.at(-1);
       expect(last?.[0]).toBe('[read/generate] 生成失败：');

@@ -28,8 +28,7 @@ const apiMock = vi.mocked(api);
 const recalledAnswer = () => makeCorrectAnswer({ outcomeSource: 'recalled' });
 const assistedAnswer = () =>
   makeCorrectAnswer({ result: 'basic_pass', outcomeSource: 'assisted', selectedOptionId: 'o1' });
-const forgotAnswer = () =>
-  makeWrongAnswer({ outcomeSource: 'forgot', selectedOptionId: 'o2' });
+const forgotAnswer = () => makeWrongAnswer({ outcomeSource: 'forgot', selectedOptionId: 'o2' });
 
 /** 第 2 张卡（用于断言"下一题"确实切换了任务） */
 function secondTask() {
@@ -58,6 +57,21 @@ function meaningParagraph(): HTMLElement {
 
 describe('Recall Card（understanding）', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('过期作答显示刷新提示，不揭示答案或虚构成功', async () => {
+    stubApi({
+      '/api/today': makeActive(makeChoiceTask()),
+      '/api/today/tasks/task-1/answer': () =>
+        Promise.reject(new Error('会话已过期，请刷新今日学习')),
+    });
+    renderTodayApp();
+    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('会话已过期，请刷新今日学习');
+    expect(screen.queryByText('正确释义：')).toBeNull();
+    const before = apiCalls('/api/today').length;
+    fireEvent.click(screen.getByRole('button', { name: '刷新今日学习' }));
+    await waitFor(() => expect(apiCalls('/api/today').length).toBeGreaterThan(before));
+  });
 
   it('初始：显示 target/IPA/source_example 与 [给我提示][显示答案]，不显示 meaning 与选项', async () => {
     stubApi({ '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }) });

@@ -39,6 +39,8 @@ export function makeListItem(overrides: Partial<LibraryListItemDto> = {}): Libra
   return {
     id: 'item-1',
     type: 'word',
+    productionEnabledOverride: null,
+    productionEnabled: false,
     target: 'resilient',
     meaning: '有韧性的；能快速恢复的',
     status: 'active',
@@ -67,6 +69,8 @@ export function makeDetail(overrides: Partial<LibraryItemDetail['item']> = {}): 
     item: {
       id: 'item-1',
       type: 'word',
+      productionEnabledOverride: null,
+      productionEnabled: false,
       target: 'resilient',
       meaning: '有韧性的',
       ipa: '/rɪˈzɪliənt/',
@@ -165,6 +169,7 @@ export function makePreview(): ImportPreviewResponse {
           existingTarget: 'wear down',
           existingMeaning: '逐渐使疲惫',
         },
+        productionGoalChange: null,
         warnings: [],
       },
       {
@@ -184,6 +189,7 @@ export function makePreview(): ImportPreviewResponse {
           source: 'rule_fallback',
         },
         match: null,
+        productionGoalChange: null,
         warnings: [],
       },
       {
@@ -207,6 +213,7 @@ export function makePreview(): ImportPreviewResponse {
           existingTarget: 'raw',
           existingMeaning: '未加工的',
         },
+        productionGoalChange: null,
         warnings: [],
       },
     ],

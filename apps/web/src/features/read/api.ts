@@ -2,8 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   ReadArticleType,
   ReadArticleView,
-  ReadCheckRequest,
-  ReadCheckResponse,
   ReadFavoriteRequest,
   ReadFavoriteResponse,
   ReadGenerateResponse,
@@ -56,8 +54,8 @@ export function fetchReadHistory(params: ReadHistoryParams): Promise<ReadHistory
 }
 
 /**
- * 历史文章详情。冻结契约只含 generate/history/favorite/check；
- * 详情端点 GET /api/read/:id 为集成期建议补充（响应即 ReadArticleView）。
+ * 历史文章详情（响应即 ReadArticleView）。
+ * V2 纯阅读不再调用 POST /api/read/:id/check：该路由仅为旧客户端保留，cutover 后 409。
  */
 export function fetchReadArticle(id: string): Promise<ReadArticleView> {
   return api<ReadArticleView>(`/api/read/${id}`);
@@ -72,13 +70,6 @@ export function setReadFavorite(id: string, favorite: boolean): Promise<ReadFavo
   return api<ReadFavoriteResponse>(`/api/read/${id}/favorite`, {
     method: 'POST',
     body: JSON.stringify({ favorite } satisfies ReadFavoriteRequest),
-  });
-}
-
-export function checkReadAnswer(id: string, body: ReadCheckRequest): Promise<ReadCheckResponse> {
-  return api<ReadCheckResponse>(`/api/read/${id}/check`, {
-    method: 'POST',
-    body: JSON.stringify(body),
   });
 }
 
@@ -148,12 +139,5 @@ export function useFavoriteArticle(id: string) {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: readKeys.historyAll });
     },
-  });
-}
-
-/** 检查题作答：判定在服务端（PRODUCT §8.2：答错只标记补强，不影响 Stage） */
-export function useCheckAnswer(articleId: string) {
-  return useMutation({
-    mutationFn: (body: ReadCheckRequest) => checkReadAnswer(articleId, body),
   });
 }

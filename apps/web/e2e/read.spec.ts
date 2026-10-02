@@ -1,10 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Phase 5 Read 全流程（PC viewport；E2E_SEED=1 播种：
- * 生成不走 AI，返回确定性文章：title "A Quiet Morning"、type story、
- * 正文含全部 focus 原词；checks 取前 2 个 focus：
- * o1 = 该 item 的 meaning（正确），o2-o4 = 干扰项。）
+ * Phase 9 Read 全流程（PC viewport；E2E_SEED=1 播种：
+ * 生成不走 AI，返回确定性纯文章：title "A Quiet Morning"、type story、
+ * 正文含全部 focus 原词、无 checks。
+ * 另播种一篇 V1 遗留文章 "An Old Lesson"：checks_json 含一答错 + 一未答检查题，
+ * 详情只读回放、无提交入口。）
  */
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -24,8 +25,8 @@ async function resetSeedData(page: Page) {
   if (res !== 200) throw new Error(`reset 失败：${res}`);
 }
 
-test.describe('Phase 5：Read 生成、高亮、检查题、收藏与历史', () => {
-  test('生成阅读 → 高亮与检查题 → 收藏 → 历史可见且可筛选', async ({ page }) => {
+test.describe('Phase 9：纯 Read 生成、高亮、遗留检查题只读、收藏与历史', () => {
+  test('生成纯阅读（无检查题）→ 高亮 → 收藏 → 历史可见；遗留文章检查题只读', async ({ page }) => {
     test.setTimeout(120_000);
     await login(page);
     await resetSeedData(page);
@@ -39,9 +40,7 @@ test.describe('Phase 5：Read 生成、高亮、检查题、收藏与历史', ()
     // 生成：正计时或文章标题出现（种子数据即时返回，避免竞态）
     await page.getByRole('button', { name: '生成阅读' }).click();
     await expect(
-      page
-        .locator('[data-elapsed]')
-        .or(page.getByRole('heading', { name: 'A Quiet Morning' })),
+      page.locator('[data-elapsed]').or(page.getByRole('heading', { name: 'A Quiet Morning' })),
     ).toBeVisible({ timeout: 30_000 });
 
     // 文章视图：标题 / 生成耗时 / 高亮 / focus 词列表
@@ -54,21 +53,9 @@ test.describe('Phase 5：Read 生成、高亮、检查题、收藏与历史', ()
     expect(await marks.count()).toBeGreaterThan(0);
     await expect(page.getByText('重点复现')).toBeVisible();
 
-    // 检查题 1：选 o1（= meaning，正确）提交 → 答对了
-    const checkOne = page.getByRole('group', { name: '检查题 1' });
-    await checkOne.getByRole('radio').first().check();
-    await checkOne.getByRole('button', { name: '提交' }).click();
-    await expect(page.getByText('答对了')).toBeVisible();
-
-    // 检查题 2（如种子生成 2 道）：选 o2（干扰项）提交 → 正确选项 + 复习提示
-    const checkTwo = page.getByRole('group', { name: '检查题 2' });
-    if (await checkTwo.isVisible()) {
-      await checkTwo.getByRole('radio').nth(1).check();
-      await checkTwo.getByRole('button', { name: '提交' }).click();
-      await expect(page.getByText('答错了')).toBeVisible();
-      await expect(page.getByText(/^正确选项：/)).toBeVisible();
-      await expect(page.getByText('下次 Today 会安排一题复习')).toBeVisible();
-    }
+    // V2 纯阅读：不渲染检查题区、无提交按钮
+    await expect(page.getByText('检查题（历史）')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '提交' })).toHaveCount(0);
 
     // 收藏星标：点击后即时生效
     const star = page.getByRole('button', { name: '收藏文章' });
@@ -88,7 +75,22 @@ test.describe('Phase 5：Read 生成、高亮、检查题、收藏与历史', ()
     await expect(row).toBeVisible();
     await expect(row.locator('svg').first()).toBeVisible();
 
-    // 筛选“收藏”仍可见
+    // 遗留文章：打开详情 → 检查题只读回放（答错提示 + 未答说明），无提交入口
+    const legacyRow = page.locator('li').filter({ hasText: 'An Old Lesson' });
+    await expect(legacyRow).toBeVisible();
+    await legacyRow.locator('button').first().click();
+    await expect(page.getByRole('heading', { name: 'An Old Lesson' })).toBeVisible();
+
+    await expect(page.getByText('检查题（历史）')).toBeVisible();
+    const answeredCheck = page.getByRole('group', { name: '检查题 1' });
+    await expect(answeredCheck.getByText('答错了')).toBeVisible();
+    await expect(answeredCheck.getByText(/^正确选项：/)).toBeVisible();
+    const openCheck = page.getByRole('group', { name: '检查题 2' });
+    await expect(openCheck.getByText('历史检查题，仅供查看')).toBeVisible();
+    await expect(page.getByRole('button', { name: '提交' })).toHaveCount(0);
+
+    // 返回历史 → 筛选“收藏”仍可见
+    await page.getByRole('button', { name: '← 返回历史' }).click();
     await page.getByRole('button', { name: '收藏', exact: true }).click();
     await expect(page.locator('li').filter({ hasText: 'A Quiet Morning' })).toBeVisible();
   });

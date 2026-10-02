@@ -34,10 +34,7 @@ export function ProductionQuestionView({ task, question, result, onAnswered, onA
         answer.mutate({ taskId: task.taskId, body: { answerText } }, { onSuccess: onAnswered })
       }
       onGiveUp={() =>
-        answer.mutate(
-          { taskId: task.taskId, body: { giveUp: true } },
-          { onSuccess: onAnswered },
-        )
+        answer.mutate({ taskId: task.taskId, body: { giveUp: true } }, { onSuccess: onAnswered })
       }
       onAdvance={onAdvance}
     />

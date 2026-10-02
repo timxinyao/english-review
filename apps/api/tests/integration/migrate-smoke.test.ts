@@ -14,6 +14,7 @@ const EXPECTED_TABLES = [
   'read_article_items',
   'settings',
   'daily_stats',
+  'app_metadata',
 ];
 
 describe('migration smoke', () => {
@@ -33,5 +34,35 @@ describe('migration smoke', () => {
     const db = createDatabase(':memory:');
     runMigrations(db);
     expect(() => runMigrations(db)).not.toThrow();
+  });
+
+  it('旧记录迁移后新增覆盖列默认为 NULL，并限制为 0/1/NULL', () => {
+    const db = createDatabase(':memory:');
+    runMigrations(db);
+    const raw = rawSqlite(db);
+    const columns = raw.prepare('PRAGMA table_info(learning_items)').all() as {
+      name: string;
+      dflt_value: string | null;
+    }[];
+    expect(columns.find((c) => c.name === 'production_enabled_override')?.dflt_value).toBeNull();
+    raw
+      .prepare(
+        "INSERT INTO learning_items (id,type,target,meaning,created_at,updated_at) VALUES ('goal-test','word','word','meaning','2026-09-30','2026-09-30')",
+      )
+      .run();
+    expect(
+      (
+        raw
+          .prepare(
+            "SELECT production_enabled_override AS value FROM learning_items WHERE id='goal-test'",
+          )
+          .get() as { value: number | null }
+      ).value,
+    ).toBeNull();
+    expect(() =>
+      raw
+        .prepare("UPDATE learning_items SET production_enabled_override=2 WHERE id='goal-test'")
+        .run(),
+    ).toThrow();
   });
 });

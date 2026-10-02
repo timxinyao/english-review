@@ -10,6 +10,8 @@ import { Star } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
+import { Select } from '../../components/ui/select';
+import { todayKeys } from '../today/api';
 import { cn } from '../../lib/utils';
 import {
   LIBRARY_STATUS_LABELS,
@@ -63,6 +65,7 @@ function ConfirmDialog({ confirm, onCancel }: { confirm: ConfirmState; onCancel:
 }
 
 interface EditFormState {
+  productionEnabledOverride: 'default' | 'enabled' | 'disabled';
   target: string;
   meaning: string;
   ipa: string;
@@ -88,6 +91,12 @@ function EditItemForm({
 }) {
   const { item } = detail;
   const [form, setForm] = useState<EditFormState>({
+    productionEnabledOverride:
+      item.productionEnabledOverride === null
+        ? 'default'
+        : item.productionEnabledOverride
+          ? 'enabled'
+          : 'disabled',
     target: item.target,
     meaning: item.meaning,
     ipa: item.ipa ?? '',
@@ -109,6 +118,10 @@ function EditItemForm({
     e.preventDefault();
     if (!canSubmit) return;
     onSave({
+      productionEnabledOverride:
+        form.productionEnabledOverride === 'default'
+          ? null
+          : form.productionEnabledOverride === 'enabled',
       target: form.target.trim(),
       meaning: form.meaning.trim(),
       ipa: item.type === 'word' && form.ipa.trim() ? form.ipa.trim() : null,
@@ -159,6 +172,25 @@ function EditItemForm({
           value={form.meaning}
           onChange={(e) => setForm((f) => ({ ...f, meaning: e.target.value }))}
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="edit-production-goal">造句目标</Label>
+        <Select
+          id="edit-production-goal"
+          value={form.productionEnabledOverride}
+          onChange={(e) =>
+            setForm((f) => ({
+              ...f,
+              productionEnabledOverride: e.target
+                .value as EditFormState['productionEnabledOverride'],
+            }))
+          }
+        >
+          <option value="default">按类型默认（Word 不需要，Chunk 需要）</option>
+          <option value="enabled">需要造句</option>
+          <option value="disabled">不需要造句</option>
+        </Select>
       </div>
 
       {item.type === 'word' && (
@@ -339,6 +371,8 @@ export function LibraryDetailPage() {
     mutationFn: (body: UpdateLearningItemRequest) => updateLibraryItem(id, body),
     onSuccess: (resp) => {
       qc.setQueryData(libraryKeys.detail(id), resp);
+      invalidate();
+      void qc.invalidateQueries({ queryKey: todayKeys.all });
       setEditing(false);
       if (resp.progressResetSuggested) {
         setConfirm({

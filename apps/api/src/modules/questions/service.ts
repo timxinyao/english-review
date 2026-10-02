@@ -5,11 +5,9 @@ import {
   ClozePayload,
   CONTENT_LEVELS,
   DEFAULT_CONTENT_LEVEL,
-  productionStageOf,
   type CheckClozeResult,
   type CheckProductionResult,
   type CorrectionSegment,
-  type GenerateClozeQuestionsResult,
   type GenerateProductionPromptResult,
   type GenerateUnderstandingQuestionsResult,
   type ReviewDimension,
@@ -90,6 +88,7 @@ export function acquireQuestion(
   now: Date,
   excludeQuestionIds?: string[],
 ): QuestionRow | null {
+  if (type === 'cloze') throw appError('CONFLICT', 'V2 不再分配填空题');
   const excluded = excludeQuestionIds ?? [];
   const candidate = db
     .select()
@@ -179,6 +178,7 @@ export async function generateQuestionsForItem(
   type: QuestionPoolType,
   count: number,
 ): Promise<QuestionRow[]> {
+  if (type === 'cloze') throw appError('CONFLICT', 'V2 不再生成填空题');
   const { db, runtime } = deps;
   if (!runtime) throw appError('AI_PROVIDER_ERROR', 'AI runtime 未初始化，无法生成题目');
   if (!Number.isInteger(count) || count <= 0) return [];
@@ -198,7 +198,7 @@ export async function generateQuestionsForItem(
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((e) => e.text);
 
-  // 变量名与 prompts/generate_understanding.v1.md / generate_cloze.v1.md 一致
+  // 变量名与 prompts/generate_understanding.v1.md 一致
   const vars = {
     type: item.type,
     target: item.target,
@@ -269,7 +269,7 @@ export async function generateQuestionsForItem(
         createdAt: nowIso,
       });
     }
-  } else if (type === 'understanding') {
+  } else {
     const { data, meta, model } = await completeStructured<GenerateUnderstandingQuestionsResult>(
       aiDeps,
       'generateUnderstandingQuestions',
@@ -295,36 +295,6 @@ export async function generateQuestionsForItem(
       retiredAt: null,
       createdAt: nowIso,
     }));
-  } else {
-    const { data, meta, model } = await completeStructured<GenerateClozeQuestionsResult>(
-      aiDeps,
-      'generateClozeQuestions',
-      vars,
-    );
-    rows = data.questions.map((q) => {
-      // 标准答案置于 acceptedAnswers 首位，作为规范形式（AI_RULES §7：answer ∈ accepted_answers）
-      const acceptedAnswers = [q.answer, ...q.accepted_answers.filter((a) => a !== q.answer)];
-      return {
-        id: randomUUID(),
-        learningItemId: itemId,
-        type: 'cloze',
-        status: 'fresh',
-        meaningSnapshot: item.meaning,
-        promptText: q.text_with_blank,
-        contextText: null,
-        payloadJson: JSON.stringify(ClozePayload.parse({ acceptedAnswers })),
-        correctOptionId: null,
-        promptKey: meta.key,
-        promptVersion: meta.version,
-        promptHash: meta.hash,
-        model,
-        useCount: 0,
-        correctCount: 0,
-        lastUsedAt: null,
-        retiredAt: null,
-        createdAt: nowIso,
-      };
-    });
   }
 
   // 校验：题目 meaning_snapshot 必须锁定当前义项（AI_RULES §4.2）
@@ -335,6 +305,10 @@ export async function generateQuestionsForItem(
   }
 
   db.transaction((tx) => {
+    const current = tx.select().from(learningItems).where(eq(learningItems.id, itemId)).get();
+    if (!current || current.target !== item.target || current.meaning !== item.meaning) {
+      throw appError('CONFLICT', '学习项已修改，旧题目生成结果已失效');
+    }
     for (const row of rows) {
       tx.insert(questions).values(row).run();
     }
@@ -595,38 +569,20 @@ export async function evaluateProduction(
   };
 }
 
-// ---------- 维度 → 题型映射（PRODUCT §6.3）----------
+// ---------- V2 维度 → 题型映射 ----------
 
 export function questionTypeForDimension(dimension: ReviewDimension): QuestionPoolType {
-  return dimension === 'understanding' ? 'understanding' : 'cloze';
+  return dimension === 'understanding' ? 'understanding' : 'production';
 }
 
-/** 确定性字符串哈希（djb2），用于 L3 混合阶段的题型分配 */
-function hashString(s: string): number {
-  let h = 5381;
-  for (let i = 0; i < s.length; i += 1) {
-    h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  }
-  return h;
+/** 保持 Today 旧调用签名；V2 所有 P 等级都只取完整造句题。 */
+export function productionQuestionTypeFor(_itemId: string, _level: number): 'production' {
+  return 'production';
 }
 
-/**
- * Production 维度取题类型（PRODUCT §6.3 题型映射）：
- * early（P-L1~2）→ cloze；late（P-L4+）→ production；
- * middle（P-L3）按 itemId 哈希奇偶确定性决定（同一 item 每次结果一致）。
- */
-export function productionQuestionTypeFor(itemId: string, level: number): 'cloze' | 'production' {
-  const stage = productionStageOf(level);
-  if (stage === 'early') return 'cloze';
-  if (stage === 'late') return 'production';
-  return hashString(itemId) % 2 === 0 ? 'cloze' : 'production';
-}
-
-/**
- * 到期维度需要补库存的题型列表（prefetch job 使用）：
- * U → understanding；P-L1/2 → cloze；P-L3+ → cloze + production（表达题库存目标 2）。
- */
-export function questionTypesForDue(dimension: ReviewDimension, level: number): QuestionPoolType[] {
-  if (dimension === 'understanding') return ['understanding'];
-  return productionStageOf(level) === 'early' ? ['cloze'] : ['cloze', 'production'];
+/** 到期维度只预取其对应的一种正式题型。 */
+export function questionTypesForDue(
+  dimension: ReviewDimension,
+): ['understanding'] | ['production'] {
+  return dimension === 'understanding' ? ['understanding'] : ['production'];
 }

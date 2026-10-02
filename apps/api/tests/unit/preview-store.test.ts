@@ -16,6 +16,8 @@ function entry(action: StoredPreviewEntry['action'] = 'new_item'): StoredPreview
     },
     action,
     existingId: null,
+    existingOverride: null,
+    productionGoalChange: null,
   };
 }
 

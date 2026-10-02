@@ -94,11 +94,6 @@ export function checkAiOutput(
           violations.push(`coverage surface_form "${c.surface_form}" 未出现在正文中`);
         }
       }
-      out.checks.forEach((c, i) => {
-        if (!c.options.some((o) => o.id === c.correct_option_id)) {
-          violations.push(`第 ${i + 1} 道检查题 correct_option_id 不存在`);
-        }
-      });
       break;
     }
     case 'checkCloze':

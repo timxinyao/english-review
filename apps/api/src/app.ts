@@ -57,7 +57,7 @@ export function buildApp({ config, db, logger = true }: AppOptions): FastifyInst
   healthRoutes(app);
   authRoutes(app, config);
   settingsRoutes(app, db);
-  learningItemsRoutes(app, db);
+  learningItemsRoutes(app, db, config);
   todayRoutes(app, db, config);
   practiceRoutes(app, db);
   readRoutes(app, db);

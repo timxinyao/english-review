@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import {
   parseTags,
+  localDateString,
   PERSONAL_EXAMPLE_MAX,
   PERSONAL_EXAMPLE_REPLACE_MARGIN,
   PRODUCTION_HISTORY_KEEP,
@@ -25,6 +26,9 @@ import {
 } from '../../db/schema.js';
 import { appError } from '../../lib/errors.js';
 import { invalidateQuestions, type DbExecutor, type DbTx } from '../questions/service.js';
+import { effectiveProductionEnabled } from '../review/goals.js';
+import { ensureProductionDueAfterGoalEnabled, reconcileItemStatus } from '../review/service.js';
+import { cancelPendingProductionTasksForItem } from '../today/service.js';
 
 type ItemRow = typeof learningItems.$inferSelect;
 type ExampleRow = typeof learningExamples.$inferSelect;
@@ -38,6 +42,30 @@ export type AttemptRowSnapshot = typeof attempts.$inferSelect;
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/** Library 编辑与 Import 合并共用的目标变更副作用；Stage/到期仍只由 review service 写入。 */
+export function reconcileProductionGoalChange(
+  tx: DbTx,
+  itemId: string,
+  before: Pick<ItemRow, 'type' | 'productionEnabledOverride' | 'queueState'>,
+  after: Pick<ItemRow, 'type' | 'productionEnabledOverride'>,
+  nowDate: Date,
+  timezone: string,
+): void {
+  const wasEnabled = effectiveProductionEnabled(before);
+  const isEnabled = effectiveProductionEnabled(after);
+  if (wasEnabled && !isEnabled) {
+    cancelPendingProductionTasksForItem(
+      tx,
+      itemId,
+      localDateString(nowDate, timezone),
+      nowDate.toISOString(),
+    );
+  } else if (!wasEnabled && isEnabled && before.queueState === 'started') {
+    ensureProductionDueAfterGoalEnabled(tx, itemId, nowDate, timezone);
+  }
+  reconcileItemStatus(tx, itemId, nowDate.toISOString());
 }
 
 /**
@@ -128,6 +156,9 @@ export async function listLearningItems(
     const dto: LibraryListItemDto = {
       id: row.id,
       type: row.type as 'word' | 'chunk',
+      productionEnabledOverride:
+        row.productionEnabledOverride === null ? null : row.productionEnabledOverride === 1,
+      productionEnabled: effectiveProductionEnabled(row),
       target: row.target,
       meaning: row.meaning,
       status: row.status as ItemStatusDto,
@@ -183,6 +214,9 @@ function buildDetail(
     item: {
       id: row.id,
       type: row.type as 'word' | 'chunk',
+      productionEnabledOverride:
+        row.productionEnabledOverride === null ? null : row.productionEnabledOverride === 1,
+      productionEnabled: effectiveProductionEnabled(row),
       target: row.target,
       meaning: row.meaning,
       ipa: row.type === 'chunk' ? null : row.ipa,
@@ -427,8 +461,10 @@ export async function updateLearningItem(
   db: AppDatabase,
   id: string,
   patch: UpdateLearningItemRequest,
+  timezone: string,
 ): Promise<UpdateLearningItemResponse> {
-  const now = nowIso();
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
   let meaningChanged = false;
 
   db.transaction((tx) => {
@@ -438,6 +474,10 @@ export async function updateLearningItem(
 
     const update: Partial<typeof learningItems.$inferInsert> = { updatedAt: now };
     if (patch.type !== undefined) update.type = patch.type;
+    if (patch.productionEnabledOverride !== undefined) {
+      update.productionEnabledOverride =
+        patch.productionEnabledOverride === null ? null : patch.productionEnabledOverride ? 1 : 0;
+    }
     if (patch.target !== undefined) update.target = patch.target;
     if (patch.meaning !== undefined) update.meaning = patch.meaning;
     const effectiveType = (update.type ?? row.type) as 'word' | 'chunk';
@@ -448,6 +488,14 @@ export async function updateLearningItem(
     if (patch.tags !== undefined) update.tagsJson = serializeTags(patch.tags);
     if (patch.notes !== undefined) update.notes = patch.notes;
     tx.update(learningItems).set(update).where(eq(learningItems.id, id)).run();
+    const afterGoal = {
+      type: update.type ?? row.type,
+      productionEnabledOverride:
+        update.productionEnabledOverride === undefined
+          ? row.productionEnabledOverride
+          : update.productionEnabledOverride,
+    };
+    reconcileProductionGoalChange(tx, id, row, afterGoal, nowDate, timezone);
 
     if (patch.sourceExample !== undefined) {
       const result = tx

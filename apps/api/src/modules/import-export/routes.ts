@@ -29,7 +29,7 @@ export function importExportRoutes(app: FastifyInstance, db: AppDatabase, config
   );
 
   app.post('/api/import/commit', async (req) =>
-    commitImport(db, parseBody(ImportCommitRequest, req.body)),
+    commitImport(db, parseBody(ImportCommitRequest, req.body), config.appTimezone),
   );
 
   app.get('/api/export/library', async (_req, reply) => {

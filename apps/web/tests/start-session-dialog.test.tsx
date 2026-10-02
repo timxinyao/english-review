@@ -6,12 +6,21 @@ afterEach(cleanup);
 
 describe('StartSessionDialog', () => {
   it('空闲：不渲染', () => {
-    render(<StartSessionDialog pending={false} errorMessage={null} onRetry={vi.fn()} onDismiss={vi.fn()} />);
+    render(
+      <StartSessionDialog
+        pending={false}
+        errorMessage={null}
+        onRetry={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('生成中：portal 挂 body，显示等待文案与“已等待”正计时，无按钮', async () => {
-    render(<StartSessionDialog pending errorMessage={null} onRetry={vi.fn()} onDismiss={vi.fn()} />);
+    render(
+      <StartSessionDialog pending errorMessage={null} onRetry={vi.fn()} onDismiss={vi.fn()} />,
+    );
     const dialog = screen.getByRole('dialog', { name: '开始今日复习' });
     await waitFor(() => expect(dialog).toBeVisible());
     expect(dialog.parentElement).toBe(document.body);
@@ -28,7 +37,14 @@ describe('StartSessionDialog', () => {
 
   it('失败：显示错误与重试；重试回调触发', async () => {
     const onRetry = vi.fn();
-    render(<StartSessionDialog pending={false} errorMessage="题目正在准备中，请稍候重试" onRetry={onRetry} onDismiss={vi.fn()} />);
+    render(
+      <StartSessionDialog
+        pending={false}
+        errorMessage="题目正在准备中，请稍候重试"
+        onRetry={onRetry}
+        onDismiss={vi.fn()}
+      />,
+    );
     expect(screen.getByText('题目正在准备中，请稍候重试')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(onRetry).toHaveBeenCalledTimes(1);

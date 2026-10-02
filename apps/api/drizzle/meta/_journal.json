@@ -36,6 +36,20 @@
       "when": 1790472783251,
       "tag": "0004_light_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790760286446,
+      "tag": "0005_cynical_satana",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790764788468,
+      "tag": "0006_chemical_morg",
+      "breakpoints": true
     }
   ]
 }

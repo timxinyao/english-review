@@ -130,12 +130,14 @@ describe('acquireQuestion', () => {
     expect(acquireQuestion(db, itemId, 'understanding', NOW)).toBeNull();
   });
 
-  it('题型隔离：只取对应 type', async () => {
+  it('V2 新取题不接收旧 cloze，即使库存充足', async () => {
     const itemId = await seededItem();
     await seedQuestion(db, itemId, { id: 'q-cloze', type: 'cloze' });
     expect(acquireQuestion(db, itemId, 'understanding', NOW)).toBeNull();
-    const got = acquireQuestion(db, itemId, 'cloze', NOW);
-    expect(got?.id).toBe('q-cloze');
+    expect(() => acquireQuestion(db, itemId, 'cloze', NOW)).toThrowError(
+      expect.objectContaining({ code: 'CONFLICT' }),
+    );
+    expect(countQuestionStock(db, itemId, 'cloze')).toBe(1);
   });
 });
 

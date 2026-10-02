@@ -26,7 +26,14 @@ const apiMock = vi.mocked(api);
 function secondTask() {
   return makeChoiceTask({
     taskId: 'task-2',
-    item: { id: 'item-2', type: 'word', target: 'stable', meaning: '稳定的', ipa: '/ˈsteɪbl/', notes: null },
+    item: {
+      id: 'item-2',
+      type: 'word',
+      target: 'stable',
+      meaning: '稳定的',
+      ipa: '/ˈsteɪbl/',
+      notes: null,
+    },
   });
 }
 
@@ -171,7 +178,9 @@ describe('ChoiceQuestionCard 统一纠错（§7.6：答错/主动不会同版式
     expect(within(group).getByRole('button', { name: '摇晃的' }).className).toContain(
       'text-destructive',
     );
-    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain('text-success');
+    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain(
+      'text-success',
+    );
     expect(within(group).getByRole('button', { name: '昂贵的' }).className).not.toContain(
       'text-destructive',
     );
@@ -202,7 +211,9 @@ describe('ChoiceQuestionCard 统一纠错（§7.6：答错/主动不会同版式
 
     expect(screen.getByText('主动不会')).toBeVisible();
     const group = screen.getByRole('group', { name: '选项' });
-    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain('text-success');
+    expect(within(group).getByRole('button', { name: '稳定的' }).className).toContain(
+      'text-success',
+    );
     expect(within(group).getByRole('button', { name: '摇晃的' }).className).not.toContain(
       'text-destructive',
     );

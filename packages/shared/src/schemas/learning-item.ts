@@ -14,6 +14,8 @@ const isoDateTime = z.string().min(1);
 export const LearningItem = z.object({
   id: z.string().min(1),
   type: LearningItemType,
+  productionEnabledOverride: z.boolean().nullable(),
+  productionEnabled: z.boolean(),
   target: z.string().min(1),
   meaning: z.string().min(1),
   /** 仅 word；chunk 恒为 null */

@@ -14,8 +14,8 @@ const INPUT: ReadSelection = {
   recentReadTypes: ['story', 'knowledge'],
 };
 
-describe('E2E fake read 生成（fakeGenerateRead）', () => {
-  it('确定性输出：标题/类型固定，正文含全部 focus 原词，3 段 ≥200 词', async () => {
+describe('E2E fake read 生成（fakeGenerateRead，V2 纯阅读）', () => {
+  it('确定性输出：标题/类型固定，正文含全部 focus 原词，3 段 ≥200 词，无 checks', async () => {
     const { data, meta, model } = await fakeGenerateRead(INPUT);
 
     expect(data.title).toBe('A Quiet Morning');
@@ -38,17 +38,10 @@ describe('E2E fake read 生成（fakeGenerateRead）', () => {
       })),
     );
 
-    // checks：前 2 个 focus，o1=meaning 正确
-    expect(data.checks).toHaveLength(2);
-    expect(data.checks[0]).toMatchObject({
-      learning_item_id: 'e2e-item-wear-down',
-      question: '文中 wear down 的意思是什么？',
-      correct_option_id: 'o1',
-    });
-    expect(data.checks[0]!.options[0]).toEqual({ id: 'o1', text: '逐渐消耗' });
-    expect(data.checks[1]!.learning_item_id).toBe('e2e-item-raw');
+    // V2 纯阅读：不带 checks 字段
+    expect('checks' in data).toBe(false);
 
-    expect(meta).toEqual({ key: 'seed', version: 1, hash: 'seed' });
+    expect(meta).toEqual({ key: 'seed', version: 2, hash: 'seed' });
     expect(model).toBe('seed');
   });
 
@@ -58,13 +51,14 @@ describe('E2E fake read 生成（fakeGenerateRead）', () => {
     expect(a).toEqual(b);
   });
 
-  it('focus 数量不足 2 时 checks 取实际数量（≥1）', async () => {
+  it('focus 数量为 1 时仍生成合法纯文章（≥200 词、coverage 覆盖）', async () => {
     const single: ReadSelection = {
       ...INPUT,
       focusItems: [{ id: 'x', target: 'stable', meaning: '稳定的' }],
     };
     const { data } = await fakeGenerateRead(single);
-    expect(data.checks).toHaveLength(1);
+    expect(data.coverage).toEqual([{ learning_item_id: 'x', surface_form: 'stable' }]);
+    expect('checks' in data).toBe(false);
     expect(englishWordCount(data.body)).toBeGreaterThanOrEqual(200);
   });
 });

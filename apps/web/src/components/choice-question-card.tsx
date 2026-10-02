@@ -97,7 +97,12 @@ export function ChoiceQuestionCard({
   const feedback = (
     <>
       {phase !== 'answering' && !hideVerdict && (
-        <p className={cn('text-sm', gaveUp || phase === 'wrong' ? 'text-destructive' : 'text-success')}>
+        <p
+          className={cn(
+            'text-sm',
+            gaveUp || phase === 'wrong' ? 'text-destructive' : 'text-success',
+          )}
+        >
           {gaveUp ? '主动不会' : phase === 'correct' ? '回答正确' : '回答错误'}
         </p>
       )}
@@ -216,7 +221,13 @@ export function ChoiceQuestionCard({
         </Button>
       )}
       {phase === 'answering' && onGiveUp && (
-        <Button variant="ghost" size="sm" className="text-muted-foreground" disabled={pending} onClick={onGiveUp}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          disabled={pending}
+          onClick={onGiveUp}
+        >
           不会
         </Button>
       )}

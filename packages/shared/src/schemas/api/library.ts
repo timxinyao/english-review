@@ -15,6 +15,8 @@ export type LibraryListQuery = z.infer<typeof LibraryListQuery>;
 export const LibraryListItemDto = z.object({
   id: z.string(),
   type: LearningItemType,
+  productionEnabledOverride: z.boolean().nullable(),
+  productionEnabled: z.boolean(),
   target: z.string(),
   meaning: z.string(),
   status: LearningItemStatus,
@@ -62,6 +64,8 @@ export const LibraryItemDetail = z.object({
   item: z.object({
     id: z.string(),
     type: LearningItemType,
+    productionEnabledOverride: z.boolean().nullable(),
+    productionEnabled: z.boolean(),
     target: z.string(),
     meaning: z.string(),
     ipa: z.string().nullable(),
@@ -99,6 +103,7 @@ export type LibraryItemDetail = z.infer<typeof LibraryItemDetail>;
 
 export const UpdateLearningItemRequest = z.object({
   type: LearningItemType.optional(),
+  productionEnabledOverride: z.boolean().nullable().optional(),
   target: z.string().min(1).optional(),
   meaning: z.string().min(1).optional(),
   ipa: z.string().nullable().optional(),

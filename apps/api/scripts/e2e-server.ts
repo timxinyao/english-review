@@ -6,7 +6,14 @@ import { loadConfig } from '../src/config.js';
 import { createDatabase, type AppDatabase } from '../src/db/client.js';
 import { runMigrations } from '../src/db/migrate.js';
 import { buildApp } from '../src/app.js';
-import { learningExamples, learningItems, questions, reviewStates } from '../src/db/schema.js';
+import {
+  learningExamples,
+  learningItems,
+  questions,
+  readArticleItems,
+  readArticles,
+  reviewStates,
+} from '../src/db/schema.js';
 import { setTodayDepsForTests, loadRealTodayDeps } from '../src/modules/today/service.js';
 import { loadRealPracticeDeps, setPracticeDepsForTests } from '../src/modules/practice/service.js';
 import {
@@ -135,6 +142,7 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
     .values({
       id: 'e2e-item-give-up',
       type: 'word',
+      productionEnabledOverride: 1,
       target: 'give up',
       meaning: '放弃',
       ipa: null,
@@ -249,6 +257,38 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
       createdAt,
     })
     .run();
+  // Phase 9（Task 8）V2 练一下种子：practice start 必取一道 understanding 作 Recall
+  // （Hint 选项来源）；AI 在 e2e 不可用，无库存会直接 502。
+  db.insert(questions)
+    .values({
+      id: 'e2e-q-give-up-u',
+      learningItemId: 'e2e-item-give-up',
+      type: 'understanding',
+      status: 'fresh',
+      meaningSnapshot: '放弃',
+      promptText: 'give up 最接近什么意思？',
+      contextText: null,
+      payloadJson: JSON.stringify({
+        options: [
+          { id: 'o1', text: '放弃' },
+          { id: 'o2', text: '坚持' },
+          { id: 'o3', text: '举起' },
+          { id: 'o4', text: '抱怨' },
+        ],
+        explanation: 'give up 表示放弃。',
+      }),
+      correctOptionId: 'o1',
+      promptKey: 'seed',
+      promptVersion: 1,
+      promptHash: 'seed',
+      model: 'seed',
+      useCount: 0,
+      correctCount: 0,
+      lastUsedAt: null,
+      retiredAt: null,
+      createdAt,
+    })
+    .run();
   return true;
 }
 
@@ -264,6 +304,7 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
     .find((i) => i.target === 'stable' && i.queueState === 'started');
   if (marker) {
     seedGiveUp(db, now); // Phase 4 种子独立幂等
+    seedLegacyReadArticle(db); // Phase 9 遗留 Read 文章独立幂等
     return false;
   }
 
@@ -461,7 +502,37 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
       })
       .run();
   }
+  // Phase 9（Task 10）：chunk 默认造句开的练一下表达题库存（make sense 无 P 状态，
+  // 不进 Today，仅 Library Practice 取用；不加会因 e2e 无 AI 而降级为只出 recall）
+  db.insert(questions)
+    .values({
+      id: 'e2e-q-make-sense-p',
+      learningItemId: 'e2e-item-make-sense',
+      type: 'production',
+      status: 'fresh',
+      meaningSnapshot: '讲得通',
+      promptText: '他的解释完全讲得通。',
+      contextText: null,
+      payloadJson: JSON.stringify({
+        mustUse: 'make sense',
+        referenceAnswer: 'His explanation makes complete sense to me.',
+        acceptanceNotes: '允许正常时态和人称变化。',
+      }),
+      correctOptionId: null,
+      promptKey: 'seed',
+      promptVersion: 1,
+      promptHash: 'seed',
+      model: 'seed',
+      useCount: 0,
+      correctCount: 0,
+      lastUsedAt: null,
+      retiredAt: null,
+      createdAt,
+    })
+    .run();
   seedGiveUp(db, now);
+  // Phase 9（Task 9）：V1 遗留只读 Read 文章（幂等）
+  seedLegacyReadArticle(db);
   return true;
 }
 
@@ -478,7 +549,9 @@ const SEED_PROMPT_META = { key: 'seed', version: 1, hash: 'seed', model: 'seed' 
 
 /**
  * E2E_SEED=1 时注入 today / practice 的 evaluateProduction：
- * normalize(userAnswer) 包含 "give up" → pass（eligible 0.9）；否则 fail（corrected=reference）。
+ * normalize(userAnswer) 包含题目 payload 的 mustUse（缺省 "give up"）→ pass（eligible 0.9）；
+ * 否则 fail（corrected=reference）。Phase 9（Task 10）起按 mustUse 泛化，
+ * 支撑 set off / make sense 等 V2 journey 种子题。
  */
 export async function fakeEvaluateProduction(
   _db: AppDatabase,
@@ -486,15 +559,22 @@ export async function fakeEvaluateProduction(
   userAnswer: string,
 ): Promise<ProductionEvaluation> {
   let referenceAnswer = 'The constant stress makes me want to give up.';
+  let mustUse = 'give up';
   try {
-    const payload = JSON.parse(question.payloadJson) as { referenceAnswer?: string };
+    const payload = JSON.parse(question.payloadJson) as {
+      referenceAnswer?: string;
+      mustUse?: string;
+    };
     if (typeof payload.referenceAnswer === 'string' && payload.referenceAnswer) {
       referenceAnswer = payload.referenceAnswer;
     }
+    if (typeof payload.mustUse === 'string' && payload.mustUse) {
+      mustUse = payload.mustUse;
+    }
   } catch {
-    // 种子题 payload 固定合法；保底用默认 reference
+    // 种子题 payload 固定合法；保底用默认 reference/mustUse
   }
-  if (e2eNorm(userAnswer).includes('give up')) {
+  if (e2eNorm(userAnswer).includes(e2eNorm(mustUse))) {
     return {
       result: 'pass',
       correctedSentence: userAnswer,
@@ -544,7 +624,7 @@ const READ_FAKE_PARA_3 =
 /**
  * E2E_SEED=1 时注入 read 模块的 generate：不用 AI，直接构造确定性文章。
  * title/type 固定；正文 3 段且包含所有 focus 的 surface_form=target 原词；
- * checks 取前 2 个 focus（o1=item.meaning 正确）；promptMeta 用 'seed' 占位。
+ * V2 纯阅读：不生成 checks（promptMeta 用 'seed' 占位）。
  */
 export async function fakeGenerateRead(input: ReadSelection): Promise<ReadGeneration> {
   const sentences = input.focusItems
@@ -563,21 +643,84 @@ export async function fakeGenerateRead(input: ReadSelection): Promise<ReadGenera
         learning_item_id: f.id,
         surface_form: f.target,
       })),
-      checks: input.focusItems.slice(0, 2).map((f) => ({
-        learning_item_id: f.id,
-        question: `文中 ${f.target} 的意思是什么？`,
-        options: [
-          { id: 'o1', text: f.meaning },
-          { id: 'o2', text: '干扰甲' },
-          { id: 'o3', text: '干扰乙' },
-          { id: 'o4', text: '干扰丙' },
-        ],
-        correct_option_id: 'o1',
-      })),
     },
-    meta: { key: 'seed', version: 1, hash: 'seed' },
+    meta: { key: 'seed', version: 2, hash: 'seed' },
     model: 'seed',
   };
+}
+
+/**
+ * Phase 9（Task 9）V1 遗留 Read 文章种子：checks_json 含一答错 + 一未答检查题，
+ * 详情页只读回放、无提交入口（前端 Playwright 依赖标题与文案，勿随意改动）。幂等。
+ */
+export function seedLegacyReadArticle(db: AppDatabase): void {
+  const existing = db
+    .select()
+    .from(readArticles)
+    .all()
+    .find((a) => a.id === 'e2e-read-legacy');
+  if (existing) return;
+
+  const createdAt = '2026-09-20T00:00:00.000Z';
+  db.insert(readArticles)
+    .values({
+      id: 'e2e-read-legacy',
+      title: 'An Old Lesson',
+      body:
+        'The old plan stayed stable for months.\n\n' +
+        'Weeks of raw data slowly wore her down, but the work still made sense.',
+      type: 'knowledge',
+      contentLevel: 'B1',
+      favorite: 0,
+      promptKey: 'generate_read',
+      promptVersion: 1,
+      promptHash: 'seed',
+      model: 'seed',
+      checksJson: JSON.stringify([
+        {
+          id: 'e2e-read-check-1',
+          learningItemId: 'e2e-item-stable',
+          question: '文中 stable 的意思是什么？',
+          options: [
+            { id: 'o1', text: '稳定的' },
+            { id: 'o2', text: '干扰甲' },
+          ],
+          correctOptionId: 'o1',
+          answered: {
+            selectedOptionId: 'o2',
+            correct: false,
+            needsReinforcementMarked: true,
+          },
+        },
+        {
+          id: 'e2e-read-check-2',
+          learningItemId: 'e2e-item-wear-down',
+          question: '文中 wear down 的意思是什么？',
+          options: [
+            { id: 'o1', text: '逐渐消耗' },
+            { id: 'o2', text: '干扰乙' },
+          ],
+          correctOptionId: 'o1',
+        },
+      ]),
+      createdAt,
+      expiresAt: null, // 收藏语义：永久可见
+    })
+    .run();
+  for (const [itemId, surfaceForm] of [
+    ['e2e-item-stable', 'stable'],
+    ['e2e-item-wear-down', 'wore her down'],
+  ] as const) {
+    db.insert(readArticleItems)
+      .values({
+        readArticleId: 'e2e-read-legacy',
+        learningItemId: itemId,
+        role: 'focus',
+        highlighted: 1,
+        surfaceForm,
+      })
+      .run();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -688,6 +831,358 @@ export function seedExtendCandidate(db: AppDatabase): void {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 9（Task 10）V2 全流程 journey 种子（独立端点播种，不进基础种子：
+// 基础种子的到期/总数被既有 spec 钉死，扩展项按用例显式播种）
+// ---------------------------------------------------------------------------
+
+/**
+ * Learn→次日 Production 与显式关闭 chunk 的 journey 种子（幂等）：
+ * - set off（chunk，started）：U 不到期、P L0 昨日到期 → 模拟"昨日 Learn 完成初始化、
+ *   次日（今天）造句到期"，今日会话应出现其表达题（真实 Learn→次日到期由 API 单测钉死，
+ *   e2e 用时钟不可跨日，以该状态近似"次日"）。
+ * - carry on（chunk，New Queue）：今日 Learn 完成后应初始化 P L0 次日到期（今日无表达题）。
+ * - put off（chunk，override=0，started）：P L2 昨日到期但显式关闭 → 不进今日队列、状态不动。
+ */
+export function seedV2Journeys(db: AppDatabase, now = new Date()): boolean {
+  const existing = db
+    .select()
+    .from(learningItems)
+    .all()
+    .some((i) => i.id === 'e2e-item-set-off');
+  if (existing) return false;
+
+  const nowIso = now.toISOString();
+  const yesterday = new Date(now.getTime() - DAY_MS).toISOString();
+  const fourDaysAgo = new Date(now.getTime() - 4 * DAY_MS).toISOString();
+  const inSevenDays = new Date(now.getTime() + 7 * DAY_MS).toISOString();
+  const createdAt = '2026-09-12T00:00:00.000Z';
+
+  const items: Array<{
+    id: string;
+    type: 'word' | 'chunk';
+    target: string;
+    meaning: string;
+    productionEnabledOverride: number | null;
+    queueState: 'new' | 'started';
+  }> = [
+    {
+      id: 'e2e-item-set-off',
+      type: 'chunk',
+      target: 'set off',
+      meaning: '出发',
+      productionEnabledOverride: null, // chunk 默认开
+      queueState: 'started',
+    },
+    {
+      id: 'e2e-item-carry-on',
+      type: 'chunk',
+      target: 'carry on',
+      meaning: '继续',
+      productionEnabledOverride: null,
+      queueState: 'new', // 今日 Learn：完成后初始化 P L0 次日到期
+    },
+    {
+      id: 'e2e-item-put-off',
+      type: 'chunk',
+      target: 'put off',
+      meaning: '推迟',
+      productionEnabledOverride: 0, // 显式关闭：即便 P 到期也不进队列
+      queueState: 'started',
+    },
+  ];
+  for (const item of items) {
+    db.insert(learningItems)
+      .values({
+        id: item.id,
+        type: item.type,
+        productionEnabledOverride: item.productionEnabledOverride,
+        target: item.target,
+        meaning: item.meaning,
+        ipa: null,
+        source: null,
+        sourceUrl: null,
+        tagsJson: '[]',
+        notes: null,
+        status: 'active',
+        queueState: item.queueState,
+        needsReinforcement: 0,
+        createdAt,
+        updatedAt: createdAt,
+        archivedAt: null,
+      })
+      .run();
+  }
+  for (const [itemId, text] of [
+    ['e2e-item-set-off', 'We set off at dawn to avoid the heat.'],
+    ['e2e-item-carry-on', 'Please carry on with your work.'],
+    ['e2e-item-put-off', 'We put off the meeting until Friday.'],
+  ] as const) {
+    db.insert(learningExamples)
+      .values({
+        id: `e2e-ex-${itemId}`,
+        learningItemId: itemId,
+        kind: 'source',
+        text,
+        originalText: null,
+        betterText: null,
+        pinned: 0,
+        qualityScore: null,
+        sortOrder: 0,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .run();
+  }
+  const states: Array<{
+    itemId: string;
+    dimension: 'understanding' | 'production';
+    level: number;
+    nextReviewAt: string | null;
+    lastReviewAt: string | null;
+    correctStreak: number;
+  }> = [
+    // set off：U 不到期；P L0 昨日到期（Learn 完成后的次日到期态）
+    {
+      itemId: 'e2e-item-set-off',
+      dimension: 'understanding',
+      level: 1,
+      nextReviewAt: inSevenDays,
+      lastReviewAt: fourDaysAgo,
+      correctStreak: 1,
+    },
+    {
+      itemId: 'e2e-item-set-off',
+      dimension: 'production',
+      level: 0,
+      nextReviewAt: yesterday,
+      lastReviewAt: null,
+      correctStreak: 0,
+    },
+    // put off：U 不到期；P L2 昨日到期（显式关闭 → 被排除、保持原状）
+    {
+      itemId: 'e2e-item-put-off',
+      dimension: 'understanding',
+      level: 5,
+      nextReviewAt: inSevenDays,
+      lastReviewAt: fourDaysAgo,
+      correctStreak: 5,
+    },
+    {
+      itemId: 'e2e-item-put-off',
+      dimension: 'production',
+      level: 2,
+      nextReviewAt: yesterday,
+      lastReviewAt: fourDaysAgo,
+      correctStreak: 2,
+    },
+  ];
+  for (const st of states) {
+    db.insert(reviewStates)
+      .values({
+        id: `e2e-state-${st.itemId}-${st.dimension}`,
+        learningItemId: st.itemId,
+        dimension: st.dimension,
+        level: st.level,
+        stable: 0,
+        nextReviewAt: st.nextReviewAt,
+        lastReviewAt: st.lastReviewAt,
+        correctStreak: st.correctStreak,
+        wrongStreak: 0,
+        updatedAt: nowIso,
+      })
+      .run();
+  }
+  const journeyQuestions: Array<{
+    id: string;
+    itemId: string;
+    type: 'understanding' | 'production';
+    meaning: string;
+    promptText: string;
+    payload: Record<string, unknown>;
+    correctOptionId: string | null;
+  }> = [
+    {
+      id: 'e2e-q-set-off',
+      itemId: 'e2e-item-set-off',
+      type: 'production',
+      meaning: '出发',
+      promptText: '我们天一亮就出发。',
+      payload: {
+        mustUse: 'set off',
+        referenceAnswer: 'We set off at dawn.',
+        acceptanceNotes: '允许正常时态和人称变化。',
+      },
+      correctOptionId: null,
+    },
+    {
+      id: 'e2e-q-carry-on',
+      itemId: 'e2e-item-carry-on',
+      type: 'understanding',
+      meaning: '继续',
+      promptText: 'carry on 最接近什么意思？',
+      payload: {
+        options: [
+          { id: 'o1', text: '继续' },
+          { id: 'o2', text: '停止' },
+          { id: 'o3', text: '携带' },
+          { id: 'o4', text: '返回' },
+        ],
+        explanation: 'carry on 表示继续。',
+      },
+      correctOptionId: 'o1',
+    },
+    {
+      id: 'e2e-q-put-off',
+      itemId: 'e2e-item-put-off',
+      type: 'understanding',
+      meaning: '推迟',
+      promptText: 'put off 最接近什么意思？',
+      payload: {
+        options: [
+          { id: 'o1', text: '推迟' },
+          { id: 'o2', text: '脱下' },
+          { id: 'o3', text: '忍受' },
+          { id: 'o4', text: '赞扬' },
+        ],
+        explanation: 'put off 表示推迟。',
+      },
+      correctOptionId: 'o1',
+    },
+  ];
+  for (const q of journeyQuestions) {
+    db.insert(questions)
+      .values({
+        id: q.id,
+        learningItemId: q.itemId,
+        type: q.type,
+        status: 'fresh',
+        meaningSnapshot: q.meaning,
+        promptText: q.promptText,
+        contextText: null,
+        payloadJson: JSON.stringify(q.payload),
+        correctOptionId: q.correctOptionId,
+        promptKey: 'seed',
+        promptVersion: 1,
+        promptHash: 'seed',
+        model: 'seed',
+        useCount: 0,
+        correctCount: 0,
+        lastUsedAt: null,
+        retiredAt: null,
+        createdAt,
+      })
+      .run();
+  }
+  return true;
+}
+
+/**
+ * 大队列种子（幂等）：count 个 word（默认造句关）U 维度昨日到期，各带 1 道 fresh
+ * understanding 库存（prepare 直接绑定，不依赖 AI）。验证 start 建全量 pending 队列
+ * 不阻塞首屏、总数含未绑定任务。默认 40。
+ */
+export function seedLargeDueQueue(db: AppDatabase, count = 40, now = new Date()): boolean {
+  const existing = db
+    .select()
+    .from(learningItems)
+    .all()
+    .some((i) => i.id === 'e2e-item-bulk-01');
+  if (existing) return false;
+
+  const nowIso = now.toISOString();
+  const yesterday = new Date(now.getTime() - DAY_MS).toISOString();
+  const fourDaysAgo = new Date(now.getTime() - 4 * DAY_MS).toISOString();
+  const createdAt = '2026-09-13T00:00:00.000Z';
+
+  for (let index = 1; index <= count; index++) {
+    const pad = String(index).padStart(2, '0');
+    const itemId = `e2e-item-bulk-${pad}`;
+    const target = `bulk word ${pad}`;
+    const meaning = `批量词 ${pad}`;
+    db.insert(learningItems)
+      .values({
+        id: itemId,
+        type: 'word',
+        productionEnabledOverride: null, // word 默认关：即便有 P 也不进队列
+        target,
+        meaning,
+        ipa: null,
+        source: null,
+        sourceUrl: null,
+        tagsJson: '[]',
+        notes: null,
+        status: 'active',
+        queueState: 'started',
+        needsReinforcement: 0,
+        createdAt,
+        updatedAt: createdAt,
+        archivedAt: null,
+      })
+      .run();
+    db.insert(learningExamples)
+      .values({
+        id: `e2e-ex-${itemId}`,
+        learningItemId: itemId,
+        kind: 'source',
+        text: `The ${target} appears somewhere in today's queue.`,
+        originalText: null,
+        betterText: null,
+        pinned: 0,
+        qualityScore: null,
+        sortOrder: 0,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .run();
+    db.insert(reviewStates)
+      .values({
+        id: `e2e-state-${itemId}-understanding`,
+        learningItemId: itemId,
+        dimension: 'understanding',
+        level: 2,
+        stable: 0,
+        nextReviewAt: yesterday,
+        lastReviewAt: fourDaysAgo,
+        correctStreak: 2,
+        wrongStreak: 0,
+        updatedAt: nowIso,
+      })
+      .run();
+    db.insert(questions)
+      .values({
+        id: `e2e-q-${itemId}`,
+        learningItemId: itemId,
+        type: 'understanding',
+        status: 'fresh',
+        meaningSnapshot: meaning,
+        promptText: `${target} 最接近什么意思？`,
+        contextText: null,
+        payloadJson: JSON.stringify({
+          options: [
+            { id: 'o1', text: meaning },
+            { id: 'o2', text: `干扰甲 ${pad}` },
+            { id: 'o3', text: `干扰乙 ${pad}` },
+            { id: 'o4', text: `干扰丙 ${pad}` },
+          ],
+          explanation: `${target} 表示${meaning}。`,
+        }),
+        correctOptionId: 'o1',
+        promptKey: 'seed',
+        promptVersion: 1,
+        promptHash: 'seed',
+        model: 'seed',
+        useCount: 0,
+        correctCount: 0,
+        lastUsedAt: null,
+        retiredAt: null,
+        createdAt,
+      })
+      .run();
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // 服务入口
 // ---------------------------------------------------------------------------
 
@@ -723,6 +1218,16 @@ async function main(): Promise<void> {
     // 测试专用：播种 extend 待学新词（today.spec 同日追加用例）
     app.post('/api/__e2e/seed-new-item', async () => {
       seedExtendCandidate(db);
+      return { ok: true as const };
+    });
+    // 测试专用：播种 Phase 9 V2 journey 项（Learn→次日 Production、显式关闭 chunk）
+    app.post('/api/__e2e/seed-v2-journeys', async () => {
+      seedV2Journeys(db);
+      return { ok: true as const };
+    });
+    // 测试专用：播种大队列（start 全量 pending 不阻塞首屏）
+    app.post('/api/__e2e/seed-large-queue', async () => {
+      seedLargeDueQueue(db);
       return { ok: true as const };
     });
   }

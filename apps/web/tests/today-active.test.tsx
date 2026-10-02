@@ -6,6 +6,7 @@ import {
   makeCanceledEntry,
   makeChoiceTask,
   makeLearnTask,
+  makeProductionTask,
   makeSessionEntry,
   makeTasksResponse,
   makeWrongAnswer,
@@ -14,6 +15,79 @@ import {
 } from './today-helpers';
 
 afterEach(cleanup);
+
+describe('V2 pending 题目准备', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('pending 显示正在准备且无答案，prepare 成功后显示 Recall；选项仅经 Hint 可达', async () => {
+    const pending = makeChoiceTask({ question: null });
+    const ready = makeChoiceTask();
+    let prepared = false;
+    let resolve!: (value: typeof ready) => void;
+    stubApi({
+      '/api/today': () => makeActive(prepared ? ready : pending),
+      '/api/today/tasks/task-1/prepare': () =>
+        new Promise((r) => {
+          resolve = (value) => {
+            prepared = true;
+            r(value);
+          };
+        }),
+    });
+    renderTodayApp();
+    expect(await screen.findByText('正在准备…')).toBeVisible();
+    expect(screen.queryByText('稳定的')).toBeNull();
+    expect(screen.queryByRole('button', { name: '显示答案' })).toBeNull();
+    expect(screen.queryByRole('group', { name: '选项' })).toBeNull();
+    await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/prepare')).toHaveLength(1));
+    resolve(ready);
+    expect(await screen.findByRole('button', { name: '显示答案' })).toBeVisible();
+    expect(screen.queryByRole('group', { name: '选项' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '给我提示' }));
+    expect(screen.getByRole('group', { name: '选项' })).toBeVisible();
+  });
+
+  it('生成失败保留任务和总数，重试后 Production target 与底部输入可达', async () => {
+    const ready = makeProductionTask();
+    let tries = 0;
+    stubApi({
+      '/api/today': () => makeActive(tries > 1 ? ready : { ...ready, question: null }),
+      '/api/today/tasks/task-prod/prepare': () =>
+        ++tries === 1 ? Promise.reject(new Error('题目暂时无法生成，请稍后重试')) : ready,
+    });
+    renderTodayApp();
+    expect(await screen.findByText('题目暂时无法生成，请稍后重试')).toBeVisible();
+    expect(screen.getByText('0 / 1')).toBeVisible();
+    expect(screen.queryByLabelText('表达答案')).toBeNull();
+    expect(apiCalls('/api/today/tasks/task-prod/answer')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByLabelText('表达答案')).toBeVisible();
+    expect(screen.getByText('give up')).toBeVisible();
+    expect(screen.queryByLabelText('填空答案')).toBeNull();
+  });
+
+  it('失败任务可稍后再做，进度总数不减少且下一张卡可答', async () => {
+    let deferred = false;
+    stubApi({
+      '/api/today': () =>
+        makeActive(deferred ? makeLearnTask() : makeChoiceTask({ question: null }), {
+          completed: 0,
+          total: 2,
+        }),
+      '/api/today/tasks/task-1/prepare': () =>
+        Promise.reject(new Error('题目暂时无法生成，请稍后重试')),
+      '/api/today/tasks/task-1/later': () => {
+        deferred = true;
+        return { ok: true, progress: { completed: 0, total: 2 } };
+      },
+    });
+    renderTodayApp();
+    await screen.findByText('题目暂时无法生成，请稍后重试');
+    fireEvent.click(screen.getByRole('button', { name: '稍后再做' }));
+    expect(await screen.findByRole('heading', { name: 'gravity' })).toBeVisible();
+    expect(screen.getByText('0 / 2')).toBeVisible();
+  });
+});
 
 // ActiveSession 切卡会自动 speak：mock 掉真实 tts（jsdom 无 AudioContext，真实调用会产生未处理 rejection）
 vi.mock('../src/lib/tts', () => ({ speak: vi.fn(), stopSpeaking: vi.fn() }));

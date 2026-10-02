@@ -81,7 +81,9 @@ body {
   max-width: calc(100vw - 0.5rem);
   padding: 0.35rem;
   border-radius: var(--radius);
-  font: 10px/1.35 ui-monospace, monospace;
+  font:
+    10px/1.35 ui-monospace,
+    monospace;
   white-space: pre-wrap;
   pointer-events: none;
 }
@@ -156,7 +158,9 @@ body {
 
   /* pointerdown 无滚动聚焦后，到 click 落在真实输入前不移动它的命中区域。 */
   html[data-today-touch-pending] [data-today-route]:has(.h-today-viewport) .h-today-viewport {
-    height: calc(var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block));
+    height: calc(
+      var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block)
+    );
   }
 
   /* 完整触摸 click 已落在真实输入、原生聚焦完成后预置 dock 安全高度。

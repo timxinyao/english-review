@@ -1,8 +1,21 @@
-# English Learning Tool V1.2 — Product Design
+# English Learning Tool V2 — Product Design
 
 > 产品行为、学习机制与交互基线
 
-**Version 1.2 · 2026-09-24**
+**Version 2 · 2026-09-30**
+
+> V2 学习契约：Learn → Recall → 按词条目标选择性 Production → Read 自然复现。下文保留的 V1.2 填空题、Read 检查及相关补强描述仅解释切换前历史；V2 不再生成或安排这些任务。切换和保留历史的完整规则以本节及 §6–§9 为准。
+
+## V2 生效规则（覆盖下文 V1.2 题型与排期描述）
+
+- 每项长期保存三态 `production_enabled_override`：`null` 随类型默认，`true` 明确需要造句，`false` 明确不需要。有效值为 `override ?? (type === 'chunk')`；Word 默认关闭，Chunk 默认开启。无需 AI 分类，类型不因覆盖而变化。
+- `mastered` 只按当前目标判定：Understanding 稳定且（不需 Production 或 Production 稳定）。目标变化时由服务端重算 active/mastered 与任务资格，保留两个维度的历史、Stage 和排期；paused/archived 不自动恢复。关闭 Production 立即取消当前 Session 未答 P 题；重新开启沿用 V2 中已有的 P 状态。新开启的 P 最早加入下一次 Today，不中途插题。
+- Learn 建立 Understanding；需要 Production 的新词条，首道正式造句最早在 Learn 后下一本地日，不需等待 Understanding 升级。之后 U/P 独立按 1/3/7/14/30/60/120 天阶梯调度。U 正式任务只使用 Recall：看 target 与语境主动回忆，答案揭晓后自评；四选一仅作 Hint，答错或选择不认识应标出正确选项及理由。P 正式任务只要求在 target 可见时完成具体中文语义任务的完整英语句子，由 AI 判目标用法、语法、搭配及语境；失败不强制当天再次造句。
+- 不再生成、预取、分配新的填空题。Library「练一下」不凑固定题量：不需 P 时一道 Recall，需 P 时一道 Recall 加一道完整造句；不改变正式 Stage、排期、Today 结算或 mastered，单题生成失败可重试，不用填空或选择题补位。
+- Read 仅提供可选文章和已学表达自然复现，不生成新检查题，不改变 Stage、Today 排期或 reinforcement。旧文章与旧检查作答保留只读；V2 切换时清除旧 Read 检查遗留的 `needs_reinforcement`，不改正式 Stage。
+- Today 显示全部到期任务，无每日旧复习上限或迁移限流；未完成不算失败，次日本地日新 Session 重新纳入。创建 Session 先快速返回任务和进度，仅当前题及少量前瞻题按需生成/绑定；生成失败留下可重试 pending 任务，不计作答或降级，也不从总数消失。题目生成不能在 SQLite 写事务内等待 AI，绑定需并发保护。
+- 导入可选 `production_enabled_override`；缺省不等于 `false`，新项按 `null` 保存。重复导入缺字段时保留现值，显式三态冲突在预览中指出并经用户确认，即使其他字段完全重复也不得静默跳过。Library 修改、普通导出和完整备份保留显式值；旧备份缺字段按 `null` 导入。V2 备份保留 V2 Production 状态。
+- V2 在用户配置的下一本地日边界生效。边界前旧 Session 可按旧题完成；跨界未答旧任务过期不算失败，旧标签页对过期 Session 的提交和撤销由服务端拒绝并提示刷新。一次性、事务化、可重试迁移保留 U 状态、历史尝试、个人例句和统计；所有旧词条 P 从 L0 重来。已 Learn 且需 P 的 active 项在切换日立即到期；未 Learn 的 New Queue 等 Learn 后至少下一本地日。重算 active/mastered，维持 paused/archived，清除旧 Read reinforcement。迁移须有版本标记；旧备份恢复也要应用同一旧 P 重置语义，不可被普通启动迁移标记掩盖。
 
 # 1. 项目背景与问题定义
 
@@ -94,7 +107,7 @@ Personal Example 自动优先选择更具体、与用户自身工作/生活/兴�
 | 状态 | 含义 |
 | --- | --- |
 | active | 正常参与 Today 调度。 |
-| mastered | Understanding 与 Production 均稳定；退出正式 Today，仅可在 Read 中自然复现。 |
+| mastered | Understanding 稳定，且当前目标要求 Production 时 Production 也稳定；退出正式 Today，仍可在 Read 中自然复现。 |
 | paused | 临时暂停；保留全部历史与进度。 |
 | archived | 软删除；默认在 Library 隐藏，但可筛选并恢复。 |
 

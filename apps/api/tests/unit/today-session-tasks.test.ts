@@ -7,6 +7,7 @@ import {
   answerTodayTask,
   deferTodayTask,
   getSessionTasks,
+  prepareTodayTask,
   reportBadQuestion,
   startTodaySession,
   type TodayDeps,
@@ -45,6 +46,9 @@ async function seedDueChoiceItem(itemId: string): Promise<string> {
 async function startSession(): Promise<string> {
   const res = await startTodaySession(db, deps, TZ, NOW);
   if (res.status !== 'active') throw new Error(`start 失败：${res.status}`);
+  for (const task of db.select().from(reviewTasks).all()) {
+    await prepareTodayTask(db, deps, TZ, NOW, task.id);
+  }
   return res.session.id;
 }
 
@@ -84,7 +88,7 @@ describe('getSessionTasks（GET /api/today/tasks）', () => {
     await startSession();
     const first = orderedTasks()[0]!;
     await answerTodayTask(db, deps, TZ, NOW, first.id, { selectedOptionId: 'o2' }); // 答错
-    reportBadQuestion(db, first.id, NOW); // 撤销
+    reportBadQuestion(db, first.id, NOW, TZ); // 撤销
 
     const res = await getSessionTasks(db, TZ, NOW);
     const canceled = res.tasks.find((e) => e.task.taskId === first.id)!;
@@ -98,7 +102,7 @@ describe('getSessionTasks（GET /api/today/tasks）', () => {
     await seedDueChoiceItem('item-c');
     await startSession();
     const first = orderedTasks()[0]!;
-    deferTodayTask(db, first.id);
+    deferTodayTask(db, first.id, TZ, NOW);
 
     const res = await getSessionTasks(db, TZ, NOW);
     expect(res.tasks[res.tasks.length - 1]!.task.taskId).toBe(first.id);

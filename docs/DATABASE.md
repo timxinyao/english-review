@@ -1,4 +1,6 @@
-# DATABASE.md — English Learning Tool V1.2
+# DATABASE.md — English Learning Tool V2
+
+> V2 数据契约：`learning_items.production_enabled_override INTEGER NULL CHECK (production_enabled_override IN (0,1) OR production_enabled_override IS NULL)`。NULL 随类型默认（word=0，chunk=1），0/1 为显式关闭/开启；有效值由 review service 计算而非另存。迁移现有行默认 NULL。mastered 依据 U 稳定且（无需 P 或 P 稳定）；paused/archived 不因重算改变。旧 P 排期的 L0 重置、旧 Read reinforcement 清理、切换日和旧备份恢复由 Phase 9 的一次性版本迁移处理，历史不删除。V2 新任务类型为 Recall/Production；cloze 与 Read checks 字段仅为历史兼容保留，不再分配或生成。
 
 > 目标：用最少、清晰、可迁移的表结构承载 PRODUCT_DESIGN.md 中的业务真相。SQLite + Drizzle ORM。字段名建议数据库使用 `snake_case`，TypeScript 层映射为 `camelCase`。
 
@@ -19,6 +21,7 @@
 |---|---|---|
 | id | text/uuid | PK |
 | type | text | `word` / `chunk` |
+| production_enabled_override | integer nullable | 0/1 显式关闭/开启，NULL 按类型默认；CHECK 限定三态 |
 | target | text | 学习目标 |
 | meaning | text | 当前实际学习义项 |
 | ipa | text nullable | 仅 word |
@@ -178,7 +181,7 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 | body | text | |
 | content_level | text | 默认 B1 |
 | favorite | integer | |
-| checks_json | text | 检查题存储（Phase 5 工程补齐）：[{id, learningItemId, question, options, correctOptionId, answered?}]；correctOptionId 仅服务端判定用，不返回前端 |
+| checks_json | text | V1 遗留检查题（Phase 5 工程补齐；V2 起只读、新文章恒为 '[]'）：[{id, learningItemId, question, options, correctOptionId, answered?}]；correctOptionId 仅服务端判定用，未答不下发，已答随只读回放下发 |
 | prompt_key | text | `generate_read`。 |
 | prompt_version | integer | Prompt frontmatter 版本。 |
 | prompt_hash | text | Prompt 模板文件 SHA-256，用于精确追溯。 |
@@ -223,6 +226,10 @@ PRODUCT_DESIGN 10.3 要求“明细学习日志 60 天；长期只保留聚合�
 | updated_at | datetime | |
 
 > `preferred_tts_voice` 因浏览器 voice 集合因设备而异，实际选择存前端 localStorage；该字段仅作保留/提示用途，V1.2 不作为跨设备配置。
+
+## 11B. app_metadata（V2 一次性切换）
+
+`key` 是主键，`value` 保存切换的 APP_TIMEZONE 本地日期，`updated_at` 保存 UTC 时间。`foxi_v2` 标记与旧 P 清零、Read reinforcement 标记清理、状态重算位于同一事务；重复启动只读标记，不再改动 V2 进度。完整备份不包含此数据库级标记：恢复 1.2 备份时每次独立执行旧 P 归一化，恢复 2.0 备份则保留 P 状态。
 
 ## 12. schema 变更规则
 

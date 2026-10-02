@@ -2,12 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
-import type {
-  ReadArticleView,
-  ReadCheckResponse,
-  ReadHistoryItem,
-  ReadHistoryResponse,
-} from '@el/shared';
+import type { ReadArticleView, ReadHistoryItem, ReadHistoryResponse } from '@el/shared';
 import { api } from '../src/lib/api';
 import { ArticleView } from '../src/features/read/components/ArticleView';
 import { ReadPage } from '../src/features/read/ReadPage';
@@ -75,8 +70,8 @@ export const HISTORY_URL = '/api/read/history?page=1&pageSize=20&favorite=all';
 // ---------- fixtures ----------
 
 /**
- * 正文两段：第一段含 focus 词 stable / raw / give up 各一次（共 3 个高亮），
- * 第二段含 old 词 steady（不高亮）。
+ * V2 纯文章（默认无 checks）：正文两段，第一段含 focus 词 stable / raw / give up 各一次
+ * （共 3 个高亮），第二段含 old 词 steady（不高亮）。
  */
 export function makeArticle(overrides: Partial<ReadArticleView> = {}): ReadArticleView {
   return {
@@ -96,37 +91,44 @@ export function makeArticle(overrides: Partial<ReadArticleView> = {}): ReadArtic
       { learningItemId: 'i3', target: 'give up', surfaceForm: 'give up' },
     ],
     oldItems: [{ learningItemId: 'i4', target: 'steady' }],
-    checks: [
-      {
-        checkId: 'check-1',
-        learningItemId: 'i1',
-        target: 'stable',
-        question: '文中 stable 的意思是什么？',
-        options: [
-          { id: 'o1', text: '稳定的' },
-          { id: 'o2', text: '干扰甲' },
-          { id: 'o3', text: '干扰乙' },
-          { id: 'o4', text: '干扰丙' },
-        ],
-      },
-    ],
+    checks: [],
     ...overrides,
   };
 }
 
-export function makeSecondCheck(): ReadArticleView['checks'][number] {
+/** V1 遗留检查题（未答：answered=null，V2 起不可再作答） */
+export function makeLegacyOpenCheck(): ReadArticleView['checks'][number] {
   return {
-    checkId: 'check-2',
-    learningItemId: 'i2',
-    target: 'raw',
-    question: '文中 raw 的意思是什么？',
+    checkId: 'check-1',
+    learningItemId: 'i1',
+    target: 'stable',
+    question: '文中 stable 的意思是什么？',
     options: [
-      { id: 'o1', text: '未加工的' },
+      { id: 'o1', text: '稳定的' },
       { id: 'o2', text: '干扰甲' },
       { id: 'o3', text: '干扰乙' },
       { id: 'o4', text: '干扰丙' },
     ],
+    answered: null,
   };
+}
+
+/** V1 遗留检查题（已答错：只读回放首答结果与当时已揭晓的正确选项） */
+export function makeLegacyAnsweredCheck(): ReadArticleView['checks'][number] {
+  return {
+    ...makeLegacyOpenCheck(),
+    answered: { selectedOptionId: 'o2', correctOptionId: 'o1', correct: false },
+  };
+}
+
+/** V1 遗留文章：一道已答错 + 一道未答 */
+export function makeLegacyArticle(overrides: Partial<ReadArticleView> = {}): ReadArticleView {
+  return makeArticle({
+    id: 'legacy-article-1',
+    title: 'An Old Lesson',
+    checks: [makeLegacyAnsweredCheck(), makeLegacyOpenCheck()],
+    ...overrides,
+  });
 }
 
 export function makeHistoryItem(overrides: Partial<ReadHistoryItem> = {}): ReadHistoryItem {
@@ -149,12 +151,4 @@ export function makeHistoryResponse(
   pageSize = 20,
 ): ReadHistoryResponse {
   return { items, total, page, pageSize };
-}
-
-export function makeCorrectCheck(overrides: Partial<ReadCheckResponse> = {}): ReadCheckResponse {
-  return { correct: true, correctOptionId: 'o1', needsReinforcementMarked: false, ...overrides };
-}
-
-export function makeWrongCheck(overrides: Partial<ReadCheckResponse> = {}): ReadCheckResponse {
-  return { correct: false, correctOptionId: 'o1', needsReinforcementMarked: true, ...overrides };
 }

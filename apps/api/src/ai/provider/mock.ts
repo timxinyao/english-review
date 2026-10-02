@@ -118,30 +118,8 @@ function read(req: ProviderRequest): string {
   if (words.length > 380) body = words.slice(0, 380).join(' ');
 
   const coverage = focus.map((f) => ({ learning_item_id: f.id, surface_form: f.target }));
-  const checks = focus.slice(0, 1).map((f) => ({
-    learning_item_id: f.id,
-    question: `文中 ${f.target} 的意思是什么？`,
-    options: [
-      { id: 'o1', text: '见释义' },
-      { id: 'o2', text: '干扰' },
-      { id: 'o3', text: '干扰' },
-      { id: 'o4', text: '干扰' },
-    ],
-    correct_option_id: 'o1',
-  }));
-  if (checks.length === 0) {
-    checks.push({
-      learning_item_id: 'none',
-      question: '文章主要讲了什么？',
-      options: [
-        { id: 'o1', text: '日常英语' },
-        { id: 'o2', text: '历史' },
-      ],
-      correct_option_id: 'o1',
-    });
-    coverage.push({ learning_item_id: 'none', surface_form: 'daily' });
-  }
-  return JSON.stringify({ title: 'A Mock Story', type: 'story', body, coverage, checks });
+  // V2：纯阅读——只输出 title/type/body/coverage，无 checks（Schema strict 拒绝多余字段）
+  return JSON.stringify({ title: 'A Mock Story', type: 'story', body, coverage });
 }
 
 function duplicate(req: ProviderRequest): string {

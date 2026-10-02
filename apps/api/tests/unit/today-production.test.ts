@@ -13,12 +13,12 @@ import {
 import {
   answerTodayTask,
   getTodayStatus,
+  prepareTodayTask,
   reportBadQuestion,
-  startTodaySession,
+  startTodaySession as startTodaySessionRaw,
   submitTaskFeedback,
   type TodayDeps,
 } from '../../src/modules/today/service.js';
-import { productionQuestionTypeFor } from '../../src/modules/questions/service.js';
 import { seedItem, seedQuestion, seedReviewState } from '../helpers/seed';
 import { createFakeDeps, type FakeDepsOptions } from '../helpers/today-fakes';
 
@@ -35,6 +35,27 @@ beforeEach(() => {
   runMigrations(db);
 });
 
+async function startTodaySession(
+  testDb: AppDatabase,
+  testDeps: TodayDeps,
+  timezone: string,
+  now: Date,
+) {
+  const result = await startTodaySessionRaw(testDb, testDeps, timezone, now);
+  if (result.status === 'active') {
+    for (const task of testDb.select().from(reviewTasks).all()) {
+      if (
+        task.sessionId === result.session.id &&
+        task.completedAt === null &&
+        task.canceledAt === null
+      ) {
+        await prepareTodayTask(testDb, testDeps, timezone, now, task.id);
+      }
+    }
+  }
+  return result;
+}
+
 /** 表达题种子：item + P 维度到期状态 + 一道 production 题 */
 async function seedProductionItem(
   itemId: string,
@@ -42,7 +63,7 @@ async function seedProductionItem(
   opts: { mustUse?: string } = {},
 ): Promise<string> {
   const mustUse = opts.mustUse ?? itemId;
-  await seedItem(db, { id: itemId, target: itemId, queueState: 'started' });
+  await seedItem(db, { id: itemId, type: 'chunk', target: itemId, queueState: 'started' });
   await seedReviewState(db, itemId, 'production', { level, nextReviewAt: DUE });
   await seedQuestion(db, itemId, {
     id: `${itemId}-prod`,
@@ -78,7 +99,7 @@ function deps(overrides: FakeDepsOptions = {}): TodayDeps {
 }
 
 describe('P 维度题型映射（TodayTaskView）', () => {
-  it('P-L1 / P-L2 → cloze 任务', async () => {
+  it('P-L1 / P-L2 → production 任务，即使旧 cloze 库存存在', async () => {
     await seedProductionItem('item-l1', 1);
     await seedProductionItem('item-l2', 2);
     await startTodaySession(db, deps(), TZ, NOW);
@@ -89,8 +110,10 @@ describe('P 维度题型映射（TodayTaskView）', () => {
         .all()
         .map((t) => [t.learningItemId, t]),
     );
-    expect(byItem.get('item-l1')!.taskType).toBe('cloze');
-    expect(byItem.get('item-l2')!.taskType).toBe('cloze');
+    expect(byItem.get('item-l1')!.taskType).toBe('production');
+    expect(byItem.get('item-l2')!.taskType).toBe('production');
+    expect(byItem.get('item-l1')!.questionId).toBe('item-l1-prod');
+    expect(byItem.get('item-l2')!.questionId).toBe('item-l2-prod');
   });
 
   it('P-L4+ → production 任务，视图只含 zhPrompt/mustUse，不泄露 referenceAnswer', async () => {
@@ -107,15 +130,9 @@ describe('P 维度题型映射（TodayTaskView）', () => {
     expect(JSON.stringify(task.question)).not.toContain('They item-l4 naturally.');
   });
 
-  it('P-L3 混合：按 itemId 哈希奇偶确定性分配（一个 cloze 一个 production）', async () => {
-    const clozeId = ['a', 'b', 'c', 'd', 'e'].find(
-      (s) => productionQuestionTypeFor(`m-${s}`, 3) === 'cloze',
-    )!;
-    const prodId = ['a', 'b', 'c', 'd', 'e'].find(
-      (s) => productionQuestionTypeFor(`m-${s}`, 3) === 'production',
-    )!;
-    await seedProductionItem(`m-${clozeId}`, 3);
-    await seedProductionItem(`m-${prodId}`, 3);
+  it('P-L3 不再混合，所有词条只取 production', async () => {
+    await seedProductionItem('m-a', 3);
+    await seedProductionItem('m-b', 3);
     await startTodaySession(db, deps(), TZ, NOW);
     const byItem = new Map(
       db
@@ -124,12 +141,10 @@ describe('P 维度题型映射（TodayTaskView）', () => {
         .all()
         .map((t) => [t.learningItemId, t]),
     );
-    expect(byItem.get(`m-${clozeId}`)!.taskType).toBe('cloze');
-    expect(byItem.get(`m-${prodId}`)!.taskType).toBe('production');
-
-    // 确定性：同 itemId 重复计算结果一致
-    expect(productionQuestionTypeFor(`m-${clozeId}`, 3)).toBe('cloze');
-    expect(productionQuestionTypeFor(`m-${prodId}`, 3)).toBe('production');
+    expect(byItem.get('m-a')!.taskType).toBe('production');
+    expect(byItem.get('m-b')!.taskType).toBe('production');
+    expect(byItem.get('m-a')!.questionId).toBe('m-a-prod');
+    expect(byItem.get('m-b')!.questionId).toBe('m-b-prod');
   });
 });
 
@@ -415,7 +430,7 @@ describe('production 与 bad-question / feedback', () => {
     const post = JSON.parse(attempt.postStateJson!) as { personalExampleId: string };
     expect(post.personalExampleId).toBeTruthy();
 
-    const res = reportBadQuestion(db, taskId, new Date(NOW.getTime() + 120_000));
+    const res = reportBadQuestion(db, taskId, new Date(NOW.getTime() + 120_000), TZ);
     expect(res.ok).toBe(true);
     expect(
       db
@@ -434,6 +449,43 @@ describe('production 与 bad-question / feedback', () => {
     expect(p.level).toBe(4);
   });
 
+  it.each([
+    { answerText: 'I use item-stats well.', result: 'pass', productionPass: 1 },
+    { answerText: 'An unrelated answer.', result: 'fail', productionPass: 0 },
+  ])('bad-question：$result 回减表达统计且重复请求不重复扣减', async (testCase) => {
+    await seedProductionItem('item-stats', 4);
+    const d = deps();
+    await startTodaySession(db, d, TZ, NOW);
+    const task = db.select().from(reviewTasks).all()[0]!;
+    await answerTodayTask(db, d, TZ, NOW, task.id, { answerText: testCase.answerText });
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.result).toBe(testCase.result);
+    expect(db.select().from(dailyStats).get()).toMatchObject({
+      formalTasksCompleted: 1,
+      productionAttempts: 1,
+      productionPass: testCase.productionPass,
+    });
+
+    const undoneAt = new Date(NOW.getTime() + 120_000);
+    for (let request = 0; request < 2; request++) {
+      expect(reportBadQuestion(db, task.id, undoneAt, TZ).ok).toBe(true);
+      expect(db.select().from(dailyStats).get()).toMatchObject({
+        formalTasksCompleted: 0,
+        productionAttempts: 0,
+        productionPass: 0,
+      });
+      expect(db.select().from(attempts).where(eq(attempts.id, attempt.id)).get()).toMatchObject({
+        result: 'void',
+        voidedAt: undoneAt.toISOString(),
+      });
+      expect(db.select().from(reviewStates).get()).toMatchObject({
+        dimension: 'production',
+        level: 4,
+        nextReviewAt: DUE,
+      });
+    }
+  });
+
   it('bad-question：example 已被用户 pinned → 不删除', async () => {
     await seedProductionItem('item-pin', 4);
     const taskId = await answerProductionTask('item-pin');
@@ -444,7 +496,7 @@ describe('production 与 bad-question / feedback', () => {
       .where(eq(learningExamples.id, post.personalExampleId))
       .run();
 
-    reportBadQuestion(db, taskId, new Date(NOW.getTime() + 120_000));
+    reportBadQuestion(db, taskId, new Date(NOW.getTime() + 120_000), TZ);
     expect(
       db
         .select()

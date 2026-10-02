@@ -13,6 +13,7 @@ import {
   evaluateProduction,
   generateQuestionsForItem,
   productionQuestionTypeFor,
+  questionTypeForDimension,
   questionTypesForDue,
   type QuestionRow,
 } from '../../src/modules/questions/service.js';
@@ -216,28 +217,18 @@ describe('evaluateProduction（check_production 批改）', () => {
   });
 });
 
-describe('P 维度题型映射（productionQuestionTypeFor / questionTypesForDue）', () => {
-  it('early(L1-2)→cloze、late(L4+)→production、确定性（同 itemId 同结果）', () => {
-    expect(productionQuestionTypeFor('item-x', 1)).toBe('cloze');
-    expect(productionQuestionTypeFor('item-x', 2)).toBe('cloze');
-    expect(productionQuestionTypeFor('item-x', 4)).toBe('production');
-    expect(productionQuestionTypeFor('item-x', 7)).toBe('production');
-    expect(productionQuestionTypeFor('item-x', 4)).toBe(productionQuestionTypeFor('item-x', 4));
-  });
-
-  it('middle(L3) 按 itemId 哈希奇偶：不同 item 可落两种题型', () => {
-    const results = new Set<string>();
-    for (let i = 0; i < 50 && results.size < 2; i++) {
-      results.add(productionQuestionTypeFor(`item-${i}`, 3));
+describe('V2 维度题型映射', () => {
+  it('正式 U 只取 understanding，正式 P 在 L0–L7 始终取 production', () => {
+    expect(questionTypeForDimension('understanding')).toBe('understanding');
+    expect(questionTypeForDimension('production')).toBe('production');
+    for (let level = 0; level <= 7; level++) {
+      expect(productionQuestionTypeFor('item-x', level)).toBe('production');
+      expect(productionQuestionTypeFor('item-y', level)).toBe('production');
     }
-    expect(results).toEqual(new Set(['cloze', 'production']));
   });
 
-  it('questionTypesForDue：U→understanding；P-L1/2→cloze；P-L3+→cloze+production', () => {
-    expect(questionTypesForDue('understanding', 3)).toEqual(['understanding']);
-    expect(questionTypesForDue('production', 1)).toEqual(['cloze']);
-    expect(questionTypesForDue('production', 2)).toEqual(['cloze']);
-    expect(questionTypesForDue('production', 3)).toEqual(['cloze', 'production']);
-    expect(questionTypesForDue('production', 5)).toEqual(['cloze', 'production']);
+  it('到期预取每个维度只有其对应的一种正式题型', () => {
+    expect(questionTypesForDue('understanding')).toEqual(['understanding']);
+    expect(questionTypesForDue('production')).toEqual(['production']);
   });
 });

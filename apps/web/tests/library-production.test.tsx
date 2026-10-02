@@ -37,6 +37,7 @@ function makePracticeAnswer(
   return {
     result: 'pass',
     correct: true,
+    meaning: null,
     explanation: null,
     correctOptionId: null,
     completeSentence: null,
@@ -47,30 +48,35 @@ function makePracticeAnswer(
   };
 }
 
-/** 3 题练习：选择 → 表达 → 填空 */
+/** Recall 揭示（V2：释义只在作答响应出现） */
+function makeRecallAnswer(overrides: Partial<PracticeAnswerResponse> = {}): PracticeAnswerResponse {
+  return makePracticeAnswer({ meaning: '放弃', ...overrides });
+}
+
+/** 2 题练习（word + production 开）：recall → production；无 cloze */
 function makePracticeQuestions(): PracticeQuestion[] {
   return [
     {
-      qtype: 'choice',
+      qtype: 'recall',
       questionId: 'pq-1',
-      kind: 'direct_meaning',
-      context: null,
-      question: '"give up" 的意思是？',
-      options: [
-        { id: 'po1', text: '放弃' },
-        { id: 'po2', text: '坚持' },
-      ],
+      target: 'give up',
+      context: 'After months of failure, he refused to give up.',
+      hint: {
+        questionId: 'pq-1',
+        kind: 'direct_meaning',
+        context: null,
+        question: '"give up" 的意思是？',
+        options: [
+          { id: 'po1', text: '放弃（动词）' },
+          { id: 'po2', text: '坚持（动词）' },
+        ],
+      },
     },
     {
       qtype: 'production',
       questionId: 'pq-2',
       zhPrompt: '他决定戒烟。',
       mustUse: 'give up',
-    },
-    {
-      qtype: 'cloze',
-      questionId: 'pq-3',
-      textWithBlank: 'He decided to ____ smoking.',
     },
   ];
 }
@@ -79,14 +85,17 @@ function makePracticeStart(): PracticeStartResponse {
   return { questions: makePracticeQuestions() };
 }
 
-/** 桩好详情 + 练一下接口后渲染详情页 */
-function renderDetailWithPractice(answerHandler: () => unknown = () => makePracticeAnswer()) {
+/** 桩好详情 + 练一下接口后渲染详情页（V2：recall(pq-1) → production(pq-2)） */
+function renderDetailWithPractice(
+  answerHandlers: Record<string, unknown | (() => unknown)> = {},
+  start: PracticeStartResponse = makePracticeStart(),
+) {
   detailApi.mockResolvedValue(makeDetail());
   stubApi({
-    '/api/library/item-1/practice': makePracticeStart(),
-    '/api/library/item-1/practice/pq-1/answer': answerHandler,
-    '/api/library/item-1/practice/pq-2/answer': answerHandler,
-    '/api/library/item-1/practice/pq-3/answer': answerHandler,
+    '/api/library/item-1/practice': start,
+    '/api/library/item-1/practice/pq-1/answer': makeRecallAnswer(),
+    '/api/library/item-1/practice/pq-2/answer': makePracticeAnswer(),
+    ...answerHandlers,
   });
   renderLibraryApp('/library/item-1');
 }
@@ -144,19 +153,22 @@ describe('Library 详情：造句历史（PRODUCT §7.5）', () => {
   });
 });
 
-describe('Library 练一下（PRODUCT §4.4：不改正式进度）', () => {
+describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 不改正式进度）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('入口按钮 → 练习视图：进度 1 / 3 与首题渲染', async () => {
+  it('入口按钮 → 练习视图：进度 1 / 2、Recall 卡词面与原句；释义与 Hint 选项作答前不可见', async () => {
     renderDetailWithPractice();
 
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
 
-    expect(await screen.findByText('1 / 3')).toBeVisible();
-    expect(screen.getByText('"give up" 的意思是？')).toBeVisible();
-    expect(screen.getByRole('button', { name: '放弃' })).toBeVisible();
+    expect(await screen.findByText('1 / 2')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'give up' })).toBeVisible();
+    expect(screen.getByText('After months of failure, he refused to give up.')).toBeVisible();
+    // 释义（reveal 内容）与 Hint 选项在作答前都不渲染
+    expect(screen.queryByText('放弃', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '放弃（动词）' })).not.toBeInTheDocument();
     const startCalls = apiCalls('/api/library/item-1/practice');
     expect(startCalls).toHaveLength(1);
     expect(startCalls[0].init).toMatchObject({ method: 'POST' });
@@ -164,29 +176,128 @@ describe('Library 练一下（PRODUCT §4.4：不改正式进度）', () => {
     expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
   });
 
-  it('答选择题：提交 option id；答对点"下一题"按钮继续到表达题', async () => {
+  it('Recall 直判：想起来了 → 提交 recall → 释义揭示 → 下一题到表达题（2 / 2）', async () => {
     renderDetailWithPractice();
 
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-    fireEvent.click(await screen.findByRole('button', { name: '放弃' }));
+    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+
+    await waitFor(() => {
+      expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);
+    });
+    expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
+      recall: 'recalled',
+    });
+    expect(await screen.findByText('想起来了')).toBeVisible();
+    expect(screen.getByText('放弃', { exact: true })).toBeVisible(); // 释义揭示
+
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(await screen.findByText('他决定戒烟。')).toBeVisible();
+    expect(screen.getByText('2 / 2')).toBeVisible();
+  });
+
+  it('Recall 直判：没想起来 → fail 揭示释义后仍可继续', async () => {
+    renderDetailWithPractice({
+      '/api/library/item-1/practice/pq-1/answer': makeRecallAnswer({
+        result: 'fail',
+        correct: false,
+      }),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
+    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+
+    await waitFor(() => {
+      expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);
+    });
+    expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
+      recall: 'forgot',
+    });
+    expect(await screen.findByText('没想起来')).toBeVisible();
+    expect(screen.getByText('放弃', { exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(await screen.findByText('2 / 2')).toBeVisible();
+  });
+
+  it('Recall Hint：给我提示 → 选项作答（对=提示后想起）→ 释义揭示', async () => {
+    renderDetailWithPractice({
+      '/api/library/item-1/practice/pq-1/answer': makeRecallAnswer({
+        result: 'basic_pass',
+        correct: true,
+      }),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
+    fireEvent.click(await screen.findByRole('button', { name: '给我提示' }));
+
+    const option = await screen.findByRole('button', { name: '放弃（动词）' });
+    fireEvent.click(option);
 
     await waitFor(() => {
       expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);
     });
     expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
       selectedOptionId: 'po1',
+      hintUsed: true,
     });
-    expect(await screen.findByText('回答正确')).toBeVisible();
-
+    expect(await screen.findByText('提示后想起（基本通过）')).toBeVisible();
+    expect(screen.getByText('放弃', { exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-    expect(await screen.findByText('他决定戒烟。')).toBeVisible();
-    expect(screen.getByText('2 / 3')).toBeVisible();
+    expect(await screen.findByText('2 / 2')).toBeVisible();
   });
 
-  it('表达题批改与完成：提交 answerText → diff → 下一题 → 填空 → 练习完成 → 返回详情', async () => {
-    stubApi({
-      '/api/library/item-1/practice': makePracticeStart(),
-      '/api/library/item-1/practice/pq-1/answer': makePracticeAnswer(),
+  it('Recall Hint 答错：fail 判语 + 正确答案揭示 + 释义揭示', async () => {
+    renderDetailWithPractice({
+      '/api/library/item-1/practice/pq-1/answer': makeRecallAnswer({
+        result: 'fail',
+        correct: false,
+        explanation: 'give up 是放弃。',
+        correctOptionId: 'po1',
+      }),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
+    fireEvent.click(await screen.findByRole('button', { name: '给我提示' }));
+    fireEvent.click(await screen.findByRole('button', { name: '坚持（动词）' }));
+
+    await waitFor(() => {
+      expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);
+    });
+    expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
+      selectedOptionId: 'po2',
+      hintUsed: true,
+    });
+    expect(await screen.findByText('没想起来')).toBeVisible();
+    expect(
+      screen.getByText(
+        (_, el) => el?.tagName === 'P' && el.textContent === '正确答案：放弃（动词）',
+      ),
+    ).toBeVisible();
+    expect(screen.getByText('放弃', { exact: true })).toBeVisible();
+  });
+
+  it('单题（word，production 关）：Recall 完成即练习完成 → 返回详情', async () => {
+    renderDetailWithPractice(
+      {},
+      {
+        questions: [makePracticeQuestions()[0]!], // 仅 recall
+      },
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
+    expect(await screen.findByText('1 / 1')).toBeVisible();
+    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+    expect(await screen.findByText('放弃', { exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+
+    expect(await screen.findByText('练习完成')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '返回详情' }));
+    expect(await screen.findByRole('button', { name: '编辑' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'resilient' })).toBeVisible();
+  });
+
+  it('表达题批改与完成：提交 answerText → diff → 已存个人例句 → 完成 → 返回详情', async () => {
+    renderDetailWithPractice({
       '/api/library/item-1/practice/pq-2/answer': makePracticeAnswer({
         result: 'basic_pass',
         correct: false,
@@ -201,17 +312,12 @@ describe('Library 练一下（PRODUCT §4.4：不改正式进度）', () => {
           betterVersion: null,
         },
       }),
-      '/api/library/item-1/practice/pq-3/answer': makePracticeAnswer({
-        completeSentence: 'He decided to give up smoking.',
-      }),
     });
-    detailApi.mockResolvedValue(makeDetail());
-    renderLibraryApp('/library/item-1');
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
 
-    // 第 1 题：选择
-    fireEvent.click(await screen.findByRole('button', { name: '放弃' }));
-    await screen.findByText('回答正确');
+    // 第 1 题：recall 直判通过
+    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+    await screen.findByText('想起来了');
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
 
     // 第 2 题：表达
@@ -234,13 +340,6 @@ describe('Library 练一下（PRODUCT §4.4：不改正式进度）', () => {
       'text-diff-delete',
     );
     expect(screen.getByText('已存入个人例句')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-
-    // 第 3 题：填空 → 回答正确 → 手动下一题
-    const blank = await screen.findByLabelText('填空答案');
-    fireEvent.change(blank, { target: { value: 'give up' } });
-    fireEvent.click(screen.getByRole('button', { name: '提交' }));
-    await screen.findByText('回答正确');
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
 
     // 完成

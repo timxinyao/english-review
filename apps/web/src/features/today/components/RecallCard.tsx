@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type {
   AnswerRequest,
   AnswerResponse,
@@ -8,7 +9,7 @@ import type {
 import { Volume2 } from 'lucide-react';
 import { ChoiceQuestionCard } from '../../../components/choice-question-card';
 import { Button } from '../../../components/ui/button';
-import { useAnswer } from '../api';
+import { todayKeys, useAnswer } from '../api';
 import { speak } from '../../../lib/tts';
 
 interface Props {
@@ -70,6 +71,7 @@ export function RecallCard({
   onAdvance,
 }: Props) {
   const answer = useAnswer();
+  const queryClient = useQueryClient();
   const [revealed, setRevealed] = useState(false);
   const [hint, setHint] = useState(false);
 
@@ -78,6 +80,18 @@ export function RecallCard({
   // Hint 路径的冻结（提交过选项或主动不会）：复用选择题统一纠错（勾正确项/错选项+理由）
   const choiceFrozen =
     result !== null && (result.selectedOptionId !== null || result.gaveUp === true);
+  const answerError =
+    answer.isError && !frozen ? (
+      <div role="alert" className="flex shrink-0 flex-col gap-2">
+        <p className="text-sm text-destructive">{answer.error.message}</p>
+        <Button
+          variant="ghost"
+          onClick={() => void queryClient.invalidateQueries({ queryKey: todayKeys.all })}
+        >
+          刷新今日学习
+        </Button>
+      </div>
+    ) : null;
 
   function submit(body: AnswerRequest, opts?: { autoAdvance?: boolean }) {
     answer.mutate(
@@ -127,7 +141,10 @@ export function RecallCard({
               onAdvance={onAdvance}
             />
           </div>
-          <div className="mt-3 flex shrink-0 justify-end border-t border-border pt-3" data-slot="dock">
+          <div
+            className="mt-3 flex shrink-0 justify-end border-t border-border pt-3"
+            data-slot="dock"
+          >
             <Button onClick={onAdvance}>下一题</Button>
           </div>
         </div>
@@ -136,6 +153,7 @@ export function RecallCard({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 pb-3">{wordRow}</div>
+        {answerError}
         <ChoiceQuestionCard
           variant="today"
           question={question}
@@ -153,6 +171,7 @@ export function RecallCard({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {answerError}
       {/* 滚动区：词行 + 学习内容/揭示/反馈 */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto" data-slot="body">
         {wordRow}

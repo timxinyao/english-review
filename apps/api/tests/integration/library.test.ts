@@ -1,9 +1,17 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { LibraryItemDetail } from '@el/shared';
+import { LibraryItemDetail, localDateString } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
-import { attempts, questions } from '../../src/db/schema.js';
+import {
+  attempts,
+  dailyStats,
+  learningItems,
+  questions,
+  reviewSessions,
+  reviewStates,
+  reviewTasks,
+} from '../../src/db/schema.js';
 import { createTestApp, loginCookie, type TestApp } from '../helpers/test-app.js';
 import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
 
@@ -88,6 +96,273 @@ async function seedLibrary(db: AppDatabase) {
 
   return { gravity, wearDown, raw, steady, personalId };
 }
+
+describe('PATCH /api/library/:id 造句目标', () => {
+  it('三态覆盖与类型默认值：true、false、null，保留 U 和 P 历史', async () => {
+    const { app, db, cookie } = await newApp();
+    const { gravity } = await seedLibrary(db);
+    const beforeU = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, gravity))
+      .all()
+      .find((s) => s.dimension === 'understanding');
+    for (const [value, expected] of [
+      [true, true],
+      [false, false],
+      [null, false],
+    ] as const) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/library/${gravity}`,
+        headers: { cookie },
+        payload: { productionEnabledOverride: value },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().item.productionEnabledOverride).toBe(value);
+      expect(res.json().item.productionEnabled).toBe(expected);
+    }
+    const typeChange = await app.inject({
+      method: 'PATCH',
+      url: `/api/library/${gravity}`,
+      headers: { cookie },
+      payload: { type: 'chunk', productionEnabledOverride: null },
+    });
+    expect(typeChange.statusCode).toBe(200);
+    expect(typeChange.json().item.productionEnabled).toBe(true);
+    expect(
+      db
+        .select()
+        .from(reviewStates)
+        .where(eq(reviewStates.learningItemId, gravity))
+        .all()
+        .find((s) => s.dimension === 'understanding'),
+    ).toEqual(beforeU);
+  });
+
+  it('开启目标使已掌握词条 active，未激活 P 从 L0 排到下一日；暂停/归档不恢复', async () => {
+    const { app, db, cookie } = await newApp();
+    const ids = await seedLibrary(db);
+    db.update(learningItems)
+      .set({ status: 'mastered', queueState: 'started' })
+      .where(eq(learningItems.id, ids.gravity))
+      .run();
+    db.update(reviewStates)
+      .set({ stable: 1, level: 7, nextReviewAt: null })
+      .where(eq(reviewStates.learningItemId, ids.gravity))
+      .run();
+    db.update(reviewStates)
+      .set({ stable: 0, level: 0, nextReviewAt: null })
+      .where(
+        eq(
+          reviewStates.id,
+          db
+            .select()
+            .from(reviewStates)
+            .where(eq(reviewStates.learningItemId, ids.gravity))
+            .all()
+            .find((s) => s.dimension === 'production')!.id,
+        ),
+      )
+      .run();
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/library/${ids.gravity}`,
+      headers: { cookie },
+      payload: { productionEnabledOverride: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().item.status).toBe('active');
+    const p = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, ids.gravity))
+      .all()
+      .find((s) => s.dimension === 'production')!;
+    expect(p.level).toBe(0);
+    expect(p.nextReviewAt).not.toBeNull();
+    expect(Date.parse(p.nextReviewAt!)).toBeGreaterThan(Date.now());
+    expect(Date.parse(p.nextReviewAt!)).toBeLessThanOrEqual(Date.now() + 86_400_000 + 5_000);
+    for (const id of [ids.raw, ids.steady]) {
+      const edited = await app.inject({
+        method: 'PATCH',
+        url: `/api/library/${id}`,
+        headers: { cookie },
+        payload: { productionEnabledOverride: true },
+      });
+      expect(edited.statusCode).toBe(200);
+    }
+    expect(db.select().from(learningItems).where(eq(learningItems.id, ids.raw)).get()?.status).toBe(
+      'paused',
+    );
+    expect(
+      db.select().from(learningItems).where(eq(learningItems.id, ids.steady)).get()?.status,
+    ).toBe('archived');
+  });
+
+  it('本地日 23:50 开启时排到次日 00:00，且不插入当天已有 Session', async () => {
+    const { app, db, cookie } = await newApp();
+    const id = await seedItem(db, { type: 'word', queueState: 'started' });
+    await seedExample(db, id, 'source', 'A source sentence.');
+    const now = '2026-09-30T15:50:00.000Z'; // Asia/Shanghai 23:50
+    db.insert(reviewSessions)
+      .values({
+        id: 'evening-session',
+        sessionDate: '2026-09-30',
+        startedAt: now,
+        completedAt: now,
+        baseTaskCount: 0,
+        newItemsStarted: 0,
+        createdAt: now,
+      })
+      .run();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(now));
+    try {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/library/${id}`,
+        headers: { cookie },
+        payload: { productionEnabledOverride: true },
+      });
+      expect(res.statusCode).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+    const p = db.select().from(reviewStates).where(eq(reviewStates.learningItemId, id)).get();
+    expect(p?.level).toBe(0);
+    expect(p?.nextReviewAt).toBe('2026-09-30T16:00:00.000Z');
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.sessionId, 'evening-session')).all(),
+    ).toHaveLength(0);
+  });
+
+  it('关闭 P 只取消当日未答 P，进度完成；已答题、attempt 和统计不变，旧设备提交 409', async () => {
+    const { app, db, cookie } = await newApp();
+    const ids = await seedLibrary(db);
+    const date = localDateString(new Date(), 'Asia/Shanghai');
+    const now = new Date().toISOString();
+    db.insert(reviewSessions)
+      .values({
+        id: 'goal-session',
+        sessionDate: date,
+        startedAt: now,
+        completedAt: null,
+        baseTaskCount: 3,
+        newItemsStarted: 0,
+        createdAt: now,
+      })
+      .run();
+    const task = (id: string, itemId: string, dimension: string, completedAt: string | null) => ({
+      id,
+      sessionId: 'goal-session',
+      learningItemId: itemId,
+      dimension,
+      questionId: null,
+      taskType: dimension === 'production' ? 'production' : 'understanding',
+      origin: 'base',
+      sortKey: id === 'pending-p' ? 3 : id === 'answered-p' ? 1 : 2,
+      deferCount: 0,
+      completedAt,
+      canceledAt: null,
+      createdAt: now,
+    });
+    db.insert(reviewTasks)
+      .values([
+        task('answered-p', ids.wearDown, 'production', now),
+        task('answered-u', ids.wearDown, 'understanding', now),
+        task('pending-p', ids.wearDown, 'production', null),
+      ])
+      .run();
+    db.insert(dailyStats)
+      .values({
+        date,
+        formalTasksCompleted: 2,
+        newItemsStarted: 0,
+        productionAttempts: 1,
+        productionPass: 1,
+        updatedAt: now,
+      })
+      .run();
+    const answeredQuestion = await seedQuestion(db, ids.wearDown, { type: 'production' });
+    db.update(reviewTasks)
+      .set({ questionId: answeredQuestion })
+      .where(eq(reviewTasks.id, 'answered-p'))
+      .run();
+    db.insert(attempts)
+      .values({
+        id: 'answered-attempt',
+        reviewTaskId: 'answered-p',
+        learningItemId: ids.wearDown,
+        questionId: answeredQuestion,
+        mode: 'today',
+        answerText: 'It wore me down.',
+        result: 'pass',
+        createdAt: now,
+      })
+      .run();
+    const priorP = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, ids.wearDown))
+      .all()
+      .find((s) => s.dimension === 'production');
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/library/${ids.wearDown}`,
+      headers: { cookie },
+      payload: { productionEnabledOverride: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, 'pending-p')).get()?.canceledAt,
+    ).not.toBeNull();
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, 'answered-p')).get()?.canceledAt,
+    ).toBeNull();
+    expect(
+      db.select().from(reviewSessions).where(eq(reviewSessions.id, 'goal-session')).get()
+        ?.completedAt,
+    ).not.toBeNull();
+    expect(
+      db.select().from(dailyStats).where(eq(dailyStats.date, date)).get()?.formalTasksCompleted,
+    ).toBe(2);
+    expect(
+      db.select().from(attempts).where(eq(attempts.id, 'answered-attempt')).get()?.result,
+    ).toBe('pass');
+    expect(
+      db
+        .select()
+        .from(reviewStates)
+        .where(eq(reviewStates.learningItemId, ids.wearDown))
+        .all()
+        .find((s) => s.dimension === 'production'),
+    ).toEqual(priorP);
+    const stale = await app.inject({
+      method: 'POST',
+      url: '/api/today/tasks/pending-p/answer',
+      headers: { cookie },
+      payload: { answerText: 'Anything.' },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(
+      db.select().from(attempts).where(eq(attempts.reviewTaskId, 'pending-p')).all(),
+    ).toHaveLength(0);
+    const onAgain = await app.inject({
+      method: 'PATCH',
+      url: `/api/library/${ids.wearDown}`,
+      headers: { cookie },
+      payload: { productionEnabledOverride: true },
+    });
+    expect(onAgain.statusCode).toBe(200);
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.sessionId, 'goal-session')).all(),
+    ).toHaveLength(3);
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, 'pending-p')).get()?.canceledAt,
+    ).not.toBeNull();
+  });
+});
 
 describe('GET /api/library 列表', () => {
   it('默认隐藏 archived，按 createdAt 倒序，返回分页元信息', async () => {

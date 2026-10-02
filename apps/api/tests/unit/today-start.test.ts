@@ -15,11 +15,16 @@ import {
   answerTodayTask,
   extendTodaySession,
   getTodayStatus,
+  prepareTodayTask,
   startTodaySession,
   type TodayDeps,
 } from '../../src/modules/today/service.js';
-import { seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
+import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
 import { choicePayload, createFakeDeps, DEFAULT_OPTIONS } from '../helpers/today-fakes.js';
+import { updateLearningItem } from '../../src/modules/learning-items/service.js';
+import { generateQuestionsForItem } from '../../src/modules/questions/service.js';
+import { createMockProvider } from '../../src/ai/provider/index.js';
+import { buildMockRuntime } from '../helpers/ai.js';
 
 const TZ = 'Asia/Shanghai';
 const NOW = new Date('2026-09-24T02:00:00.000Z'); // 上海 2026-09-24 10:00
@@ -35,6 +40,208 @@ beforeEach(() => {
   db = createDatabase(':memory:');
   runMigrations(db);
   deps = createFakeDeps();
+});
+
+describe('V2 pending task binding', () => {
+  it('creates all 100 due tasks without waiting for a blocked generator', async () => {
+    for (let i = 0; i < 100; i += 1) {
+      await seedItem(db, { id: `due-${i}`, target: `due-${i}`, queueState: 'started' });
+      await seedReviewState(db, `due-${i}`, 'understanding', {
+        level: 2,
+        nextReviewAt: YESTERDAY_ISO,
+      });
+      if (i > 0) await seedQuestion(db, `due-${i}`, { type: 'understanding' });
+    }
+    let release!: () => void;
+    const blocked = {
+      ...deps,
+      generate: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    };
+    const result = await Promise.race([
+      startTodaySession(db, blocked, TZ, NOW),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 200)),
+    ]);
+    if (release) release();
+    expect(result).not.toBe('timeout');
+    if (result === 'timeout' || result.status !== 'active') return;
+    expect(result.progress).toEqual({ completed: 0, total: 100 });
+    expect(db.select().from(reviewTasks).all()).toHaveLength(100);
+    expect(
+      db
+        .select()
+        .from(reviewTasks)
+        .all()
+        .every((task) => task.questionId === null),
+    ).toBe(true);
+  });
+
+  it('leaves failed preparation pending and binds one question on retry', async () => {
+    await seedItem(db, { id: 'pending', target: 'pending', queueState: 'started' });
+    await seedReviewState(db, 'pending', 'understanding', {
+      level: 2,
+      nextReviewAt: YESTERDAY_ISO,
+    });
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    const taskId = started.currentTask!.taskId;
+    const failing = createFakeDeps({ generateFailFor: new Set(['pending:understanding']) });
+    await expect(prepareTodayTask(db, failing, TZ, NOW, taskId)).rejects.toMatchObject({
+      code: 'AI_PROVIDER_ERROR',
+    });
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get()?.questionId,
+    ).toBeNull();
+    expect(getTodayStatus(db, TZ, NOW).status).toBe('active');
+    const prepared = await prepareTodayTask(db, deps, TZ, NOW, taskId);
+    expect(prepared.question).toMatchObject({ questionId: expect.any(String) });
+    expect((await prepareTodayTask(db, deps, TZ, NOW, taskId)).question).toEqual(prepared.question);
+  });
+
+  it('rejects expired, canceled, and effective-goal-off tasks without binding', async () => {
+    await seedDueItem('production-off', ['production'], { type: 'chunk' });
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    const taskId = started.currentTask!.taskId;
+    await expect(prepareTodayTask(db, deps, TZ, TOMORROW, taskId)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    db.update(learningItems)
+      .set({ productionEnabledOverride: 0 })
+      .where(eq(learningItems.id, 'production-off'))
+      .run();
+    await expect(prepareTodayTask(db, deps, TZ, NOW, taskId)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    db.update(learningItems)
+      .set({ productionEnabledOverride: 1 })
+      .where(eq(learningItems.id, 'production-off'))
+      .run();
+    db.update(reviewTasks)
+      .set({ canceledAt: NOW.toISOString() })
+      .where(eq(reviewTasks.id, taskId))
+      .run();
+    await expect(prepareTodayTask(db, deps, TZ, NOW, taskId)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get()?.questionId,
+    ).toBeNull();
+  });
+
+  it('refuses a stale meaning snapshot and keeps the task pending for a later retry', async () => {
+    await seedDueItem('stale', ['understanding']);
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    const taskId = started.currentTask!.taskId;
+    db.update(learningItems)
+      .set({ meaning: 'new meaning' })
+      .where(eq(learningItems.id, 'stale'))
+      .run();
+    await expect(prepareTodayTask(db, deps, TZ, NOW, taskId)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get()?.questionId,
+    ).toBeNull();
+  });
+
+  it('rejects a target edit during generation and retires the late old-target question', async () => {
+    await seedItem(db, { id: 'target-race', target: 'old target', queueState: 'started' });
+    await seedExample(db, 'target-race', 'source', 'The old target appears here.');
+    await seedReviewState(db, 'target-race', 'understanding', {
+      level: 2,
+      nextReviewAt: YESTERDAY_ISO,
+    });
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    const taskId = started.currentTask!.taskId;
+    let entered!: () => void;
+    const generating = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const racing: TodayDeps = {
+      ...deps,
+      async generate(generateDb, itemId) {
+        const oldTarget = generateDb
+          .select()
+          .from(learningItems)
+          .where(eq(learningItems.id, itemId))
+          .get()!.target;
+        entered();
+        await blocked;
+        await seedQuestion(generateDb, itemId, {
+          id: 'late-old-question',
+          type: 'understanding',
+          promptText: `Meaning of ${oldTarget}?`,
+          payloadJson: choicePayload(DEFAULT_OPTIONS),
+          correctOptionId: 'o1',
+        });
+      },
+    };
+    const preparation = prepareTodayTask(db, racing, TZ, NOW, taskId);
+    await generating;
+    await updateLearningItem(db, 'target-race', { target: 'new target' }, TZ);
+    release();
+    await expect(preparation).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get()?.questionId,
+    ).toBeNull();
+    expect(
+      db.select().from(questions).where(eq(questions.id, 'late-old-question')).get()?.status,
+    ).toBe('retired');
+    const retry = await prepareTodayTask(db, deps, TZ, NOW, taskId);
+    expect(retry.question?.questionId).not.toBe('late-old-question');
+  });
+
+  it('preserves a real generator target-edit conflict as 409 instead of an AI failure', async () => {
+    await seedItem(db, { id: 'target-race-real', target: 'old target', queueState: 'started' });
+    await seedExample(db, 'target-race-real', 'source', 'The old target appears here.');
+    await seedReviewState(db, 'target-race-real', 'understanding', {
+      level: 2,
+      nextReviewAt: YESTERDAY_ISO,
+    });
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    const taskId = started.currentTask!.taskId;
+    const inner = createMockProvider();
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runtime = buildMockRuntime({
+      name: inner.name,
+      async complete(request) {
+        enter();
+        await blocked;
+        return inner.complete(request);
+      },
+    });
+    const realGeneratorDeps: TodayDeps = {
+      ...deps,
+      generate: (generateDb, itemId, type) =>
+        generateQuestionsForItem({ db: generateDb, runtime }, itemId, type, 1),
+    };
+    const preparation = prepareTodayTask(db, realGeneratorDeps, TZ, NOW, taskId);
+    await entered;
+    await updateLearningItem(db, 'target-race-real', { target: 'new target' }, TZ);
+    release();
+    await expect(preparation).rejects.toMatchObject({ code: 'CONFLICT', statusCode: 409 });
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get()?.questionId,
+    ).toBeNull();
+    expect(db.select().from(questions).all()).toHaveLength(0);
+  });
 });
 
 async function seedDueItem(
@@ -121,7 +328,7 @@ async function seedCompletedSession(): Promise<string> {
 describe('GET 状态：三态映射（getTodayStatus）', () => {
   it('无 session → idle：dueItems 按 item×维度计数，newTodayAvailable 为默认额度', async () => {
     await seedDueItem('item-a', ['understanding']);
-    await seedDueItem('item-b', ['understanding', 'production']);
+    await seedDueItem('item-b', ['understanding', 'production'], { type: 'chunk' });
     for (let i = 0; i < 12; i++) await seedNewItem(`new-${i}`, `2026-09-01T00:00:0${i % 10}.000Z`);
 
     const res = getTodayStatus(db, TZ, NOW);
@@ -210,7 +417,7 @@ describe('GET 状态：三态映射（getTodayStatus）', () => {
     expect(res.session.sessionDate).toBe(TODAY);
     expect(res.progress).toEqual({ completed: 0, total: 1 });
     expect(res.currentTask?.item.id).toBe('item-a');
-    expect(res.currentTask?.question).toMatchObject({ questionId: expect.any(String) });
+    expect(res.currentTask?.question).toBeNull();
   });
 
   it('session 已完成 → completed 摘要', async () => {
@@ -238,7 +445,7 @@ describe('POST start：session 创建与幂等', () => {
   it('创建 base 任务（到期维度）+ Learn 任务（额度内），混排 sortKey 为递增整数', async () => {
     setMaxNewItemsPerDay(2);
     await seedDueItem('item-a', ['understanding']);
-    await seedDueItem('item-b', ['understanding', 'production']);
+    await seedDueItem('item-b', ['understanding', 'production'], { type: 'chunk' });
     await seedNewItem('new-1', '2026-09-01T00:00:00.000Z');
     await seedNewItem('new-2', '2026-09-02T00:00:00.000Z');
     await seedNewItem('new-3', '2026-09-03T00:00:00.000Z'); // 超出额度
@@ -254,10 +461,11 @@ describe('POST start：session 创建与幂等', () => {
     expect(learnTasks.map((t) => t.learningItemId).sort()).toEqual(['new-1', 'new-2']);
     for (const lt of learnTasks) {
       expect(lt.dimension).toBe('understanding');
-      expect(lt.questionId).not.toBeNull();
+      expect(lt.questionId).toBeNull();
     }
     expect(tasks.filter((t) => t.taskType === 'understanding')).toHaveLength(2);
-    expect(tasks.filter((t) => t.taskType === 'cloze')).toHaveLength(1);
+    expect(tasks.filter((t) => t.taskType === 'production')).toHaveLength(1);
+    expect(tasks.filter((t) => t.taskType === 'cloze')).toHaveLength(0);
 
     // 同一 item（item-b 的 U+P）不相邻
     const sorted = [...tasks].sort((x, y) => x.sortKey - y.sortKey);
@@ -271,7 +479,7 @@ describe('POST start：session 创建与幂等', () => {
     expect(session?.completedAt).toBeNull();
   });
 
-  it('learn 任务关联首道 understanding 题', async () => {
+  it('learn 任务准备后关联首道 understanding 题', async () => {
     await seedNewItem('new-1', '2026-09-01T00:00:00.000Z');
     await startTodaySession(db, deps, TZ, NOW);
     const learn = db
@@ -279,8 +487,10 @@ describe('POST start：session 创建与幂等', () => {
       .from(reviewTasks)
       .all()
       .find((t) => t.taskType === 'learn');
-    expect(learn?.questionId).toBeTruthy();
-    const question = db.select().from(questions).where(eq(questions.id, learn!.questionId!)).get();
+    expect(learn?.questionId).toBeNull();
+    await prepareTodayTask(db, deps, TZ, NOW, learn!.id);
+    const bound = db.select().from(reviewTasks).where(eq(reviewTasks.id, learn!.id)).get();
+    const question = db.select().from(questions).where(eq(questions.id, bound!.questionId!)).get();
     expect(question?.type).toBe('understanding');
   });
 
@@ -311,6 +521,7 @@ describe('POST start：session 创建与幂等', () => {
     expect(db.select().from(reviewTasks).all()).toHaveLength(1);
     // 完成 day1 的 Learn：new-1 → started，day1 额度耗尽
     const learn = db.select().from(reviewTasks).all()[0]!;
+    await prepareTodayTask(db, deps, TZ, NOW, learn.id);
     await answerTodayTask(db, deps, TZ, NOW, learn.id, { selectedOptionId: 'o1' });
 
     const day2 = await startTodaySession(db, createFakeDeps(), TZ, TOMORROW);
@@ -348,7 +559,7 @@ describe('POST start：session 创建与幂等', () => {
     expect(db.select().from(dailyStats).all()).toHaveLength(0);
   });
 
-  it('Learn 题生成失败：跳过该 item、不占额度、不让 start 失败', async () => {
+  it('Learn 题生成失败：pending item 保留在 session 中', async () => {
     setMaxNewItemsPerDay(2);
     await seedItem(db, {
       id: 'new-empty',
@@ -362,11 +573,12 @@ describe('POST start：session 创建与幂等', () => {
     const res = await startTodaySession(db, failing, TZ, NOW);
     expect(res.status).toBe('active');
     const tasks = db.select().from(reviewTasks).all();
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]!.learningItemId).toBe('new-2');
+    expect(tasks).toHaveLength(2);
+    expect(tasks.map((task) => task.learningItemId)).toEqual(['new-empty', 'new-2']);
+    expect(tasks.every((task) => task.questionId === null)).toBe(true);
   });
 
-  it('到期任务无题且生成失败：跳过该任务，其余任务正常', async () => {
+  it('到期任务无题且生成失败：任务仍计入进度', async () => {
     await seedDueItem('item-a', ['understanding']);
     // item-b 到期但无题
     await seedItem(db, { id: 'item-b', target: 'item-b', queueState: 'started' });
@@ -376,7 +588,7 @@ describe('POST start：session 创建与幂等', () => {
     const res = await startTodaySession(db, failing, TZ, NOW);
     expect(res.status).toBe('active');
     const tasks = db.select().from(reviewTasks).all();
-    expect(tasks.map((t) => t.learningItemId)).toEqual(['item-a']);
+    expect(tasks.map((t) => t.learningItemId)).toEqual(['item-a', 'item-b']);
   });
 
   it('无到期且无可学 → 空会话直接 completed', async () => {
@@ -429,9 +641,8 @@ describe('due 查询边界', () => {
   });
 });
 
-describe('start 并发安全：全局生成锁 + 并发 3 保序取题', () => {
-  it('保序：3 个到期 item 乱序 resolve，session 任务顺序仍按 next_review_at, id；生成并发峰值 ≥2', async () => {
-    // 三个到期 item，next_review_at 递增（决定串行语义下的任务顺序）；不 seed 题 → 必须走 generate
+describe('prepare 并发安全与 start 非阻塞', () => {
+  it('start 保持到期顺序，两个同时 prepare 只绑定同一个题目', async () => {
     const ids = ['item-1', 'item-2', 'item-3'];
     for (const [i, id] of ids.entries()) {
       await seedItem(db, { id, target: id, queueState: 'started' });
@@ -441,56 +652,31 @@ describe('start 并发安全：全局生成锁 + 并发 3 保序取题', () => {
       });
     }
 
-    const base = createFakeDeps();
-    const callOrder: string[] = [];
-    let inFlight = 0;
-    let peak = 0;
-    const deps: TodayDeps = {
-      ...base,
-      async generate(generateDb, itemId, type) {
-        callOrder.push(itemId);
-        inFlight += 1;
-        peak = Math.max(peak, inFlight);
-        try {
-          // item-2 先 resolve（乱序完成），其余延迟更久
-          await new Promise((r) => setTimeout(r, itemId === 'item-2' ? 5 : 60));
-          return await base.generate(generateDb, itemId, type);
-        } finally {
-          inFlight -= 1;
-        }
-      },
-    };
-
     const res = await startTodaySession(db, deps, TZ, NOW);
     expect(res.status).toBe('active');
-    expect(peak).toBeGreaterThanOrEqual(2); // 并发 3：至少 2 个生成同时在飞
-
-    // plans 顺序 = due 排序（next_review_at, id）→ 混排后 3 个异 item 仍保持相对顺序
     const tasks = db.select().from(reviewTasks).orderBy(asc(reviewTasks.sortKey)).all();
     expect(tasks.map((t) => t.learningItemId)).toEqual(['item-1', 'item-2', 'item-3']);
+    const [first, second] = await Promise.all([
+      prepareTodayTask(db, deps, TZ, NOW, tasks[0]!.id),
+      prepareTodayTask(db, deps, TZ, NOW, tasks[0]!.id),
+    ]);
+    expect(first.question?.questionId).toBe(second.question?.questionId);
+    expect(
+      db.select().from(questions).where(eq(questions.learningItemId, 'item-1')).all(),
+    ).toHaveLength(1);
   });
 
-  it('互斥：全局生成锁被占时 start 等待，锁释放后才建会话且无锁残留', async () => {
-    // 需要生成的 item（无库存题）
+  it('全局生成锁被占时 start 仍创建 pending 会话，prepare 等锁释放', async () => {
     await seedNewItem('new-lock', '2026-09-01T00:00:00.000Z');
-
     const holder = withJobLock(db, 'question-generation', async () => {
       await new Promise((r) => setTimeout(r, 150));
     });
-    const t0 = Date.now();
-    const pending = startTodaySession(db, deps, TZ, NOW);
-    await new Promise((r) => setTimeout(r, 80));
-    // 持锁期间：start 不得建 session
-    expect(db.select().from(reviewSessions).all()).toHaveLength(0);
-
-    const res = await pending;
-    const elapsed = Date.now() - t0;
+    const res = await startTodaySession(db, deps, TZ, NOW);
+    expect(db.select().from(reviewSessions).all()).toHaveLength(1);
+    if (res.status !== 'active') throw new Error('expected active');
+    const prepared = await prepareTodayTask(db, deps, TZ, NOW, res.currentTask!.taskId);
     await holder;
-
-    expect(res.status).toBe('active');
-    expect(elapsed).toBeGreaterThanOrEqual(150); // 锁释放（150ms）后 start 才完成
-    expect(db.select().from(reviewTasks).all()).toHaveLength(1);
-    // 锁释放无残留
+    expect(prepared.question?.questionId).toBeTruthy();
     const locks = rawSqlite(db).prepare('SELECT COUNT(*) n FROM job_locks').get() as { n: number };
     expect(locks.n).toBe(0);
   });
@@ -530,7 +716,7 @@ describe('extendTodaySession（同日追加学习）', () => {
     for (const lt of learn) {
       expect(lt.origin).toBe('base');
       expect(lt.dimension).toBe('understanding');
-      expect(lt.questionId).not.toBeNull();
+      expect(lt.questionId).toBeNull();
       expect(lt.completedAt).toBeNull();
       expect(lt.canceledAt).toBeNull();
     }
@@ -620,7 +806,7 @@ describe('extendTodaySession（同日追加学习）', () => {
     expect(db.select().from(reviewTasks).all()).toHaveLength(2);
   });
 
-  it('全部新词 Learn 题生成失败 → AI_PROVIDER_ERROR，会话保持完成', async () => {
+  it('全部新词 Learn 题生成失败 → 追加 pending 任务，prepare 可重试', async () => {
     await seedCompletedSession();
     setMaxNewItemsPerDay(20);
     seedStats(10);
@@ -633,11 +819,23 @@ describe('extendTodaySession（同日追加学习）', () => {
     });
     const failing = createFakeDeps({ generateFailFor: new Set(['new-x:understanding']) });
 
-    await expect(extendTodaySession(db, failing, TZ, NOW)).rejects.toMatchObject({
+    const extended = await extendTodaySession(db, failing, TZ, NOW);
+    expect(extended.progress).toEqual({ completed: 1, total: 2 });
+    const pending = db
+      .select()
+      .from(reviewTasks)
+      .where(eq(reviewTasks.learningItemId, 'new-x'))
+      .get()!;
+    expect(pending.questionId).toBeNull();
+    await expect(prepareTodayTask(db, failing, TZ, NOW, pending.id)).rejects.toMatchObject({
       code: 'AI_PROVIDER_ERROR',
     });
-    expect(sessionOf(TODAY)!.completedAt).not.toBeNull();
-    expect(db.select().from(reviewTasks).all()).toHaveLength(1);
+    expect(
+      db.select().from(reviewTasks).where(eq(reviewTasks.id, pending.id)).get()?.questionId,
+    ).toBeNull();
+    expect(
+      (await prepareTodayTask(db, deps, TZ, NOW, pending.id)).question?.questionId,
+    ).toBeTruthy();
   });
 
   it('New Queue 为空 → CONFLICT 没有可学的新词', async () => {

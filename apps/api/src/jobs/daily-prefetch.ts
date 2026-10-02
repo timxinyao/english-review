@@ -6,7 +6,7 @@ import { initAiRuntime } from '../ai/runtime.js';
 import { createDatabase, rawSqlite, type AppDatabase } from '../db/client.js';
 import { withJobLock } from '../db/job-lock.js';
 import { runMigrations } from '../db/migrate.js';
-import { learningItems, reviewStates } from '../db/schema.js';
+import { learningItems } from '../db/schema.js';
 import type { AiRuntime } from '../ai/runtime.js';
 import {
   countQuestionStock,
@@ -14,6 +14,7 @@ import {
   questionTypesForDue,
 } from '../modules/questions/service.js';
 import { listUpcomingDue } from '../modules/review/service.js';
+import { applyV2Cutover } from '../modules/review/v2-cutover.js';
 
 /** 预生成窗口：未来 48 小时（PHASES phase-3） */
 export const PREFETCH_HORIZON_DAYS = 2;
@@ -42,7 +43,7 @@ export interface PrefetchSummary {
 /**
  * 题目预生成核心（TECHNICAL_DESIGN / phase-3 + phase-4）：
  * 扫未来 horizon 天内将到期的（item active + started）item×维度 → 对应题型
- * （U→understanding；P-L1/2→cloze；P-L3+→cloze + production，表达题目标 2）
+ * （U→understanding；有效 P→production，表达题目标 2）
  * 库存 < QUESTION_TARGET_STOCK 时补足；再对整个新队列（active+new，createdAt,id 序）
  * 补 understanding 库存（Today Learn 题盲区，start 不再在线生成；额度与备货解耦，
  * 病态上界 PREFETCH_NEW_ITEMS_CAP）。
@@ -55,92 +56,81 @@ export async function runPrefetch(
   horizonDays: number = PREFETCH_HORIZON_DAYS,
 ): Promise<PrefetchSummary> {
   // 30 分钟租约：全量队列最多约 100 词 × 3 题串行生成
-  return withJobLock(deps.db, 'question-generation', async () => {
-    const due = listUpcomingDue(deps.db, now, horizonDays);
-    const summary: PrefetchSummary = {
-      due: due.length,
-      processed: 0,
-      skipped: 0,
-      failed: 0,
-      generated: 0,
-      newItems: 0,
-      newGenerated: 0,
-    };
+  return withJobLock(
+    deps.db,
+    'question-generation',
+    async () => {
+      const due = listUpcomingDue(deps.db, now, horizonDays);
+      const summary: PrefetchSummary = {
+        due: due.length,
+        processed: 0,
+        skipped: 0,
+        failed: 0,
+        generated: 0,
+        newItems: 0,
+        newGenerated: 0,
+      };
 
-    for (const entry of due) {
-      // P 维度题型组合依赖 level；listUpcomingDue 不带 level，这里只读 review_states
-      // （AGENTS §4 约束针对写路径；写库仍全部经 service）
-      let level = 0;
-      if (entry.dimension === 'production') {
-        const state = deps.db
-          .select()
-          .from(reviewStates)
-          .where(
-            and(
-              eq(reviewStates.learningItemId, entry.itemId),
-              eq(reviewStates.dimension, 'production'),
-            ),
-          )
-          .get();
-        level = state?.level ?? 0;
+      for (const entry of due) {
+        const types = questionTypesForDue(entry.dimension);
+
+        let needed = false;
+        for (const type of types) {
+          const target = QUESTION_TARGET_STOCK[type];
+          const stock = countQuestionStock(deps.db, entry.itemId, type);
+          if (stock >= target) continue;
+          needed = true;
+          try {
+            const rows = await generateQuestionsForItem(
+              { db: deps.db, runtime: deps.runtime },
+              entry.itemId,
+              type,
+              target - stock,
+            );
+            summary.generated += rows.length;
+            summary.processed++;
+          } catch (err) {
+            summary.failed++;
+            console.error(
+              `[daily-prefetch] item ${entry.itemId}（${entry.dimension}→${type}）生成失败：${(err as Error).message}`,
+            );
+          }
+        }
+        if (!needed) summary.skipped++;
       }
-      const types = questionTypesForDue(entry.dimension, level);
 
-      let needed = false;
-      for (const type of types) {
-        const target = QUESTION_TARGET_STOCK[type];
-        const stock = countQuestionStock(deps.db, entry.itemId, type);
+      // ---- 新词队列全量备货（额度解耦）：按 createdAt,id 补 understanding 库存至目标 ----
+      const newItems = deps.db
+        .select()
+        .from(learningItems)
+        .where(and(eq(learningItems.status, 'active'), eq(learningItems.queueState, 'new')))
+        .orderBy(asc(learningItems.createdAt), asc(learningItems.id))
+        .limit(PREFETCH_NEW_ITEMS_CAP)
+        .all();
+      const target = QUESTION_TARGET_STOCK.understanding;
+      for (const item of newItems) {
+        const stock = countQuestionStock(deps.db, item.id, 'understanding');
         if (stock >= target) continue;
-        needed = true;
         try {
           const rows = await generateQuestionsForItem(
             { db: deps.db, runtime: deps.runtime },
-            entry.itemId,
-            type,
+            item.id,
+            'understanding',
             target - stock,
           );
-          summary.generated += rows.length;
-          summary.processed++;
+          summary.newGenerated += rows.length;
+          summary.newItems++;
         } catch (err) {
           summary.failed++;
           console.error(
-            `[daily-prefetch] item ${entry.itemId}（${entry.dimension}→${type}）生成失败：${(err as Error).message}`,
+            `[daily-prefetch] 新词 ${item.id}（understanding）生成失败：${(err as Error).message}`,
           );
         }
       }
-      if (!needed) summary.skipped++;
-    }
-
-    // ---- 新词队列全量备货（额度解耦）：按 createdAt,id 补 understanding 库存至目标 ----
-    const newItems = deps.db
-      .select()
-      .from(learningItems)
-      .where(and(eq(learningItems.status, 'active'), eq(learningItems.queueState, 'new')))
-      .orderBy(asc(learningItems.createdAt), asc(learningItems.id))
-      .limit(PREFETCH_NEW_ITEMS_CAP)
-      .all();
-    const target = QUESTION_TARGET_STOCK.understanding;
-    for (const item of newItems) {
-      const stock = countQuestionStock(deps.db, item.id, 'understanding');
-      if (stock >= target) continue;
-      try {
-        const rows = await generateQuestionsForItem(
-          { db: deps.db, runtime: deps.runtime },
-          item.id,
-          'understanding',
-          target - stock,
-        );
-        summary.newGenerated += rows.length;
-        summary.newItems++;
-      } catch (err) {
-        summary.failed++;
-        console.error(
-          `[daily-prefetch] 新词 ${item.id}（understanding）生成失败：${(err as Error).message}`,
-        );
-      }
-    }
-    return summary;
-  }, { ttlMs: 30 * 60_000 });
+      return summary;
+    },
+    { ttlMs: 30 * 60_000 },
+  );
 }
 
 async function main(): Promise<void> {
@@ -148,6 +138,7 @@ async function main(): Promise<void> {
   const db = createDatabase(config.databasePath);
   try {
     runMigrations(db);
+    applyV2Cutover(db, new Date(), config.appTimezone);
     const runtime = initAiRuntime(config);
 
     // 生产守卫：无 GLM key 时 provider 是 mock，绝不允许 mock 输出进入生产题库

@@ -1,6 +1,8 @@
-# AI_RULES.md — English Learning Tool V1.2
+# AI_RULES.md — English Learning Tool V2
 
 > 本文档定义 AI 行为契约、Prompt 管理和 Eval 规则。真正发送给模型的 Prompt 正文位于 `apps/api/prompts/*.md`。
+
+> V2 目标契约覆盖下文 V1.2 的 cloze/Read checks 描述：正式 U 为主动 Recall，选择题只作 Hint；正式 P 为 target 可见、具体中文语义任务的完整句子；Read 只生成可选文章及自然复现，不再检查或 reinforcement。停止新 cloze 的生成/预取/分配，旧题与旧 Prompt 只供切换前会话和历史兼容。AI 不决定词条造句目标、Stage、排期或 mastered。`generate_read` 输出结构已于 Phase 9 Task 9 改为纯阅读（`generate_read.v2.md`，Schema strict 无 checks，同步本节并跑固定 fixtures 真实模型 Eval）。
 
 ## 1. AI 与业务逻辑边界
 
@@ -67,7 +69,7 @@ response_schema: CheckProductionResult
 | `check_cloze` | 填空答案歧义兜底 | 按需实时 | accepted / rejected |
 | `generate_production_prompt` | 表达题生成 | 否 | 中文受控表达题 |
 | `check_production` | 表达题批改 | 是 | pass/basic_pass/fail + 最小纠错 |
-| `generate_read` | Read 生成 | 是 | 180–400 词新上下文 + 轻量检查 |
+| `generate_read` | Read 生成 | 是 | 180–400 词纯阅读新上下文（V2 起无检查题） |
 | `judge_duplicate_meaning` | Import 重复义项建议 | 按需 | merge/new_item/skip_exact_duplicate |
 
 V1.2 不增加单独的 `evaluate_personal_example` 调用；Personal Example 候选判断由 `check_production` 一次完成。
@@ -254,6 +256,8 @@ V1.2 不增加单独的 `evaluate_personal_example` 调用；Personal Example �
 
 ## 11. generate_read
 
+V2（Phase 9）起为纯阅读：不再生成检查题，输出不含 `checks` 字段（Schema strict 拒绝并重试）。旧文章的已存检查题仅作只读历史。
+
 ### 输入
 
 - `focus_items`: 3–5 个，含 id/target/meaning
@@ -270,17 +274,6 @@ V1.2 不增加单独的 `evaluate_personal_example` 调用；Personal Example �
   "body": "...",
   "coverage": [
     {"learning_item_id": "...", "surface_form": "wore me down"}
-  ],
-  "checks": [
-    {
-      "learning_item_id": "...",
-      "question": "...",
-      "options": [
-        {"id": "o1", "text": "..."},
-        {"id": "o2", "text": "..."}
-      ],
-      "correct_option_id": "o2"
-    }
   ]
 }
 ```
@@ -292,9 +285,9 @@ V1.2 不增加单独的 `evaluate_personal_example` 调用；Personal Example �
 - old item 能自然融入才使用，不为塞词破坏文章。
 - 正文整体难度接近 content_level。
 - `body` 是纯文本段落，不输出 HTML。
-- 只生成 1–2 道轻量目标词检查题，不考大量文章细节。
+- 输出只含 `title`/`type`/`body`/`coverage`；不得输出 `checks` 或任何其他字段。
 - 后端必须检查 focus coverage；缺失则拒绝该结果或重试。
-- Read 的回答不直接修改 Stage，这是后端硬规则。
+- Read 不改变 Stage、排期或 Today 任务，这是后端硬规则。
 
 ## 12. judge_duplicate_meaning
 

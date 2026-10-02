@@ -4,6 +4,7 @@ import type {
   AnswerResponse,
   BadQuestionResponse,
   LaterResponse,
+  PrepareTodayTaskResponse,
   TaskFeedbackRequest,
   TaskFeedbackResponse,
   TodayActiveResponse,
@@ -40,6 +41,10 @@ export function answerTodayTask(taskId: string, body: AnswerRequest): Promise<An
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+export function prepareTodayTask(taskId: string): Promise<PrepareTodayTaskResponse> {
+  return api<PrepareTodayTaskResponse>(`/api/today/tasks/${taskId}/prepare`, { method: 'POST' });
 }
 
 export function deferTodayTask(taskId: string): Promise<LaterResponse> {
@@ -103,6 +108,11 @@ export function useAnswer() {
       answerTodayTask(taskId, body),
     onSuccess: invalidate,
   });
+}
+
+export function usePrepareTask() {
+  const invalidate = useInvalidateToday();
+  return useMutation({ mutationFn: prepareTodayTask, onSuccess: invalidate });
 }
 
 export function useLater() {

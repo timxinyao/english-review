@@ -4,9 +4,9 @@ import {
   apiCalls,
   jsonBodyOf,
   makeArticle,
-  makeCorrectCheck,
-  makeSecondCheck,
-  makeWrongCheck,
+  makeLegacyAnsweredCheck,
+  makeLegacyArticle,
+  makeLegacyOpenCheck,
   renderArticle,
   stubApi,
 } from './read-helpers';
@@ -70,69 +70,63 @@ describe('ArticleView（文章视图）', () => {
     );
   });
 
-  it('检查题答对：提交调用 check 接口，显示“答对了”并锁定（不可重复提交）', async () => {
-    stubApi({ '/api/read/article-1/check': makeCorrectCheck() });
+  it('V2 纯文章：不渲染检查题区，无任何 check 提交调用', () => {
     renderArticle(makeArticle());
 
-    fireEvent.click(screen.getByLabelText('稳定的'));
-    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    expect(screen.queryByText('检查题（历史）')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
+    expect(apiCalls('/api/read/article-1/check').length).toBe(0);
+  });
 
-    expect(await screen.findByText('答对了')).toBeVisible();
-    const calls = apiCalls('/api/read/article-1/check');
-    expect(calls.length).toBe(1);
-    expect(calls[0].init?.method).toBe('POST');
-    expect(jsonBodyOf(calls[0])).toEqual({ checkId: 'check-1', selectedOptionId: 'o1' });
+  it('遗留已答检查题只读回放：显示答错与正确选项，radio 禁用、无提交按钮、无补强提示', () => {
+    renderArticle(makeArticle({ checks: [makeLegacyAnsweredCheck()] }));
 
-    // 提交后锁定：radio 禁用、提交按钮消失
+    expect(screen.getByText('检查题（历史）')).toBeVisible();
+    // 首答回放：选了干扰甲、答错，正确选项为“稳定的”
+    expect(screen.getByText('答错了')).toBeVisible();
+    expect(
+      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '正确选项：稳定的'),
+    ).toBeVisible();
+    // 只读：radio 全部禁用，无提交入口，也不再有补强提示
+    expect(screen.getByLabelText('干扰甲')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
+    expect(screen.queryByText('下次 Today 会安排一题复习')).not.toBeInTheDocument();
+    expect(apiCalls('/api/read/article-1/check').length).toBe(0);
+  });
+
+  it('遗留已答（答对）检查题回放：显示答对了，选中项高亮', () => {
+    renderArticle(
+      makeArticle({
+        checks: [
+          {
+            ...makeLegacyAnsweredCheck(),
+            answered: { selectedOptionId: 'o1', correctOptionId: 'o1', correct: true },
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText('答对了')).toBeVisible();
     expect(screen.getByLabelText('稳定的')).toBeDisabled();
     expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
   });
 
-  it('检查题答错：显示正确选项文本与“下次 Today 会安排一题复习”提示', async () => {
-    stubApi({ '/api/read/article-1/check': makeWrongCheck() });
-    renderArticle(makeArticle());
+  it('遗留未答检查题：只读展示（无提交动作、radio 禁用）', () => {
+    renderArticle(makeArticle({ checks: [makeLegacyOpenCheck()] }));
 
-    fireEvent.click(screen.getByLabelText('干扰甲'));
-    fireEvent.click(screen.getByRole('button', { name: '提交' }));
-
-    expect(await screen.findByText('答错了')).toBeVisible();
-    expect(
-      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '正确选项：稳定的'),
-    ).toBeVisible();
-    expect(screen.getByText('下次 Today 会安排一题复习')).toBeVisible();
+    expect(screen.getByText('文中 stable 的意思是什么？')).toBeVisible();
+    expect(screen.getByText('历史检查题，仅供查看')).toBeVisible();
+    expect(screen.getByLabelText('稳定的')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
+    expect(apiCalls('/api/read/article-1/check').length).toBe(0);
   });
 
-  it('needsReinforcementMarked=false 时答错不显示复习提示', async () => {
-    stubApi({ '/api/read/article-1/check': makeWrongCheck({ needsReinforcementMarked: false }) });
-    renderArticle(makeArticle());
+  it('遗留文章（已答 + 未答）两题并列，均为只读', () => {
+    renderArticle(makeLegacyArticle());
 
-    fireEvent.click(screen.getByLabelText('干扰甲'));
-    fireEvent.click(screen.getByRole('button', { name: '提交' }));
-
-    expect(await screen.findByText('答错了')).toBeVisible();
-    expect(screen.queryByText('下次 Today 会安排一题复习')).not.toBeInTheDocument();
-  });
-
-  it('两道检查题相互独立：第一题提交后第二题仍可作答', async () => {
-    stubApi({ '/api/read/article-1/check': makeCorrectCheck() });
-    renderArticle(makeArticle({ checks: [makeArticle().checks[0], makeSecondCheck()] }));
-
-    // 第一题答对
-    fireEvent.click(screen.getByLabelText('稳定的'));
-    fireEvent.click(screen.getAllByRole('button', { name: '提交' })[0]);
-    expect(await screen.findByText('答对了')).toBeVisible();
-
-    // 第二题未被锁定，仍可提交
-    fireEvent.click(screen.getByLabelText('未加工的'));
-    const remaining = screen.getByRole('button', { name: '提交' });
-    expect(remaining).toBeEnabled();
-    fireEvent.click(remaining);
-    await waitFor(() => {
-      expect(apiCalls('/api/read/article-1/check').length).toBe(2);
-    });
-    expect(jsonBodyOf(apiCalls('/api/read/article-1/check')[1])).toEqual({
-      checkId: 'check-2',
-      selectedOptionId: 'o1',
-    });
+    expect(screen.getByText('答错了')).toBeVisible();
+    expect(screen.getByText('历史检查题，仅供查看')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
+    expect(apiCalls('/api/read/legacy-article-1/check').length).toBe(0);
   });
 });

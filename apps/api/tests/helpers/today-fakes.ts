@@ -219,7 +219,9 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
             learningItemId: itemId,
             type,
             status: 'fresh',
-            meaningSnapshot: 'fake',
+            meaningSnapshot:
+              db.select().from(learningItems).where(eq(learningItems.id, itemId)).get()?.meaning ??
+              'fake',
             promptText: 'This is a ____ blank.',
             contextText: null,
             payloadJson: JSON.stringify({ acceptedAnswers: ['fake'] }),
@@ -244,7 +246,7 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
             learningItemId: itemId,
             type,
             status: 'fresh',
-            meaningSnapshot: 'fake',
+            meaningSnapshot: item?.meaning ?? 'fake',
             promptText: `请使用（${target}）完成表达。`,
             contextText: null,
             payloadJson: JSON.stringify({
@@ -271,7 +273,9 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
             learningItemId: itemId,
             type,
             status: 'fresh',
-            meaningSnapshot: 'fake',
+            meaningSnapshot:
+              db.select().from(learningItems).where(eq(learningItems.id, itemId)).get()?.meaning ??
+              'fake',
             promptText: 'fake 最接近什么意思？',
             contextText: null,
             payloadJson: JSON.stringify({

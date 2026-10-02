@@ -1,33 +1,16 @@
-import { useState } from 'react';
-import type { ReadCheckResponse, ReadCheckView } from '@el/shared';
-import { Button } from '../../../components/ui/button';
+import type { ReadCheckView } from '@el/shared';
 import { cn } from '../../../lib/utils';
-import { useCheckAnswer } from '../api';
 
 /**
- * Read 检查题（PRODUCT §8.1/§8.2）：radio 选择 + [提交]，每题只可提交一次。
- * 不 shuffle（非缓存题）；答错显示正确选项与补强提示，不改变 Stage。
+ * Read 检查题（V1 遗留，只读）：V2 起不再生成/作答检查题。
+ * 已答题回放首答（选中项、答对/答错与当时已揭晓的正确选项）；未答题只展示题面，
+ * 无提交入口；所有选项不可交互。
  */
-export function ReadCheckItem({
-  articleId,
-  check,
-  index,
-}: {
-  articleId: string;
-  check: ReadCheckView;
-  index: number;
-}) {
-  const answer = useCheckAnswer(articleId);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [result, setResult] = useState<ReadCheckResponse | null>(null);
-
-  const locked = result !== null;
-  const correctText = check.options.find((o) => o.id === result?.correctOptionId)?.text;
-
-  function submit() {
-    if (selected === null || locked) return;
-    answer.mutate({ checkId: check.checkId, selectedOptionId: selected }, { onSuccess: setResult });
-  }
+export function ReadCheckItem({ check, index }: { check: ReadCheckView; index: number }) {
+  const answered = check.answered;
+  const correctText = answered
+    ? check.options.find((o) => o.id === answered.correctOptionId)?.text
+    : undefined;
 
   return (
     <fieldset className="m-0 space-y-3 border-0 p-0">
@@ -36,16 +19,15 @@ export function ReadCheckItem({
 
       <div className="space-y-1.5">
         {check.options.map((option) => {
-          const isChosen = selected === option.id;
-          const isCorrectOption = locked && result?.correctOptionId === option.id;
-          const isWrongChoice = locked && isChosen && result !== null && !result.correct;
+          const isChosen = answered?.selectedOptionId === option.id;
+          const isCorrectOption = answered !== null && answered.correctOptionId === option.id;
+          const isWrongChoice = answered !== null && isChosen && !answered.correct;
           return (
             <label
               key={option.id}
               className={cn(
-                'flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm transition-colors',
-                locked ? 'cursor-default' : 'cursor-pointer hover:bg-muted',
-                isChosen && !locked && 'border-accent bg-accent-soft',
+                'flex cursor-default items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm',
+                isChosen && 'border-accent bg-accent-soft',
                 isCorrectOption && 'border-success text-success',
                 isWrongChoice && 'border-destructive text-destructive',
               )}
@@ -55,8 +37,8 @@ export function ReadCheckItem({
                 name={`read-check-${check.checkId}`}
                 value={option.id}
                 checked={isChosen}
-                disabled={locked || answer.isPending}
-                onChange={() => setSelected(option.id)}
+                disabled
+                readOnly
                 className="h-4 w-4 accent-accent"
               />
               <span>{option.text}</span>
@@ -65,15 +47,9 @@ export function ReadCheckItem({
         })}
       </div>
 
-      {!locked && (
-        <Button size="sm" disabled={selected === null || answer.isPending} onClick={submit}>
-          提交
-        </Button>
-      )}
-
-      {result && (
+      {answered ? (
         <div className="space-y-1">
-          {result.correct ? (
+          {answered.correct ? (
             <p className="text-sm text-success">答对了</p>
           ) : (
             <>
@@ -84,12 +60,11 @@ export function ReadCheckItem({
                   <span className="text-success">{correctText}</span>
                 </p>
               )}
-              {result.needsReinforcementMarked && (
-                <p className="text-sm text-muted-foreground">下次 Today 会安排一题复习</p>
-              )}
             </>
           )}
         </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">历史检查题，仅供查看</p>
       )}
     </fieldset>
   );

@@ -47,8 +47,9 @@ describe.skipIf(realDeps === null)('read 与 AI 链路真实绑定', () => {
     for (const f of view.focusItems) {
       expect(view.body.toLowerCase().includes(f.surfaceForm.toLowerCase())).toBe(true);
     }
-    expect(view.checks[0]!.options.length).toBeGreaterThanOrEqual(2);
-    // mock provider 元数据：真实 Prompt Registry 的 generate_read.v1
+    // V2 纯阅读：mock 输出无 checks，视图 checks=[]
+    expect(view.checks).toEqual([]);
+    // mock provider 元数据：真实 Prompt Registry 的 generate_read.v2
     expect(view.id).toBeTruthy();
   });
 });

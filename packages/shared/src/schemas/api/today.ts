@@ -49,6 +49,9 @@ export const TodayTaskView = z.object({
   question: z.union([ChoiceQuestionView, ClozeQuestionView, ProductionQuestionView]).nullable(),
 });
 export type TodayTaskView = z.infer<typeof TodayTaskView>;
+/** POST /api/today/tasks/:id/prepare 的答案不可见响应。 */
+export const PrepareTodayTaskResponse = TodayTaskView;
+export type PrepareTodayTaskResponse = TodayTaskView;
 
 /** 表达题批改结果（check_production 最小纠错 diff） */
 export const CorrectionView = z.object({

@@ -13,8 +13,8 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
     <div className="space-y-8">
       <div className="rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-sm text-muted-foreground">
-          词汇总数 {data.totalItems} · 待学 {data.newQueueCount} · 今日到期 {data.dueItems} 项 · 可新学{' '}
-          {data.newTodayAvailable}
+          词汇总数 {data.totalItems} · 待学 {data.newQueueCount} · 今日到期 {data.dueItems} 项 ·
+          可新学 {data.newTodayAvailable}
         </p>
         <Button
           size="lg"
@@ -30,7 +30,9 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
       {(start.isPending || start.isError) && (
         <StartSessionDialog
           pending={start.isPending}
-          errorMessage={start.isError ? ((start.error as Error | undefined)?.message ?? '请稍候重试') : null}
+          errorMessage={
+            start.isError ? ((start.error as Error | undefined)?.message ?? '请稍候重试') : null
+          }
           onRetry={() => start.mutate()}
           onDismiss={() => start.reset()}
         />

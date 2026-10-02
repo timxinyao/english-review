@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase, type AppDatabase } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
-import { learningItems, questions, reviewStates } from '../../src/db/schema.js';
+import { learningItems, questions, reviewStates, reviewTasks } from '../../src/db/schema.js';
 import type { QuestionRow } from '../../src/modules/questions/service.js';
-import { fakeEvaluateProduction, seedE2eData } from '../../scripts/e2e-server.js';
+import {
+  fakeEvaluateProduction,
+  seedE2eData,
+  seedLargeDueQueue,
+  seedV2Journeys,
+} from '../../scripts/e2e-server.js';
+import { startTodaySession } from '../../src/modules/today/service.js';
+import { createFakeDeps } from '../helpers/today-fakes.js';
 
 let db: AppDatabase;
 const NOW = new Date('2026-09-24T02:00:00.000Z');
@@ -14,7 +21,18 @@ beforeEach(() => {
 });
 
 describe('E2E 播种（seedE2eData）', () => {
-  it('播种确定性数据：6 个 item、7 道题（含撤销替换题）、7 行 review_states、文案符合规格', () => {
+  it('V2 种子仍提供 Production 键盘流程，但旧 cloze 不进入任务', async () => {
+    seedE2eData(db, NOW);
+    const session = await startTodaySession(db, createFakeDeps(), 'Asia/Shanghai', NOW);
+    expect(session.status).toBe('active');
+    if (session.status !== 'active') throw new Error('expected active');
+    expect(session.progress.total).toBe(5);
+    expect(session.currentTask).toMatchObject({
+      taskType: 'production',
+      item: { target: 'give up' },
+    });
+  });
+  it('播种确定性数据：6 个 item、9 道题（含撤销替换题、V2 练习 Recall 题库与 make sense 表达库存）、7 行 review_states、文案符合规格', () => {
     const seeded = seedE2eData(db, NOW);
     expect(seeded).toBe(true);
 
@@ -32,7 +50,7 @@ describe('E2E 播种（seedE2eData）', () => {
     expect(items.filter((i) => i.queueState === 'started')).toHaveLength(5);
 
     const qs = db.select().from(questions).all();
-    expect(qs).toHaveLength(7);
+    expect(qs).toHaveLength(9);
     for (const q of qs) {
       expect([q.promptKey, String(q.promptVersion), q.promptHash, q.model]).toEqual([
         'seed',
@@ -42,7 +60,7 @@ describe('E2E 播种（seedE2eData）', () => {
       ]);
     }
     // 除撤销替换题（active、lastUsedAt 置旧）外均为 fresh
-    expect(qs.filter((q) => q.status === 'fresh')).toHaveLength(6);
+    expect(qs.filter((q) => q.status === 'fresh')).toHaveLength(8);
 
     const stable = qs.find((q) => q.id === 'e2e-q-stable')!;
     expect(stable.contextText).toBe('The connection is finally ____.');
@@ -96,6 +114,18 @@ describe('E2E 播种（seedE2eData）', () => {
     ).toBe('2026-10-01T02:00:00.000Z');
     // stable U L3
     expect(states.find((s) => s.learningItemId === 'e2e-item-stable')?.level).toBe(3);
+
+    // Phase 9（Task 10）：make sense（chunk 默认开）的表达题库存（练一下第 2 题）
+    const makeSenseP = qs.find((q) => q.id === 'e2e-q-make-sense-p')!;
+    expect(makeSenseP.type).toBe('production');
+    expect(makeSenseP.learningItemId).toBe('e2e-item-make-sense');
+    expect(makeSenseP.status).toBe('fresh');
+    expect(makeSenseP.meaningSnapshot).toBe('讲得通');
+    expect(JSON.parse(makeSenseP.payloadJson)).toEqual({
+      mustUse: 'make sense',
+      referenceAnswer: 'His explanation makes complete sense to me.',
+      acceptanceNotes: '允许正常时态和人称变化。',
+    });
   });
 
   it('give up 种子：U=L7 stable（不到期）、P=L4 昨日到期、production 题内容与元数据', () => {
@@ -144,7 +174,11 @@ describe('E2E 播种（seedE2eData）', () => {
     });
 
     // 撤销重练替换题（Phase 8）：active + lastUsedAt 置旧 → 主流程仍先取原题，撤销排除原题后才轮到它
-    const q2 = db.select().from(questions).all().find((x) => x.id === 'e2e-q-give-up-2')!;
+    const q2 = db
+      .select()
+      .from(questions)
+      .all()
+      .find((x) => x.id === 'e2e-q-give-up-2')!;
     expect(q2.type).toBe('production');
     expect(q2.learningItemId).toBe(giveUp.id);
     expect(q2.status).toBe('active');
@@ -161,8 +195,77 @@ describe('E2E 播种（seedE2eData）', () => {
     expect(seedE2eData(db, NOW)).toBe(true);
     expect(seedE2eData(db, new Date('2026-09-25T00:00:00.000Z'))).toBe(false);
     expect(db.select().from(learningItems).all()).toHaveLength(6);
-    expect(db.select().from(questions).all()).toHaveLength(7);
+    expect(db.select().from(questions).all()).toHaveLength(9);
     expect(db.select().from(reviewStates).all()).toHaveLength(7);
+  });
+});
+
+describe('E2E V2 journey 播种（Phase 9 Task 10）', () => {
+  it('seedV2Journeys：set off 次日表达到期进队列、carry on 为 Learn、显式关闭的 put off 被排除', async () => {
+    seedE2eData(db, NOW);
+    expect(seedV2Journeys(db, NOW)).toBe(true);
+
+    const session = await startTodaySession(db, createFakeDeps(), 'Asia/Shanghai', NOW);
+    expect(session.status).toBe('active');
+    if (session.status !== 'active') throw new Error('expected active');
+    // 5 基础任务 + set off 的 P 任务 + carry on 的 Learn；put off（显式关闭）不进队列
+    expect(session.progress.total).toBe(7);
+    const putOffTasks = db
+      .select()
+      .from(reviewTasks)
+      .all()
+      .filter((t) => t.learningItemId === 'e2e-item-put-off');
+    expect(putOffTasks).toHaveLength(0);
+    const dimensions = db
+      .select()
+      .from(reviewTasks)
+      .all()
+      .map((t) => `${t.learningItemId}:${t.taskType}`)
+      .sort();
+    expect(dimensions).toContain('e2e-item-set-off:production');
+    expect(dimensions).toContain('e2e-item-carry-on:learn');
+    // put off 的 P 状态保持 L2 未被动过（排除≠清除）
+    const putOffP = db
+      .select()
+      .from(reviewStates)
+      .all()
+      .find((s) => s.learningItemId === 'e2e-item-put-off' && s.dimension === 'production')!;
+    expect(putOffP.level).toBe(2);
+    expect(putOffP.nextReviewAt).toBe('2026-09-23T02:00:00.000Z');
+  });
+
+  it('seedV2Journeys 幂等：重复播种不产生重复行', () => {
+    seedE2eData(db, NOW);
+    expect(seedV2Journeys(db, NOW)).toBe(true);
+    expect(seedV2Journeys(db, NOW)).toBe(false);
+    expect(db.select().from(learningItems).all()).toHaveLength(9);
+    expect(
+      db
+        .select()
+        .from(questions)
+        .all()
+        .filter((q) => q.learningItemId === 'e2e-item-set-off'),
+    ).toHaveLength(1);
+  });
+
+  it('seedLargeDueQueue：40 项全部进入 pending 队列，start 即时返回全量任务', async () => {
+    seedE2eData(db, NOW);
+    expect(seedLargeDueQueue(db, 40, NOW)).toBe(true);
+
+    const session = await startTodaySession(db, createFakeDeps(), 'Asia/Shanghai', NOW);
+    expect(session.status).toBe('active');
+    if (session.status !== 'active') throw new Error('expected active');
+    // 5 基础（4 到期 + gravity Learn）+ 40 大队列；全部以 pending 落库（无题目也不丢）
+    expect(session.progress.total).toBe(45);
+    expect(
+      db
+        .select()
+        .from(reviewTasks)
+        .all()
+        .filter((t) => t.questionId === null),
+    ).toHaveLength(45);
+
+    expect(seedLargeDueQueue(db, 40, NOW)).toBe(false); // 幂等
   });
 });
 
@@ -198,5 +301,23 @@ describe('E2E fake 批改（fakeEvaluateProduction）', () => {
     ]);
     expect(r.explanation).toBe('未使用目标表达。');
     expect(r.candidate).toEqual({ eligible: false, qualityScore: 0, reason: 'seed' });
+  });
+
+  it('按 payload.mustUse 泛化：make sense / set off 种子题同规则判定', async () => {
+    const makeSenseQuestion = {
+      payloadJson: JSON.stringify({
+        mustUse: 'make sense',
+        referenceAnswer: 'His explanation makes complete sense to me.',
+      }),
+    } as unknown as QuestionRow;
+    const pass = await fakeEvaluateProduction(
+      null as never,
+      makeSenseQuestion,
+      'It does make sense to me.',
+    );
+    expect(pass.result).toBe('pass');
+    const fail = await fakeEvaluateProduction(null as never, makeSenseQuestion, 'I understand it.');
+    expect(fail.result).toBe('fail');
+    expect(fail.correctedSentence).toBe('His explanation makes complete sense to me.');
   });
 });

@@ -34,12 +34,14 @@
             "meaning": "有道理；讲得通"
           }
         ],
-        "recent_read_types": ["story"]
+        "recent_read_types": ["story"],
+        "focus_list": "- learning_item_id: i1 | word: wear down | meaning: 逐渐使……疲惫；消耗\n- learning_item_id: i2 | word: stable | meaning: 稳定的；不易变化的\n- learning_item_id: i3 | word: raw | meaning: 未经处理的；原始的",
+        "old_list": "- gravity（重力）\n- make sense（有道理；讲得通）"
       },
       "expected_invariants": [
         "180 <= english_word_count(body) <= 400",
         "all focus items covered naturally",
-        "1 <= checks.length <= 2",
+        "no checks field in output (V2 pure read)",
         "overall language near B1"
       ]
     }

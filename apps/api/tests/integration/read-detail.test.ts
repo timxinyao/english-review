@@ -83,6 +83,7 @@ function seedArticle(overrides: Partial<typeof readArticles.$inferInsert> = {}):
       createdAt: now,
       expiresAt: new Date(NOW.getTime() + 30 * DAY_MS).toISOString(),
       type: 'story',
+      // V1 遗留：一未答 + 一已答（答错）检查题，详情只读回放
       checksJson: JSON.stringify([
         {
           id: 'chk-1',
@@ -93,6 +94,21 @@ function seedArticle(overrides: Partial<typeof readArticles.$inferInsert> = {}):
             { id: 'o2', text: '干扰' },
           ],
           correctOptionId: 'o1',
+        },
+        {
+          id: 'chk-2',
+          learningItemId: 'it-old',
+          question: '文中 gravity 的意思是什么？',
+          options: [
+            { id: 'o1', text: '重力' },
+            { id: 'o2', text: '干扰' },
+          ],
+          correctOptionId: 'o1',
+          answered: {
+            selectedOptionId: 'o2',
+            correct: false,
+            needsReinforcementMarked: true,
+          },
         },
       ]),
       ...{ ...overrides, id },
@@ -125,7 +141,7 @@ describe('GET /api/read/:id（文章详情）', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('返回完整视图：focus 含持久化 surfaceForm，checks 不含 correctOptionId', async () => {
+  it('返回完整视图：focus 含持久化 surfaceForm，遗留 checks 只读回放', async () => {
     const cookie = await loginCookie();
     const id = seedArticle();
     const res = await app.inject({ method: 'GET', url: `/api/read/${id}`, headers: { cookie } });
@@ -136,8 +152,27 @@ describe('GET /api/read/:id（文章详情）', () => {
       { learningItemId: 'it-stable', target: 'stable', surfaceForm: 'stable' },
     ]);
     expect(body.oldItems).toEqual([{ learningItemId: 'it-old', target: 'gravity' }]);
+    expect(body.checks).toHaveLength(2);
+    // 未答遗留检查题：answered=null，且不泄露 correctOptionId
     expect(body.checks[0].options).toHaveLength(2);
-    expect(JSON.stringify(body.checks)).not.toContain('correctOptionId');
+    expect(body.checks[0].answered).toBeNull();
+    expect(JSON.stringify(body.checks[0])).not.toContain('correctOptionId');
+    // 已答遗留检查题：回放首答结果与当时已揭晓的正确选项
+    expect(body.checks[1].answered).toEqual({
+      selectedOptionId: 'o2',
+      correctOptionId: 'o1',
+      correct: false,
+    });
+  });
+
+  it('V2 纯文章（checks_json=[]）→ checks=[] 且视图合法', async () => {
+    const cookie = await loginCookie();
+    const id = seedArticle({ checksJson: '[]', promptVersion: 2 });
+    const res = await app.inject({ method: 'GET', url: `/api/read/${id}`, headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(ReadArticleView.safeParse(body).success).toBe(true);
+    expect(body.checks).toEqual([]);
   });
 
   it('不存在 → 404', async () => {

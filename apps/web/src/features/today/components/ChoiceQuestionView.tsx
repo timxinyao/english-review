@@ -44,10 +44,7 @@ export function ChoiceQuestionView({ task, question, result, onAnswered, onAdvan
         )
       }
       onGiveUp={() =>
-        answer.mutate(
-          { taskId: task.taskId, body: { giveUp: true } },
-          { onSuccess: onAnswered },
-        )
+        answer.mutate({ taskId: task.taskId, body: { giveUp: true } }, { onSuccess: onAnswered })
       }
       onAdvance={onAdvance}
       onFeedback={(kind) =>

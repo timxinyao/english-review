@@ -4,9 +4,9 @@ import {
   HISTORY_URL,
   RECENT_URL,
   apiCalls,
-  makeArticle,
   makeHistoryItem,
   makeHistoryResponse,
+  makeLegacyArticle,
   renderReadApp,
   stubApi,
 } from './read-helpers';
@@ -86,11 +86,11 @@ describe('Read History（历史视图）', () => {
     expect(await screen.findByText('A Quiet Morning')).toBeVisible();
   });
 
-  it('列表项点击加载文章详情（GET /api/read/:id），返回历史视图', async () => {
+  it('列表项点击加载文章详情（GET /api/read/:id），遗留检查题只读，返回历史视图', async () => {
     stubApi({
       [RECENT_URL]: makeHistoryResponse([]),
       [HISTORY_URL]: makeHistoryResponse([makeHistoryItem()]),
-      '/api/read/article-1': makeArticle(),
+      '/api/read/article-1': makeLegacyArticle({ id: 'article-1', title: 'A Quiet Morning' }),
     });
     renderReadApp();
 
@@ -99,6 +99,9 @@ describe('Read History（历史视图）', () => {
 
     expect(await screen.findByRole('heading', { name: 'A Quiet Morning' })).toBeVisible();
     expect(apiCalls('/api/read/article-1').length).toBe(1);
+    // 历史进入的遗留检查题只读：回放首答，无提交入口
+    expect(screen.getByText('答错了')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
     // 文章来自历史 → 返回按钮回到历史视图
     fireEvent.click(screen.getByRole('button', { name: '← 返回历史' }));
     expect(await screen.findByRole('button', { name: /A Quiet Morning/ })).toBeVisible();

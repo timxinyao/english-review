@@ -31,7 +31,7 @@ export const BackupReviewState = z.object({
 });
 export type BackupReviewState = z.infer<typeof BackupReviewState>;
 
-export const BackupItem = z.object({
+const BackupItemBase = z.object({
   id: z.string().min(1),
   type: LearningItemType,
   target: z.string().min(1),
@@ -49,6 +49,9 @@ export const BackupItem = z.object({
   archivedAt: z.string().nullable(),
   examples: z.array(BackupExample),
   reviewStates: z.array(BackupReviewState),
+});
+export const BackupItem = BackupItemBase.extend({
+  productionEnabledOverride: z.boolean().nullable(),
 });
 export type BackupItem = z.infer<typeof BackupItem>;
 
@@ -75,13 +78,15 @@ export const BackupDailyStats = z.object({
 });
 export type BackupDailyStats = z.infer<typeof BackupDailyStats>;
 
-export const BackupExport = z.object({
-  version: z.literal('1.2'),
+const BackupExportBase = z.object({
   exportedAt: z.string().min(1),
   settings: BackupSettings,
-  items: z.array(BackupItem),
   dailyStats: z.array(BackupDailyStats),
 });
+export const BackupExport = z.discriminatedUnion('version', [
+  BackupExportBase.extend({ version: z.literal('1.2'), items: z.array(BackupItemBase) }),
+  BackupExportBase.extend({ version: z.literal('2.0'), items: z.array(BackupItem) }),
+]);
 export type BackupExport = z.infer<typeof BackupExport>;
 
 // ---------- 恢复：预览（上传备份 JSON）→ 二次确认提交 ----------

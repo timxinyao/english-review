@@ -29,6 +29,7 @@ import {
   createRestoreStore,
   previewRestore,
 } from '../../src/modules/import-export/service.js';
+import { applyV2Cutover } from '../../src/modules/review/v2-cutover.js';
 
 const apps: FastifyInstance[] = [];
 afterAll(async () => {
@@ -219,6 +220,128 @@ async function exportBackupBody(
 }
 
 describe('GET /api/export/backup', () => {
+  it('V2 export includes nullable goal and preserves Production state after restore', async () => {
+    const { app, db, cookie } = await newFileApp();
+    const { wordId } = await seedRichData(db);
+    db.update(learningItems)
+      .set({ productionEnabledOverride: 1 })
+      .where(eq(learningItems.id, wordId))
+      .run();
+    const { body } = await exportBackupBody(app, cookie);
+    expect(body.version).toBe('2.0');
+    const word = (body.items as Array<Record<string, unknown>>).find((item) => item.id === wordId)!;
+    expect(word.productionEnabledOverride).toBe(true);
+    expect(
+      (word.reviewStates as Array<Record<string, unknown>>).find(
+        (s) => s.dimension === 'production',
+      ),
+    ).toMatchObject({ level: 2, nextReviewAt: '2026-09-25T00:00:00.000Z' });
+    expect(applyV2Cutover(db, new Date(NOW), 'Asia/Shanghai')).toEqual({ applied: true });
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/restore/preview',
+      headers: { cookie },
+      payload: body,
+    });
+    expect(preview.statusCode).toBe(200);
+    const commit = await app.inject({
+      method: 'POST',
+      url: '/api/restore/commit',
+      headers: { cookie },
+      payload: { previewToken: preview.json().previewToken },
+    });
+    expect(commit.statusCode).toBe(200);
+    expect(
+      db.select().from(learningItems).where(eq(learningItems.id, wordId)).get()!
+        .productionEnabledOverride,
+    ).toBe(1);
+    expect(
+      db
+        .select()
+        .from(reviewStates)
+        .where(eq(reviewStates.learningItemId, wordId))
+        .all()
+        .find((s) => s.dimension === 'production'),
+    ).toMatchObject({ level: 2, nextReviewAt: '2026-09-25T00:00:00.000Z' });
+  });
+
+  it('V1.2 backup without goal field previews and restores with null override', async () => {
+    const { app, db, cookie } = await newFileApp();
+    const { wordId, chunkId } = await seedRichData(db);
+    const { body } = await exportBackupBody(app, cookie);
+    const old = {
+      ...body,
+      version: '1.2',
+      items: (body.items as Array<Record<string, unknown>>).map(
+        ({ productionEnabledOverride: _removed, ...item }) =>
+          item.id === chunkId
+            ? { ...item, status: 'active', archivedAt: null, needsReinforcement: 1 }
+            : item,
+      ),
+    };
+    expect(applyV2Cutover(db, new Date(NOW), 'Asia/Shanghai')).toEqual({ applied: true });
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/restore/preview',
+      headers: { cookie },
+      payload: old,
+    });
+    expect(preview.statusCode).toBe(200);
+    const beforeCommit = Date.now();
+    const commit = await app.inject({
+      method: 'POST',
+      url: '/api/restore/commit',
+      headers: { cookie },
+      payload: { previewToken: preview.json().previewToken },
+    });
+    const afterCommit = Date.now();
+    expect(commit.statusCode).toBe(200);
+    expect(
+      db.select().from(learningItems).where(eq(learningItems.id, wordId)).get()!
+        .productionEnabledOverride,
+    ).toBeNull();
+    expect(
+      db
+        .select()
+        .from(reviewStates)
+        .where(eq(reviewStates.learningItemId, wordId))
+        .all()
+        .find((state) => state.dimension === 'understanding'),
+    ).toMatchObject({ level: 3, stable: 1, correctStreak: 2 });
+    expect(
+      db
+        .select()
+        .from(reviewStates)
+        .where(eq(reviewStates.learningItemId, wordId))
+        .all()
+        .find((state) => state.dimension === 'production'),
+    ).toMatchObject({
+      level: 0,
+      stable: 0,
+      nextReviewAt: null,
+      lastReviewAt: null,
+      correctStreak: 0,
+      wrongStreak: 0,
+    });
+    expect(db.select().from(dailyStats).all()).toHaveLength(2);
+    expect(
+      db.select().from(learningItems).where(eq(learningItems.id, chunkId)).get(),
+    ).toMatchObject({
+      status: 'active',
+      needsReinforcement: 0,
+      productionEnabledOverride: null,
+    });
+    const restoredChunkProduction = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, chunkId))
+      .all()
+      .find((state) => state.dimension === 'production');
+    expect(restoredChunkProduction).toMatchObject({ level: 0, stable: 0 });
+    expect(Date.parse(restoredChunkProduction!.nextReviewAt!)).toBeGreaterThanOrEqual(beforeCommit);
+    expect(Date.parse(restoredChunkProduction!.nextReviewAt!)).toBeLessThanOrEqual(afterCommit);
+  });
+
   it('结构完整：settings/examples（含 personal 元数据）/reviewStates/dailyStats，含 archived 项', async () => {
     const { app, db, cookie } = await newFileApp();
     const { wordId, chunkId } = await seedRichData(db);
@@ -226,7 +349,7 @@ describe('GET /api/export/backup', () => {
     const { body, disposition } = await exportBackupBody(app, cookie);
 
     expect(disposition).toMatch(/^attachment; filename="english-review-backup-\d{8}\.json"$/);
-    expect(body.version).toBe('1.2');
+    expect(body.version).toBe('2.0');
     expect(typeof body.exportedAt).toBe('string');
     expect(body.settings).toEqual({
       maxNewItemsPerDay: 15,

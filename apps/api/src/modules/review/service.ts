@@ -9,10 +9,14 @@ import {
   MIN_INTERVAL_DAYS,
   PRODUCTION_FIRST_REVIEW_DELAY_DAYS,
   TOO_EASY_EXTRA_LEVELS,
+  localDateString,
   type ReviewDimension,
 } from '@el/shared';
 import { learningItems, reviewStates } from '../../db/schema.js';
+import { effectiveProductionEnabled, isMastered } from './goals.js';
 import type { DbExecutor, DbTx } from '../questions/service.js';
+
+export { isMastered } from './goals.js';
 
 // ---------- 类型（today 模块依赖的公开契约）----------
 
@@ -133,9 +137,80 @@ export function initialProductionActivation(now: Date): ReviewStateSnapshot {
   };
 }
 
-/** 两维均 stable → Learning Item mastered（PRODUCT §6.2） */
-export function isMastered(u: ReviewStateSnapshot, p: ReviewStateSnapshot): boolean {
-  return u.stable && p.stable;
+/** 目标或 Stage 变化后重算 active/mastered；paused/archived 原样保留。 */
+export function reconcileItemStatus(tx: DbTx, itemId: string, nowIso: string): void {
+  const item = tx.select().from(learningItems).where(eq(learningItems.id, itemId)).get();
+  if (!item) throw new Error(`Learning item not found: ${itemId}`);
+  if (item.status === 'paused' || item.status === 'archived') return;
+  const states = tx
+    .select()
+    .from(reviewStates)
+    .where(eq(reviewStates.learningItemId, itemId))
+    .all();
+  const u = states.find((state) => state.dimension === 'understanding');
+  const p = states.find((state) => state.dimension === 'production');
+  const mastered = isMastered(
+    u ? toSnapshot(u) : INACTIVE_SNAPSHOT,
+    p ? toSnapshot(p) : INACTIVE_SNAPSHOT,
+    effectiveProductionEnabled(item),
+  );
+  const status = mastered ? 'mastered' : 'active';
+  if (item.status !== status) {
+    tx.update(learningItems)
+      .set({ status, updatedAt: nowIso })
+      .where(eq(learningItems.id, itemId))
+      .run();
+  }
+}
+
+/** 首次打开造句目标的 started Item：只给未激活 P 安排下一本地日，不覆盖既有进度。 */
+export function ensureProductionDueAfterGoalEnabled(
+  tx: DbTx,
+  itemId: string,
+  now: Date,
+  timezone: string,
+): void {
+  const p = tx
+    .select()
+    .from(reviewStates)
+    .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, 'production')))
+    .get();
+  if (p && (p.level !== 0 || p.stable !== 0 || p.nextReviewAt !== null || p.lastReviewAt !== null))
+    return;
+  const today = localDateString(now, timezone);
+  const nextDay = new Date(Date.parse(`${today}T00:00:00.000Z`) + MS_PER_DAY)
+    .toISOString()
+    .slice(0, 10);
+  let low = now.getTime();
+  let high = low + 48 * 60 * 60 * 1000;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (localDateString(new Date(mid), timezone) < nextDay) low = mid + 1;
+    else high = mid;
+  }
+  const nextReviewAt = new Date(low).toISOString();
+  const nowIso = now.toISOString();
+  if (p) {
+    tx.update(reviewStates)
+      .set({ nextReviewAt, updatedAt: nowIso })
+      .where(eq(reviewStates.id, p.id))
+      .run();
+  } else {
+    tx.insert(reviewStates)
+      .values({
+        id: randomUUID(),
+        learningItemId: itemId,
+        dimension: 'production',
+        level: 0,
+        stable: 0,
+        nextReviewAt,
+        lastReviewAt: null,
+        correctStreak: 0,
+        wrongStreak: 0,
+        updatedAt: nowIso,
+      })
+      .run();
+  }
 }
 
 // ---------- 落库（必须由本模块执行，AGENTS.md §5）----------
@@ -181,18 +256,7 @@ export function advanceReviewState(
       .run();
   }
 
-  // 两维均 stable → Learning Item 自动进入 mastered（PRODUCT §6.2）
-  const states = tx
-    .select()
-    .from(reviewStates)
-    .where(eq(reviewStates.learningItemId, itemId))
-    .all();
-  if (states.length === 2 && states.every((s) => s.stable === 1)) {
-    tx.update(learningItems)
-      .set({ status: 'mastered', updatedAt: nowIso })
-      .where(eq(learningItems.id, itemId))
-      .run();
-  }
+  reconcileItemStatus(tx, itemId, nowIso);
 
   return { pre, post };
 }
@@ -217,6 +281,8 @@ export function listUpcomingDue(
       itemId: reviewStates.learningItemId,
       dimension: reviewStates.dimension,
       nextReviewAt: reviewStates.nextReviewAt,
+      itemType: learningItems.type,
+      productionEnabledOverride: learningItems.productionEnabledOverride,
     })
     .from(reviewStates)
     .innerJoin(learningItems, eq(learningItems.id, reviewStates.learningItemId))
@@ -230,5 +296,18 @@ export function listUpcomingDue(
     )
     .orderBy(reviewStates.nextReviewAt)
     .all();
-  return rows as UpcomingDueEntry[];
+  return rows
+    .filter(
+      (row) =>
+        row.dimension === 'understanding' ||
+        effectiveProductionEnabled({
+          type: row.itemType,
+          productionEnabledOverride: row.productionEnabledOverride,
+        }),
+    )
+    .map(({ itemId, dimension, nextReviewAt }) => ({
+      itemId,
+      dimension,
+      nextReviewAt,
+    })) as UpcomingDueEntry[];
 }

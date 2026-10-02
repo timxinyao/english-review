@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -16,6 +17,7 @@ export const learningItems = sqliteTable(
   {
     id: text('id').primaryKey(),
     type: text('type').notNull(), // word | chunk
+    productionEnabledOverride: integer('production_enabled_override'), // NULL=类型默认；0=关闭；1=开启
     target: text('target').notNull(),
     meaning: text('meaning').notNull(),
     ipa: text('ipa'),
@@ -37,6 +39,10 @@ export const learningItems = sqliteTable(
     queueStateIdx: index('idx_learning_items_queue_state').on(t.queueState),
     createdAtIdx: index('idx_learning_items_created_at').on(t.createdAt),
     targetIdx: index('idx_learning_items_target').on(t.target),
+    productionEnabledOverrideCheck: check(
+      'chk_learning_items_production_enabled_override',
+      sql`${t.productionEnabledOverride} IN (0, 1) OR ${t.productionEnabledOverride} IS NULL`,
+    ),
   }),
 );
 
@@ -218,8 +224,8 @@ export const readArticles = sqliteTable('read_articles', {
   promptVersion: integer('prompt_version').notNull(),
   promptHash: text('prompt_hash').notNull(),
   model: text('model').notNull(),
-  /** 检查题（[{id, learningItemId, question, options, correctOptionId, explanation?, answered?}]）；
-   * correctOptionId 仅服务端判定用，永不下发前端 */
+  /** V1 遗留检查题（[{id, learningItemId, question, options, correctOptionId, explanation?, answered?}]），
+   * 只读回放：V2 新文章恒为 '[]'；correctOptionId 仅随已答回放下发，未答不下发 */
   checksJson: text('checks_json')
     .notNull()
     .default(sql`'[]'`),
@@ -272,4 +278,11 @@ export const jobLocks = sqliteTable('job_locks', {
   name: text('name').primaryKey(),
   holder: text('holder').notNull(),
   leaseUntil: text('lease_until').notNull(),
+});
+
+/** DB-wide one-time product cutover markers. Do not include in user backup payload. */
+export const appMetadata = sqliteTable('app_metadata', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull(),
 });

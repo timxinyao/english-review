@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { LibraryListQuery, UpdateLearningItemRequest } from '@el/shared';
 import type { AppDatabase } from '../../db/client.js';
+import type { AppConfig } from '../../config.js';
 import { parseBody } from '../../lib/http.js';
 import {
   archiveLearningItem,
@@ -19,7 +20,11 @@ function itemId(req: { params: unknown }): string {
   return id;
 }
 
-export function learningItemsRoutes(app: FastifyInstance, db: AppDatabase): void {
+export function learningItemsRoutes(
+  app: FastifyInstance,
+  db: AppDatabase,
+  config: AppConfig,
+): void {
   // LibraryListQuery 含 coerce/default（Input ≠ Output），直接 parse；
   // 抛出的 ZodError 由 errorHandler 归一化为 400 VALIDATION_ERROR
   app.get('/api/library', async (req) => listLearningItems(db, LibraryListQuery.parse(req.query)));
@@ -27,7 +32,12 @@ export function learningItemsRoutes(app: FastifyInstance, db: AppDatabase): void
   app.get('/api/library/:id', async (req) => getLearningItemDetail(db, itemId(req)));
 
   app.patch('/api/library/:id', async (req) =>
-    updateLearningItem(db, itemId(req), parseBody(UpdateLearningItemRequest, req.body)),
+    updateLearningItem(
+      db,
+      itemId(req),
+      parseBody(UpdateLearningItemRequest, req.body),
+      config.appTimezone,
+    ),
   );
 
   app.post('/api/library/:id/pause', async (req) => pauseLearningItem(db, itemId(req)));

@@ -137,6 +137,34 @@ describe('LibraryDetail 详情', () => {
     expect(screen.queryByLabelText('IPA')).toBeNull();
   });
 
+  it('造句目标三态可回填并随编辑提交', async () => {
+    renderDetail({ productionEnabledOverride: null });
+    await openEditForm();
+    const goal = screen.getByLabelText('造句目标') as HTMLSelectElement;
+    expect(goal.value).toBe('default');
+    fireEvent.change(goal, { target: { value: 'enabled' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({ productionEnabledOverride: true }),
+      ),
+    );
+
+    cleanup();
+    renderDetail({ productionEnabledOverride: false });
+    await openEditForm();
+    expect((screen.getByLabelText('造句目标') as HTMLSelectElement).value).toBe('disabled');
+    fireEvent.change(screen.getByLabelText('造句目标'), { target: { value: 'default' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() =>
+      expect(update).toHaveBeenLastCalledWith(
+        'item-1',
+        expect.objectContaining({ productionEnabledOverride: null }),
+      ),
+    );
+  });
+
   it('保存提交完整 payload：tags 拆分、空补充例句过滤、personal 带 pin', async () => {
     renderDetail();
     await openEditForm();

@@ -39,13 +39,14 @@ import {
 } from '../../db/schema.js';
 import { AppError, appError } from '../../lib/errors.js';
 import {
-  productionQuestionTypeFor,
+  invalidateQuestions,
   type DbExecutor,
   type DbTx,
   type ProductionEvaluation,
   type QuestionPoolType,
   type QuestionRow,
 } from '../questions/service.js';
+import { effectiveProductionEnabled } from '../review/goals.js';
 import {
   maybeSavePersonalExample,
   trimProductionHistory,
@@ -453,6 +454,46 @@ function progressOf(exec: DbExecutor, sessionId: string): TodayProgress {
   };
 }
 
+/** Library 关闭造句目标时，在同一事务取消今天尚未作答的 P 任务。 */
+export function cancelPendingProductionTasksForItem(
+  tx: DbTx,
+  itemId: string,
+  sessionDate: string,
+  nowIso: string,
+): void {
+  const session = tx
+    .select()
+    .from(reviewSessions)
+    .where(eq(reviewSessions.sessionDate, sessionDate))
+    .get();
+  if (!session) return;
+  tx.update(reviewTasks)
+    .set({ canceledAt: nowIso })
+    .where(
+      and(
+        eq(reviewTasks.sessionId, session.id),
+        eq(reviewTasks.learningItemId, itemId),
+        eq(reviewTasks.dimension, 'production'),
+        isNull(reviewTasks.completedAt),
+        isNull(reviewTasks.canceledAt),
+      ),
+    )
+    .run();
+  const live = tx
+    .select()
+    .from(reviewTasks)
+    .where(and(eq(reviewTasks.sessionId, session.id), isNull(reviewTasks.canceledAt)))
+    .all();
+  const baseTaskCount = live.filter((task) => task.origin === 'base').length;
+  const completedAt = live.every((task) => task.completedAt !== null)
+    ? (session.completedAt ?? nowIso)
+    : null;
+  tx.update(reviewSessions)
+    .set({ baseTaskCount, completedAt })
+    .where(eq(reviewSessions.id, session.id))
+    .run();
+}
+
 /** 完成摘要：计数来自该 session 的非 void attempts（PRODUCT_DESIGN §4.3） */
 function buildSummary(exec: DbExecutor, session: SessionRow): TodaySummary {
   const tasks = exec.select().from(reviewTasks).where(eq(reviewTasks.sessionId, session.id)).all();
@@ -579,9 +620,19 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
     supplementaryExamples = pick ? [pick.text] : [];
   }
 
-  const question = task.questionId
+  let question = task.questionId
     ? (exec.select().from(questions).where(eq(questions.id, task.questionId)).get() ?? null)
     : null;
+  // 待答旧题失效后重新进入 prepare；已答/已撤销记录仍保留原题用于历史回看。
+  if (
+    task.completedAt === null &&
+    task.canceledAt === null &&
+    question &&
+    ((question.status !== 'fresh' && question.status !== 'active') ||
+      question.meaningSnapshot !== item.meaning)
+  ) {
+    question = null;
+  }
   let questionView: TodayTaskView['question'] = null;
   if (question && question.type === 'understanding') {
     const options = choiceOptions(safePayload(question));
@@ -732,8 +783,12 @@ function activeResponse(exec: DbExecutor, session: SessionRow): TodayActiveRespo
 
 function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleResponse {
   const nowIso = now.toISOString();
-  const [{ dueItems }] = db
-    .select({ dueItems: sql<number>`count(*)` })
+  const dueRows = db
+    .select({
+      dimension: reviewStates.dimension,
+      type: learningItems.type,
+      productionEnabledOverride: learningItems.productionEnabledOverride,
+    })
     .from(reviewStates)
     .innerJoin(learningItems, eq(learningItems.id, reviewStates.learningItemId))
     .where(
@@ -746,6 +801,9 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
       ),
     )
     .all();
+  const dueItems = dueRows.filter(
+    (row) => row.dimension !== 'production' || effectiveProductionEnabled(row),
+  ).length;
 
   const today = localDateString(now, timezone);
   const maxNew = readMaxNewItemsPerDay(db);
@@ -896,7 +954,7 @@ interface PlanTask {
   origin: 'base' | 'read_reinforcement';
 }
 
-/** 事务外取题：无库存时懒生成（AI 失败返回 null，不抛出） */
+/** 事务外取题：无库存时懒生成；AI 失败返回 null，业务冲突原样抛出。 */
 async function acquireWithGenerate(
   db: AppDatabase,
   deps: TodayDeps,
@@ -910,34 +968,14 @@ async function acquireWithGenerate(
   try {
     await deps.generate(db, itemId, type);
   } catch (err) {
+    if (err instanceof AppError && err.code === 'CONFLICT') throw err;
     console.warn(`[today] 题目生成失败（item=${itemId} type=${type}）：${(err as Error).message}`);
     return null;
   }
   return deps.acquire(db, itemId, type, now, excludeQuestionIds);
 }
 
-/** 在线生成并发度（预取未覆盖时的兜底路径）；GLM 串行每题约 4~5s */
-const GENERATION_CONCURRENCY = 3;
-
-/** 保序并发映射：结果顺序与输入一致；任一 fn 抛错整体 reject */
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  async function worker(): Promise<void> {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]!);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
-  return results;
-}
-
-/** 进程内串行化（双击/多标签同进程），跨进程由 uq_review_sessions_date + 全局锁兜底 */
+/** 进程内串行化（双击/多标签同进程），跨进程由 uq_review_sessions_date 兜底 */
 let startChain: Promise<unknown> = Promise.resolve();
 
 /** start 响应：与 GET /api/today 同契约（completed 必带 remainingNewQuota） */
@@ -950,8 +988,8 @@ export async function startTodaySession(
   now: Date,
 ): Promise<StartResponse> {
   const run = startChain.then(
-    () => startTodaySessionLocked(db, deps, timezone, now),
-    () => startTodaySessionLocked(db, deps, timezone, now),
+    () => startTodaySessionInner(db, deps, timezone, now),
+    () => startTodaySessionInner(db, deps, timezone, now),
   );
   startChain = run.then(
     () => undefined,
@@ -960,28 +998,9 @@ export async function startTodaySession(
   return run;
 }
 
-/** 持 question-generation 全局锁执行 start；等锁超时归一为 CONFLICT（前端提示稍候重试） */
-async function startTodaySessionLocked(
-  db: AppDatabase,
-  deps: TodayDeps,
-  timezone: string,
-  now: Date,
-): Promise<StartResponse> {
-  try {
-    return await withJobLock(db, 'question-generation', () =>
-      startTodaySessionInner(db, deps, timezone, now),
-    );
-  } catch (err) {
-    if (err instanceof JobLockTimeoutError) {
-      throw appError('CONFLICT', '题目正在准备中，请稍候重试');
-    }
-    throw err;
-  }
-}
-
 async function startTodaySessionInner(
   db: AppDatabase,
-  deps: TodayDeps,
+  _deps: TodayDeps,
   timezone: string,
   now: Date,
 ): Promise<StartResponse> {
@@ -1037,110 +1056,26 @@ async function startTodaySessionInner(
       : Math.max(0, maxNew - (stats?.newItemsStarted ?? 0));
   const learnItems = newCandidates.slice(0, remainingQuota);
 
-  // ---- 3) 题目获取（事务外；取不到则跳过该任务/项，不占额度）----
+  // ---- 3) 先创建所有 pending 任务；取题只在 prepare 阶段进行 ----
   const plans: PlanTask[] = [];
-  const acquiredQuestionIds = new Map<string, string[]>(); // itemId → 已占用题目（同 item 防重复取题）
-  const markAcquired = (itemId: string, questionId: string): void => {
-    const list = acquiredQuestionIds.get(itemId);
-    if (list) list.push(questionId);
-    else acquiredQuestionIds.set(itemId, [questionId]);
-  };
-  // 同 item 的多维度必须串行（防并发取到同题）；item 间并发 3；plans 顺序与串行实现一致
-  const dueGroups = new Map<string, typeof dueRows>();
   for (const row of dueRows) {
-    const list = dueGroups.get(row.item.id);
-    if (list) list.push(row);
-    else dueGroups.set(row.item.id, [row]);
+    if (row.state.dimension === 'production' && !effectiveProductionEnabled(row.item)) continue;
+    const dimension = row.state.dimension as Dimension;
+    plans.push({
+      itemId: row.item.id,
+      dimension,
+      taskType: dimension === 'understanding' ? 'understanding' : 'production',
+      questionId: null,
+      origin: 'base',
+    });
   }
-  const dueAcquired = await mapLimit(
-    [...dueGroups.values()],
-    GENERATION_CONCURRENCY,
-    async (rows) => {
-      const acquired: {
-        row: (typeof rows)[number];
-        taskType: 'understanding' | 'cloze' | 'production';
-        q: QuestionRow | null;
-      }[] = [];
-      const exclude: string[] = [];
-      for (const row of rows) {
-        const dimension = row.state.dimension as Dimension;
-        // P 维度按阶段取题（PRODUCT §6.3）：L1-2 填空；L3 哈希奇偶混合；L4+ 表达题
-        const taskType: 'understanding' | 'cloze' | 'production' =
-          dimension === 'understanding'
-            ? 'understanding'
-            : productionQuestionTypeFor(row.item.id, row.state.level);
-        const q = await acquireWithGenerate(db, deps, row.item.id, taskType, now, exclude);
-        if (q) exclude.push(q.id);
-        acquired.push({ row, taskType, q });
-      }
-      return acquired;
-    },
-  );
-  for (const group of dueAcquired) {
-    for (const { row, taskType, q } of group) {
-      if (!q) {
-        console.warn(
-          `[today] start 跳过到期任务：item=${row.item.id} dim=${row.state.dimension}（无可用题目）`,
-        );
-        continue;
-      }
-      markAcquired(row.item.id, q.id);
-      plans.push({
-        itemId: row.item.id,
-        dimension: row.state.dimension as Dimension,
-        taskType,
-        questionId: q.id,
-        origin: 'base',
-      });
-    }
-  }
-  const learnAcquired = await mapLimit(learnItems, GENERATION_CONCURRENCY, async (item) => {
-    const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now);
-    return { item, q };
-  });
-  for (const { item, q } of learnAcquired) {
-    if (!q) {
-      console.warn(`[today] start 跳过新项：item=${item.id}（Learn 题生成失败，不占额度）`);
-      continue;
-    }
-    markAcquired(item.id, q.id);
+  for (const item of learnItems) {
     plans.push({
       itemId: item.id,
       dimension: 'understanding',
       taskType: 'learn',
-      questionId: q.id,
+      questionId: null,
       origin: 'base',
-    });
-  }
-
-  // ---- 3A) Read 补强（PRODUCT §8.2）：Read 答错置旗项 → 每项 1 题正式理解复习 ----
-  // 每项最多 1 个（去重）；无题且 AI 生成失败则跳过；计入 base_task_count/progress/daily_stats。
-  const flaggedItems = db
-    .select()
-    .from(learningItems)
-    .where(
-      and(
-        eq(learningItems.status, 'active'),
-        eq(learningItems.queueState, 'started'),
-        eq(learningItems.needsReinforcement, 1),
-      ),
-    )
-    .orderBy(asc(learningItems.id))
-    .all();
-  for (const item of flaggedItems) {
-    const exclude = acquiredQuestionIds.get(item.id) ?? [];
-    const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now, exclude);
-    if (!q) {
-      console.warn(`[today] start 跳过 Read 补强：item=${item.id}（无可用题目）`);
-      continue;
-    }
-    markAcquired(item.id, q.id);
-    plans.push({
-      itemId: item.id,
-      dimension: 'understanding',
-      taskType: 'understanding',
-      questionId: q.id,
-      origin: 'read_reinforcement',
     });
   }
 
@@ -1252,11 +1187,11 @@ function remainingNewQuotaOf(db: DbExecutor, sessionDate: string): number | null
 /**
  * 同日追加学习（PRODUCT §3.4）：已完成会话 + 额度剩余 → 追加一批 Learn 任务并重新激活。
  * 调度/统计零改动：追加任务与正常 Learn 同路径（answer 时结算/计数/完成检测）。
- * 持 question-generation 全局锁执行 extend；等锁超时归一为 CONFLICT（与 start/practice 一致）。
+ * 追加 pending Learn 与 start 共用懒绑定路径，生成失败不影响任务与额度。
  */
 export async function extendTodaySession(
   db: AppDatabase,
-  deps: TodayDeps,
+  _deps: TodayDeps,
   timezone: string,
   now: Date,
 ): Promise<TodayActiveResponse> {
@@ -1283,69 +1218,175 @@ export async function extendTodaySession(
     .all();
   if (candidates.length === 0) throw appError('CONFLICT', '没有可学的新词');
 
+  const nowIso = now.toISOString();
+  return db.transaction((tx) => {
+    // 事务内复查：会话仍处于完成态（并发下可能已被重新激活）
+    const fresh = tx.select().from(reviewSessions).where(eq(reviewSessions.id, session.id)).get();
+    if (!fresh) throw appError('INTERNAL', '会话不存在');
+    if (fresh.completedAt === null) throw appError('CONFLICT', '会话已被重新激活');
+    // 追加任务接在当日队列末尾（sortKey 从当前最大值起递增）
+    const maxSort =
+      tx
+        .select({ m: sql<number>`max(${reviewTasks.sortKey})` })
+        .from(reviewTasks)
+        .where(eq(reviewTasks.sessionId, session.id))
+        .get()?.m ?? 0;
+    candidates.forEach((item, index) => {
+      tx.insert(reviewTasks)
+        .values({
+          id: randomUUID(),
+          sessionId: session.id,
+          learningItemId: item.id,
+          dimension: 'understanding',
+          questionId: null,
+          taskType: 'learn',
+          origin: 'base',
+          sortKey: maxSort + index + 1,
+          deferCount: 0,
+          completedAt: null,
+          canceledAt: null,
+          createdAt: nowIso,
+        })
+        .run();
+    });
+    tx.update(reviewSessions)
+      .set({ completedAt: null })
+      .where(eq(reviewSessions.id, session.id))
+      .run();
+    const updated = tx.select().from(reviewSessions).where(eq(reviewSessions.id, session.id)).get();
+    if (!updated) throw appError('INTERNAL', '会话不存在');
+    return activeResponse(tx, updated);
+  });
+}
+
+/** 同日任务按需取题；AI/库存获取在写事务外，最后只比较并绑定一个有效题目。 */
+export async function prepareTodayTask(
+  db: AppDatabase,
+  deps: TodayDeps,
+  timezone: string,
+  now: Date,
+  taskId: string,
+): Promise<TodayTaskView> {
+  const validate = (
+    exec: DbExecutor,
+  ): { task: TaskRow; item: typeof learningItems.$inferSelect } => {
+    const task = requireTask(exec, taskId);
+    const session = exec
+      .select()
+      .from(reviewSessions)
+      .where(eq(reviewSessions.id, task.sessionId))
+      .get();
+    const item = exec
+      .select()
+      .from(learningItems)
+      .where(eq(learningItems.id, task.learningItemId))
+      .get();
+    if (!session || !item) throw appError('CONFLICT', '任务已失效，请刷新今日学习');
+    if (
+      session.sessionDate !== localDateString(now, timezone) ||
+      session.completedAt !== null ||
+      task.completedAt !== null ||
+      task.canceledAt !== null ||
+      item.status !== 'active' ||
+      (task.taskType === 'learn' ? item.queueState !== 'new' : item.queueState !== 'started') ||
+      (task.dimension === 'production' && !effectiveProductionEnabled(item))
+    ) {
+      throw appError('CONFLICT', '任务已失效，请刷新今日学习');
+    }
+    return { task, item };
+  };
+  const validQuestion = (exec: DbExecutor, task: TaskRow, meaning: string): boolean => {
+    if (!task.questionId) return false;
+    const question = exec.select().from(questions).where(eq(questions.id, task.questionId)).get();
+    return Boolean(
+      question &&
+      question.learningItemId === task.learningItemId &&
+      question.type === (task.taskType === 'learn' ? 'understanding' : task.taskType) &&
+      (question.status === 'fresh' || question.status === 'active') &&
+      question.meaningSnapshot === meaning,
+    );
+  };
+
+  const initial = validate(db);
+  if (initial.task.questionId && validQuestion(db, initial.task, initial.item.meaning)) {
+    return taskToView(db, initial.task);
+  }
   try {
     return await withJobLock(db, 'question-generation', async () => {
-      // 题目获取在事务外（库存优先、懒生成兜底）；失败跳过不占额度，全部失败则整体报错
-      const acquired: { itemId: string; questionId: string }[] = [];
-      for (const item of candidates) {
-        const q = await acquireWithGenerate(db, deps, item.id, 'understanding', now);
-        if (q) acquired.push({ itemId: item.id, questionId: q.id });
-        else console.warn(`[today] extend 跳过新项：item=${item.id}（Learn 题生成失败，不占额度）`);
+      const current = validate(db);
+      if (current.task.questionId && validQuestion(db, current.task, current.item.meaning)) {
+        return taskToView(db, current.task);
       }
-      if (acquired.length === 0) throw appError('AI_PROVIDER_ERROR', '题目生成失败，请稍后重试');
-
-      const nowIso = now.toISOString();
-      return db.transaction((tx) => {
-        // 事务内复查：会话仍处于完成态（并发下可能已被重新激活）
-        const fresh = tx
+      const excluded = db
+        .select({ id: reviewTasks.questionId })
+        .from(reviewTasks)
+        .where(
+          and(
+            eq(reviewTasks.sessionId, current.task.sessionId),
+            eq(reviewTasks.learningItemId, current.task.learningItemId),
+            isNotNull(reviewTasks.questionId),
+          ),
+        )
+        .all()
+        .map((row) => row.id!);
+      const type: QuestionKind =
+        current.task.taskType === 'learn'
+          ? 'understanding'
+          : (current.task.taskType as QuestionKind);
+      const question = await acquireWithGenerate(
+        db,
+        deps,
+        current.task.learningItemId,
+        type,
+        now,
+        excluded,
+      );
+      if (!question) throw appError('AI_PROVIDER_ERROR', '题目暂时无法生成，请稍后重试');
+      const bound = db.transaction((tx) => {
+        const latest = validate(tx);
+        if (
+          latest.item.target !== current.item.target ||
+          latest.item.meaning !== current.item.meaning
+        ) {
+          // 编辑事务已退休旧库存；这里清掉 AI 等待期间迟到的旧题，避免下次误取。
+          invalidateQuestions(tx, latest.item.id, now.toISOString());
+          return null;
+        }
+        if (latest.task.questionId && validQuestion(tx, latest.task, latest.item.meaning)) {
+          return taskToView(tx, latest.task);
+        }
+        const freshQuestion = tx
           .select()
-          .from(reviewSessions)
-          .where(eq(reviewSessions.id, session.id))
+          .from(questions)
+          .where(eq(questions.id, question.id))
           .get();
-        if (!fresh) throw appError('INTERNAL', '会话不存在');
-        if (fresh.completedAt === null) throw appError('CONFLICT', '会话已被重新激活');
-        // 追加任务接在当日队列末尾（sortKey 从当前最大值起递增）
-        const maxSort =
-          tx
-            .select({ m: sql<number>`max(${reviewTasks.sortKey})` })
-            .from(reviewTasks)
-            .where(eq(reviewTasks.sessionId, session.id))
-            .get()?.m ?? 0;
-        acquired.forEach((a, index) => {
-          tx.insert(reviewTasks)
-            .values({
-              id: randomUUID(),
-              sessionId: session.id,
-              learningItemId: a.itemId,
-              dimension: 'understanding',
-              questionId: a.questionId,
-              taskType: 'learn',
-              origin: 'base',
-              sortKey: maxSort + index + 1,
-              deferCount: 0,
-              completedAt: null,
-              canceledAt: null,
-              createdAt: nowIso,
-            })
-            .run();
-        });
-        tx.update(reviewSessions)
-          .set({ completedAt: null })
-          .where(eq(reviewSessions.id, session.id))
+        if (
+          !freshQuestion ||
+          freshQuestion.learningItemId !== latest.item.id ||
+          freshQuestion.type !== type ||
+          freshQuestion.meaningSnapshot !== latest.item.meaning ||
+          (freshQuestion.status !== 'fresh' && freshQuestion.status !== 'active')
+        ) {
+          throw appError('CONFLICT', '题目已失效，请重试');
+        }
+        tx.update(reviewTasks)
+          .set({ questionId: question.id })
+          .where(
+            and(
+              eq(reviewTasks.id, taskId),
+              isNull(reviewTasks.completedAt),
+              isNull(reviewTasks.canceledAt),
+            ),
+          )
           .run();
-        const updated = tx
-          .select()
-          .from(reviewSessions)
-          .where(eq(reviewSessions.id, session.id))
-          .get();
-        if (!updated) throw appError('INTERNAL', '会话不存在');
-        return activeResponse(tx, updated);
+        return taskToView(tx, { ...latest.task, questionId: question.id });
       });
+      if (!bound) throw appError('CONFLICT', '学习项已修改，请重新准备题目');
+      return bound;
     });
   } catch (err) {
-    if (err instanceof JobLockTimeoutError) {
-      throw appError('CONFLICT', '题目正在准备中，请稍候重试');
-    }
+    if (err instanceof JobLockTimeoutError)
+      throw appError('CONFLICT', '题目正在准备中，请稍后重试');
     throw err;
   }
 }
@@ -1473,30 +1514,28 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
 export async function answerTodayTask(
   db: AppDatabase,
   deps: TodayDeps,
-  _timezone: string,
+  timezone: string,
   now: Date,
   taskId: string,
   body: AnswerRequest,
+  settlementNow: () => Date = () => now,
 ): Promise<AnswerResponse> {
   const task = db.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get();
   if (!task) throw appError('NOT_FOUND', '任务不存在');
   if (task.canceledAt !== null) throw appError('CONFLICT', '该任务已撤销');
 
-  // 幂等：已结算 → 回放首次结果（不重复写 attempt / 推进状态）
+  const session = requireCurrentSession(db, task.sessionId, timezone, now);
+  // 本地日校验必须先于幂等回放，旧标签页不能重放过期 Session。
   if (task.completedAt !== null) return replayAnswer(db, task);
-
-  const session = db
-    .select()
-    .from(reviewSessions)
-    .where(eq(reviewSessions.id, task.sessionId))
-    .get();
-  if (!session) throw appError('INTERNAL', '会话不存在');
   if (session.completedAt !== null) throw appError('CONFLICT', '会话已完成');
 
   const question = task.questionId
     ? (db.select().from(questions).where(eq(questions.id, task.questionId)).get() ?? null)
     : null;
   if (!question) throw appError('CONFLICT', '该任务没有可用题目');
+  if (question.status !== 'fresh' && question.status !== 'active') {
+    throw appError('CONFLICT', '题目已失效，请刷新今日学习');
+  }
 
   const isCloze = question.type === 'cloze';
   const isProduction = question.type === 'production';
@@ -1603,8 +1642,17 @@ export async function answerTodayTask(
   return db.transaction((tx) => {
     const fresh = tx.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get();
     if (!fresh) throw appError('NOT_FOUND', '任务不存在');
+    requireCurrentSession(tx, fresh.sessionId, timezone, settlementNow());
     if (fresh.canceledAt !== null) throw appError('CONFLICT', '该任务已撤销');
     if (fresh.completedAt !== null) return replayAnswer(tx, fresh);
+    const freshQuestion = tx.select().from(questions).where(eq(questions.id, question.id)).get();
+    if (
+      fresh.questionId !== question.id ||
+      !freshQuestion ||
+      (freshQuestion.status !== 'fresh' && freshQuestion.status !== 'active')
+    ) {
+      throw appError('CONFLICT', '题目已失效，请刷新今日学习');
+    }
 
     const itemId = task.learningItemId;
     const pre = snapshotOf(tx, itemId);
@@ -1615,7 +1663,10 @@ export async function answerTodayTask(
       // forgot/assisted 的揭示即教学时刻，明日以 Recall 短间隔回归。
       // 无论对错都已开始学 → queue_state='started' 且当日额度 +1。
       writeDimState(tx, itemId, 'understanding', deps.initialUnderstandingAfterLearn(now), nowIso);
-      writeDimState(tx, itemId, 'production', deps.initialProductionActivation(now), nowIso);
+      const item = tx.select().from(learningItems).where(eq(learningItems.id, itemId)).get()!;
+      if (effectiveProductionEnabled(item)) {
+        writeDimState(tx, itemId, 'production', deps.initialProductionActivation(now), nowIso);
+      }
       tx.update(learningItems)
         .set({ queueState: 'started', updatedAt: nowIso })
         .where(eq(learningItems.id, itemId))
@@ -1822,9 +1873,29 @@ export async function answerTodayTask(
 
 const DEFER_SORT_OFFSET = 1000;
 
-export function deferTodayTask(db: AppDatabase, taskId: string): LaterResponse {
+function requireCurrentSession(
+  exec: DbExecutor,
+  sessionId: string,
+  timezone: string,
+  now: Date,
+): SessionRow {
+  const session = exec.select().from(reviewSessions).where(eq(reviewSessions.id, sessionId)).get();
+  if (!session) throw appError('INTERNAL', '会话不存在');
+  if (session.sessionDate !== localDateString(now, timezone)) {
+    throw appError('CONFLICT', '会话已过期，请刷新今日学习');
+  }
+  return session;
+}
+
+export function deferTodayTask(
+  db: AppDatabase,
+  taskId: string,
+  timezone: string,
+  now: Date,
+): LaterResponse {
   return db.transaction((tx) => {
     const task = requireTask(tx, taskId);
+    requireCurrentSession(tx, task.sessionId, timezone, now);
     if (task.completedAt !== null || task.canceledAt !== null) {
       throw appError('CONFLICT', '任务已完成或已撤销，无法稍后再做');
     }
@@ -1853,10 +1924,16 @@ export function deferTodayTask(db: AppDatabase, taskId: string): LaterResponse {
 // POST /api/today/tasks/:id/bad-question
 // ---------------------------------------------------------------------------
 
-export function reportBadQuestion(db: AppDatabase, taskId: string, now: Date): BadQuestionResponse {
+export function reportBadQuestion(
+  db: AppDatabase,
+  taskId: string,
+  now: Date,
+  timezone: string,
+): BadQuestionResponse {
   const nowIso = now.toISOString();
   return db.transaction((tx) => {
     const task = requireTask(tx, taskId);
+    const session = requireCurrentSession(tx, task.sessionId, timezone, now);
     if (task.canceledAt !== null) {
       // 幂等：已撤销（含重复 👎）直接返回进度
       return { ok: true as const, progress: progressOf(tx, task.sessionId) };
@@ -1873,13 +1950,6 @@ export function reportBadQuestion(db: AppDatabase, taskId: string, now: Date): B
     if (attempt.result === 'void') {
       return { ok: true as const, progress: progressOf(tx, task.sessionId) };
     }
-
-    const session = tx
-      .select()
-      .from(reviewSessions)
-      .where(eq(reviewSessions.id, task.sessionId))
-      .get();
-    if (!session) throw appError('INTERNAL', '会话不存在');
 
     // 前置校验：该 attempt 之后同 item+维度存在非 void 作答 → 拒绝撤销
     const laterAttempts = tx
@@ -1936,6 +2006,10 @@ export function reportBadQuestion(db: AppDatabase, taskId: string, now: Date): B
     // 4) daily_stats 回减 + learn 会话计数回滚
     const delta: StatsDelta = { formal: -1 };
     if (task.taskType === 'learn') delta.newItems = -1;
+    if (task.taskType === 'production') {
+      delta.productionAttempts = -1;
+      if (attempt.result === 'pass') delta.productionPass = -1;
+    }
     bumpDailyStats(tx, session.sessionDate, delta, nowIso);
     if (task.taskType === 'learn') {
       tx.update(reviewSessions)
@@ -2174,10 +2248,10 @@ export function submitTaskFeedback(
   feedback: 'guessed' | 'too_easy',
   now: Date,
 ): TaskFeedbackResponse {
-  const today = localDateString(now, timezone);
   const nowIso = now.toISOString();
   return db.transaction((tx) => {
     const task = requireTask(tx, taskId);
+    requireCurrentSession(tx, task.sessionId, timezone, now);
     if (task.taskType === 'learn') throw appError('CONFLICT', 'Learn 任务不支持反馈');
     // 蒙的/太简单只适用于选择题/填空题（PRODUCT §7.6：表达题不支持该反馈）
     if (task.taskType === 'production') {
@@ -2192,14 +2266,6 @@ export function submitTaskFeedback(
     if (!attempt) throw appError('CONFLICT', '该任务尚未作答');
     if (attempt.result === 'void') throw appError('CONFLICT', '该作答已撤销');
     if (attempt.feedback !== null) throw appError('CONFLICT', '该任务已反馈过');
-
-    const session = tx
-      .select()
-      .from(reviewSessions)
-      .where(eq(reviewSessions.id, task.sessionId))
-      .get();
-    if (!session) throw appError('INTERNAL', '会话不存在');
-    if (session.sessionDate !== today) throw appError('CONFLICT', '会话已过期，无法反馈');
 
     const dim = task.dimension as Dimension;
     let adjusted: TaskFeedbackResponse['adjustedResult'];

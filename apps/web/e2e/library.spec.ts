@@ -48,6 +48,43 @@ function importDoc(stamp: string, target1: string, target2: string) {
 }
 
 test.describe('Library 与 PC 导入流程', () => {
+  test('V2 重复导入的造句目标冲突须逐项确认', async ({ page }) => {
+    await login(page);
+    await page.goto('/library');
+    const stamp = uniqueStamp();
+    const item = {
+      type: 'word',
+      target: `goal ${stamp}`,
+      meaning: `目标（${stamp}）`,
+      source_example: 'The goal is clear.',
+      extra_examples: [],
+      tags: [],
+    };
+    await page.getByRole('button', { name: '导入' }).click();
+    await page
+      .getByLabel('粘贴学习库 JSON')
+      .fill(JSON.stringify({ version: '2.0', items: [item] }));
+    await page.getByRole('button', { name: '预览' }).click();
+    await page.getByRole('button', { name: /确认导入/ }).click();
+    await expect(page.getByRole('heading', { name: '导入完成' })).toBeVisible();
+    await page.getByRole('button', { name: '返回 Library 列表' }).click();
+
+    await page.getByRole('button', { name: '导入' }).click();
+    await page
+      .getByLabel('粘贴学习库 JSON')
+      .fill(
+        JSON.stringify({ version: '2.0', items: [{ ...item, production_enabled_override: true }] }),
+      );
+    await page.getByRole('button', { name: '预览' }).click();
+    await expect(page.getByText(/按类型默认.*需要造句/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /确认导入/ })).toBeDisabled();
+    await page.getByRole('checkbox', { name: /确认第 1 项造句目标变化/ }).check();
+    await expect(page.getByRole('button', { name: /确认导入/ })).toBeEnabled();
+    await page.getByRole('button', { name: /确认导入/ }).click();
+    await expect(page.getByRole('heading', { name: '导入完成' })).toBeVisible();
+    await expect(page.getByText(/合并 1/)).toBeVisible();
+  });
+
   test('列表页加载并显示搜索与筛选', async ({ page }) => {
     await login(page);
     await page.goto('/library');
@@ -163,5 +200,22 @@ test.describe('Library 与 PC 导入流程', () => {
     await expect(page.getByRole('button', { name: '归档' })).toBeVisible();
     await expect(page.getByRole('button', { name: '重置进度' })).toBeVisible();
     await expect(page.getByRole('button', { name: '标记已掌握' })).toBeVisible();
+
+    await page.getByRole('button', { name: '编辑' }).click();
+    const goal = page.getByLabel('造句目标');
+    await expect(goal).toHaveValue('default');
+    await goal.selectOption('enabled');
+    await page.getByRole('button', { name: '保存' }).click();
+    await expect(page.getByRole('button', { name: '编辑' })).toBeVisible();
+    await page.getByRole('button', { name: '编辑' }).click();
+    await expect(page.getByLabel('造句目标')).toHaveValue('enabled');
+    await page.getByLabel('造句目标').selectOption('disabled');
+    await page.getByRole('button', { name: '保存' }).click();
+    await page.getByRole('button', { name: '编辑' }).click();
+    await expect(page.getByLabel('造句目标')).toHaveValue('disabled');
+    await page.getByLabel('造句目标').selectOption('default');
+    await page.getByRole('button', { name: '保存' }).click();
+    await page.getByRole('button', { name: '编辑' }).click();
+    await expect(page.getByLabel('造句目标')).toHaveValue('default');
   });
 });

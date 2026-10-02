@@ -19,13 +19,26 @@ export const ReadOldItemView = z.object({
 });
 export type ReadOldItemView = z.infer<typeof ReadOldItemView>;
 
-/** 检查题视图（不含正确答案；作答由服务端判定） */
+/**
+ * 检查题视图（V1 遗留，只读）：V2 起不再生成/作答检查题。
+ * 未答检查题（answered=null）不泄露正确答案，也没有提交入口；
+ * 已答检查题回放首答结果与当时已揭晓的正确选项。
+ */
+export const ReadCheckAnsweredView = z.object({
+  selectedOptionId: z.string(),
+  correctOptionId: z.string(),
+  correct: z.boolean(),
+});
+export type ReadCheckAnsweredView = z.infer<typeof ReadCheckAnsweredView>;
+
 export const ReadCheckView = z.object({
   checkId: z.string(),
   learningItemId: z.string(),
   target: z.string(),
   question: z.string(),
   options: z.array(z.object({ id: z.string(), text: z.string() })).min(2),
+  /** null = V1 遗留未答（V2 起不可再作答） */
+  answered: ReadCheckAnsweredView.nullable(),
 });
 export type ReadCheckView = z.infer<typeof ReadCheckView>;
 
@@ -42,7 +55,8 @@ export const ReadArticleView = z.object({
   expiresAt: z.string().nullable(),
   focusItems: z.array(ReadFocusItemView).min(1),
   oldItems: z.array(ReadOldItemView),
-  checks: z.array(ReadCheckView).min(1).max(2),
+  /** V2 新文章为 []；V1 遗留文章保留存储的检查题（只读） */
+  checks: z.array(ReadCheckView).max(2),
 });
 export type ReadArticleView = z.infer<typeof ReadArticleView>;
 
@@ -79,7 +93,7 @@ export const ReadHistoryResponse = z.object({
 });
 export type ReadHistoryResponse = z.infer<typeof ReadHistoryResponse>;
 
-// ---------- 收藏 / 检查 ----------
+// ---------- 收藏 / 检查（V1 遗留：V2 cutover 后提交一律 409，路由仅为旧客户端保留） ----------
 
 export const ReadFavoriteRequest = z.object({
   favorite: z.boolean(),
@@ -101,7 +115,7 @@ export type ReadCheckRequest = z.infer<typeof ReadCheckRequest>;
 export const ReadCheckResponse = z.object({
   correct: z.boolean(),
   correctOptionId: z.string(),
-  /** 答错时为 true（该 focus 项将在下一次 Today 获得一题额外正式复习） */
+  /** V2 起恒为 false：Read 路径不再置补强旗；非 false 值仅出现在 V1 历史回放 */
   needsReinforcementMarked: z.boolean(),
 });
 export type ReadCheckResponse = z.infer<typeof ReadCheckResponse>;

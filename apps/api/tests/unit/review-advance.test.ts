@@ -115,8 +115,9 @@ describe('advanceReviewState', () => {
     expect(itemRow(itemId).status).toBe('mastered');
   });
 
-  it('只有一维 stable 不触发 mastered', async () => {
+  it('需造句的 Chunk 只有一维 stable 不触发 mastered', async () => {
     const itemId = await seedReadyItem();
+    db.update(learningItems).set({ type: 'chunk' }).where(eq(learningItems.id, itemId)).run();
     await seedReviewState(db, itemId, 'understanding', { level: 7, stable: 1, nextReviewAt: null });
     await seedReviewState(db, itemId, 'production', { level: 3, stable: 0 });
 

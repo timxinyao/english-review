@@ -1,8 +1,16 @@
-# English Learning Tool V1.2 — Technical Design
+# English Learning Tool V2 — Technical Design
 
 > 架构、技术栈、模块/API/部署基线
 
-**Version 1.2 · 2026-09-24**
+**Version 2 · 2026-09-30**
+
+## V2 实施契约（替代下文 V1.2 填空与 Read 检查流程）
+
+Review service 集中计算 `effectiveProductionEnabled = override ?? (type === 'chunk')` 与条件化 mastered，只有该 service 能推进 U/P Stage、排期和 mastered。Learning Item 保存可空三态覆盖列，API 列表和详情同时返回显式覆盖值及有效值。Library 改目标时事务化重算状态，paused/archived 不自动激活；关闭 P 取消当前未答 P 任务，开启 P 从下一次 Today 加入。导入、导出、备份/恢复必须保留显式值，旧备份按 null；重复导入显式冲突需预览确认。
+
+V2 正式 U 只出 Recall（四选一仅 Hint），正式 P 只出 target 可见的完整造句，不再生成、预取或分配 cloze。新项 P 首次不早于 Learn 后下一本地日；旧 P 在本地日切换的一次性事务迁移中重置 L0，已 Learn、active 且需 P 的项切换日到期。旧 U、历史及统计保留。旧 Session 跨切换日后写操作拒绝；Read 不再生成检查或 reinforcement，旧记录只读并清理旧标记。旧 cloze/Read 检查实现与 Prompt 仅服务切换前 Session 和历史，后续阶段移除时需同步 Schema/Prompt Eval。
+
+Today Session 先返回所有到期任务，再对当前和少量前瞻任务懒绑定题目；AI 调用必须在 SQLite 写事务之外。生成失败只留可重试 pending 任务，绑定须并发保护。Library practice 为一道 Recall 加可选一道完整造句，不改变正式进度。Phase 9 按子任务逐步实现；本文件的 V2 规则描述目标架构，不代表尚未实施的路由已上线。
 
 # 1. 文档目的与实现原则
 
@@ -117,7 +125,7 @@ english-learning/
 │       │   ├── check_cloze.v1.md
 │       │   ├── generate_production_prompt.v1.md
 │       │   ├── check_production.v1.md
-│       │   ├── generate_read.v1.md
+│       │   ├── generate_read.v2.md
 │       │   └── judge_duplicate_meaning.v1.md
 │       └── tests/
 │           └── ai/eval/
@@ -505,7 +513,7 @@ V1.2 固定 7 个 AI Prompt：
 | `check_cloze` | 填空答案本地规则无法判断时 | 按需实时 | `check_cloze.v1.md` |
 | `generate_production_prompt` | 表达题补库存 | 否 | `generate_production_prompt.v1.md` |
 | `check_production` | 用户提交表达题答案 | 是 | `check_production.v1.md` |
-| `generate_read` | 用户生成 Read | 是 | `generate_read.v1.md` |
+| `generate_read` | 用户生成 Read | 是 | `generate_read.v2.md` |
 | `judge_duplicate_meaning` | Import 疑似重复时 | 按需 | `judge_duplicate_meaning.v1.md` |
 
 Personal Example 的 `eligible / quality_score` 由 `check_production` 一并输出，不单独增加一次 AI 调用。

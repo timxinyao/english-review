@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { INTERVALS_DAYS } from '@el/shared';
+import { eq } from 'drizzle-orm';
+import { createDatabase } from '../../src/db/client.js';
+import { learningItems, reviewStates } from '../../src/db/schema.js';
+import { runMigrations } from '../../src/db/migrate.js';
+import { effectiveProductionEnabled } from '../../src/modules/review/goals.js';
 import {
   computeNextReviewState,
   initialProductionActivation,
   initialUnderstandingAfterLearn,
   isMastered,
+  reconcileItemStatus,
   type ReviewStateSnapshot,
 } from '../../src/modules/review/service.js';
 
@@ -206,12 +212,92 @@ describe('初始状态与 mastered 判定', () => {
     });
   });
 
-  it('isMastered：两维均 stable 才 mastered', () => {
+  it('isMastered：只按当前有效目标要求稳定维度', () => {
     const stable = snap({ level: 7, stable: true, nextReviewAt: null });
     const notStable = snap({ level: 7, stable: false });
-    expect(isMastered(stable, stable)).toBe(true);
-    expect(isMastered(notStable, stable)).toBe(false);
-    expect(isMastered(stable, notStable)).toBe(false);
-    expect(isMastered(notStable, notStable)).toBe(false);
+    expect(isMastered(stable, stable, true)).toBe(true);
+    expect(isMastered(notStable, stable, true)).toBe(false);
+    expect(isMastered(stable, notStable, true)).toBe(false);
+    expect(isMastered(notStable, notStable, true)).toBe(false);
+    expect(isMastered(stable, notStable, false)).toBe(true);
+    expect(isMastered(notStable, stable, false)).toBe(false);
+  });
+
+  it('effectiveProductionEnabled：Word 默认关、Chunk 默认开，显式覆盖优先', () => {
+    expect(effectiveProductionEnabled({ type: 'word', productionEnabledOverride: null })).toBe(
+      false,
+    );
+    expect(effectiveProductionEnabled({ type: 'chunk', productionEnabledOverride: null })).toBe(
+      true,
+    );
+    expect(effectiveProductionEnabled({ type: 'word', productionEnabledOverride: 1 })).toBe(true);
+    expect(effectiveProductionEnabled({ type: 'chunk', productionEnabledOverride: 0 })).toBe(false);
+  });
+
+  it('reconcileItemStatus：目标改变时重算 active/mastered，但不恢复 paused/archived', () => {
+    const db = createDatabase(':memory:');
+    runMigrations(db);
+    const now = NOW.toISOString();
+    for (const [id, status] of [
+      ['word', 'active'],
+      ['chunk', 'mastered'],
+      ['paused', 'paused'],
+      ['archived', 'archived'],
+    ] as const) {
+      db.insert(learningItems)
+        .values({
+          id,
+          type: id === 'word' ? 'word' : 'chunk',
+          target: id,
+          meaning: id,
+          status,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      db.insert(reviewStates)
+        .values({
+          id: `${id}-u`,
+          learningItemId: id,
+          dimension: 'understanding',
+          level: 7,
+          stable: 1,
+          updatedAt: now,
+        })
+        .run();
+      db.insert(reviewStates)
+        .values({
+          id: `${id}-p`,
+          learningItemId: id,
+          dimension: 'production',
+          level: 1,
+          stable: 0,
+          updatedAt: now,
+        })
+        .run();
+    }
+    db.transaction((tx) => {
+      for (const id of ['word', 'chunk', 'paused', 'archived']) reconcileItemStatus(tx, id, now);
+    });
+    expect(
+      db.select({ id: learningItems.id, status: learningItems.status }).from(learningItems).all(),
+    ).toEqual([
+      { id: 'word', status: 'mastered' },
+      { id: 'chunk', status: 'active' },
+      { id: 'paused', status: 'paused' },
+      { id: 'archived', status: 'archived' },
+    ]);
+    db.update(learningItems)
+      .set({ productionEnabledOverride: 0 })
+      .where(eq(learningItems.id, 'chunk'))
+      .run();
+    db.transaction((tx) => reconcileItemStatus(tx, 'chunk', now));
+    expect(
+      db
+        .select({ status: learningItems.status })
+        .from(learningItems)
+        .where(eq(learningItems.id, 'chunk'))
+        .get()?.status,
+    ).toBe('mastered');
   });
 });

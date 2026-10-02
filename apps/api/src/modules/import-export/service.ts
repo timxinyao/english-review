@@ -43,6 +43,8 @@ import {
 import { appError } from '../../lib/errors.js';
 import { getAiRuntime, type DuplicateJudgeItem } from '../../ai/runtime.js';
 import type { DbTx } from '../questions/service.js';
+import { reconcileProductionGoalChange } from '../learning-items/service.js';
+import { normalizeRestoredV1_2BackupForV2 } from '../review/v2-cutover.js';
 
 // ---------- 归一化 ----------
 
@@ -98,6 +100,8 @@ export interface StoredPreviewEntry {
   action: DuplicateDecision;
   /** 触发比对的已有项；无匹配时 null */
   existingId: string | null;
+  existingOverride: boolean | null;
+  productionGoalChange: ImportPreviewItem['productionGoalChange'];
 }
 
 export interface PreviewStore {
@@ -159,6 +163,7 @@ interface LibraryRow {
   meaning: string;
   sourceExample: string | null;
   createdAt: string;
+  productionEnabledOverride: number | null;
 }
 
 async function loadLibraryRows(db: AppDatabase): Promise<LibraryRow[]> {
@@ -170,6 +175,7 @@ async function loadLibraryRows(db: AppDatabase): Promise<LibraryRow[]> {
       meaning: learningItems.meaning,
       sourceExample: learningExamples.text,
       createdAt: learningItems.createdAt,
+      productionEnabledOverride: learningItems.productionEnabledOverride,
     })
     .from(learningItems)
     .leftJoin(
@@ -226,6 +232,7 @@ export async function previewImport(
           source: 'rule_fallback',
         },
         match: null,
+        productionGoalChange: null,
         warnings,
       });
       continue;
@@ -236,18 +243,28 @@ export async function previewImport(
       existingTarget: match.target,
       existingMeaning: match.meaning,
     };
+    const existingOverride =
+      match.productionEnabledOverride === null ? null : match.productionEnabledOverride === 1;
+    const productionGoalChange =
+      candidate.production_enabled_override !== undefined &&
+      candidate.production_enabled_override !== existingOverride
+        ? { from: existingOverride, to: candidate.production_enabled_override }
+        : null;
 
     if (isExactDuplicate(match, candidate)) {
       items.push({
         index,
         candidate,
         suggestion: {
-          action: 'skip_exact_duplicate',
-          reason: '与库内现有项的 target、释义与原句完全一致，属于完全重复。',
+          action: productionGoalChange ? 'merge' : 'skip_exact_duplicate',
+          reason: productionGoalChange
+            ? '内容完全重复，但造句目标与现有项不同；确认合并才会修改目标。'
+            : '与库内现有项的 target、释义与原句完全一致，属于完全重复。',
           confidence: 1,
           source: 'rule_exact',
         },
         match: matchDto,
+        productionGoalChange,
         warnings,
       });
       continue;
@@ -285,6 +302,7 @@ export async function previewImport(
         },
         warnings,
         match: matchDto,
+        productionGoalChange,
       });
     } else {
       items.push({
@@ -297,17 +315,26 @@ export async function previewImport(
           source: 'rule_fallback',
         },
         match: matchDto,
+        productionGoalChange,
         warnings,
       });
     }
   }
 
   const token = previewStore.put(
-    items.map((item) => ({
-      candidate: item.candidate,
-      action: item.suggestion.action,
-      existingId: item.match?.existingId ?? null,
-    })),
+    items.map((item) => {
+      const match = item.match ? rows.find((row) => row.id === item.match!.existingId) : null;
+      return {
+        candidate: item.candidate,
+        action: item.suggestion.action,
+        existingId: item.match?.existingId ?? null,
+        existingOverride:
+          match?.productionEnabledOverride === null || !match
+            ? null
+            : match.productionEnabledOverride === 1,
+        productionGoalChange: item.productionGoalChange,
+      };
+    }),
   );
   return { previewToken: token, items };
 }
@@ -348,6 +375,13 @@ function createItemFromCandidate(tx: DbTx, candidate: LibraryImportItem): string
     .values({
       id,
       type: candidate.type,
+      productionEnabledOverride:
+        candidate.production_enabled_override === undefined ||
+        candidate.production_enabled_override === null
+          ? null
+          : candidate.production_enabled_override
+            ? 1
+            : 0,
       target: candidate.target,
       meaning: candidate.meaning,
       ipa: candidate.type === 'word' ? (candidate.ipa ?? null) : null,
@@ -393,7 +427,12 @@ function createItemFromCandidate(tx: DbTx, candidate: LibraryImportItem): string
  * 候选例句（source_example + extra_examples）与现有例句去重后追加为 extra（软上限，超出仍追加不报错）；
  * tags 取并集；source/sourceUrl/notes 仅在原有为空时填充。（同步，事务内）
  */
-function mergeCandidateIntoItem(tx: DbTx, existingId: string, candidate: LibraryImportItem): void {
+function mergeCandidateIntoItem(
+  tx: DbTx,
+  existingId: string,
+  candidate: LibraryImportItem,
+  timezone: string,
+): void {
   const now = nowIso();
   const existing = tx.select().from(learningItems).where(eq(learningItems.id, existingId)).get();
   if (!existing) throw appError('INTERNAL', `合并目标学习项不存在：${existingId}`);
@@ -432,6 +471,16 @@ function mergeCandidateIntoItem(tx: DbTx, existingId: string, candidate: Library
 
   tx.update(learningItems)
     .set({
+      ...(candidate.production_enabled_override !== undefined
+        ? {
+            productionEnabledOverride:
+              candidate.production_enabled_override === null
+                ? null
+                : candidate.production_enabled_override
+                  ? 1
+                  : 0,
+          }
+        : {}),
       tagsJson: serializeTags(mergedTags),
       source: existing.source ?? candidate.source ?? null,
       sourceUrl: existing.sourceUrl ?? candidate.source_url ?? null,
@@ -440,21 +489,61 @@ function mergeCandidateIntoItem(tx: DbTx, existingId: string, candidate: Library
     })
     .where(eq(learningItems.id, existingId))
     .run();
+  if (candidate.production_enabled_override !== undefined) {
+    reconcileProductionGoalChange(
+      tx,
+      existingId,
+      existing,
+      {
+        type: existing.type,
+        productionEnabledOverride:
+          candidate.production_enabled_override === null
+            ? null
+            : candidate.production_enabled_override
+              ? 1
+              : 0,
+      },
+      new Date(now),
+      timezone,
+    );
+  }
 }
 
 export async function commitImport(
   db: AppDatabase,
   req: ImportCommitRequest,
+  timezone: string,
 ): Promise<ImportCommitResponse> {
   const stored = previewStore.take(req.previewToken);
   if (!stored) throw appError('NOT_FOUND', '预览已过期，请重新预览');
 
   const overrides = new Map(req.decisions.map((d) => [d.index, d.action]));
+  for (const [index, entry] of stored.entries()) {
+    if (entry.productionGoalChange && !overrides.has(index)) {
+      throw appError('VALIDATION_ERROR', `第 ${index + 1} 项造句目标变化需要明确决定`);
+    }
+  }
   let created = 0;
   let merged = 0;
   let skipped = 0;
 
   db.transaction((tx: DbTx) => {
+    for (const entry of stored) {
+      if (entry.existingId) {
+        const latest = tx
+          .select()
+          .from(learningItems)
+          .where(eq(learningItems.id, entry.existingId))
+          .get();
+        if (
+          !latest ||
+          latest.productionEnabledOverride !==
+            (entry.existingOverride === null ? null : entry.existingOverride ? 1 : 0)
+        ) {
+          throw appError('CONFLICT', '学习项造句目标已变化，请重新预览');
+        }
+      }
+    }
     for (const [index, entry] of stored.entries()) {
       const action = overrides.get(index) ?? entry.action;
       if (action === 'skip_exact_duplicate') {
@@ -462,7 +551,7 @@ export async function commitImport(
         continue;
       }
       if (action === 'merge' && entry.existingId) {
-        mergeCandidateIntoItem(tx, entry.existingId, entry.candidate);
+        mergeCandidateIntoItem(tx, entry.existingId, entry.candidate, timezone);
         merged++;
         continue;
       }
@@ -484,7 +573,7 @@ export async function exportLibrary(db: AppDatabase): Promise<ExportLibraryRespo
     .from(learningItems)
     .where(ne(learningItems.status, 'archived'))
     .orderBy(learningItems.createdAt, learningItems.id);
-  if (rows.length === 0) return { version: '1.2', items: [] };
+  if (rows.length === 0) return { version: '2.0', items: [] };
 
   const examples = await db.select().from(learningExamples);
   const byItem = new Map<string, typeof examples>();
@@ -511,6 +600,8 @@ export async function exportLibrary(db: AppDatabase): Promise<ExportLibraryRespo
       .map((e) => e.text);
     return {
       type: row.type as 'word' | 'chunk',
+      production_enabled_override:
+        row.productionEnabledOverride === null ? null : row.productionEnabledOverride === 1,
       target: row.target,
       meaning: row.meaning,
       ipa: row.type === 'word' ? row.ipa : null,
@@ -524,7 +615,7 @@ export async function exportLibrary(db: AppDatabase): Promise<ExportLibraryRespo
     };
   });
 
-  return { version: '1.2', items };
+  return { version: '2.0', items };
 }
 
 // ---------- 完整备份 / 覆盖恢复（PRODUCT §9.3，TECHNICAL §14） ----------
@@ -579,6 +670,8 @@ export function exportBackup(db: AppDatabase, now: Date): BackupExport {
   const items: BackupItem[] = itemRows.map((row) => ({
     id: row.id,
     type: row.type as BackupItem['type'],
+    productionEnabledOverride:
+      row.productionEnabledOverride === null ? null : row.productionEnabledOverride === 1,
     target: row.target,
     meaning: row.meaning,
     ipa: row.type === 'word' ? row.ipa : null,
@@ -613,7 +706,7 @@ export function exportBackup(db: AppDatabase, now: Date): BackupExport {
   }));
 
   return {
-    version: '1.2',
+    version: '2.0',
     exportedAt: now.toISOString(),
     settings: loadSettingsForBackup(db),
     items,
@@ -693,8 +786,9 @@ export async function commitRestore(
   now: Date,
   store: TokenStore<BackupExport> = restoreStore,
 ): Promise<RestoreCommitResponse> {
-  const backup = store.take(req.previewToken);
-  if (!backup) throw appError('NOT_FOUND', '预览已过期，请重新上传');
+  const receivedBackup = store.take(req.previewToken);
+  if (!receivedBackup) throw appError('NOT_FOUND', '预览已过期，请重新上传');
+  const backup = normalizeRestoredV1_2BackupForV2(receivedBackup, now);
 
   // 快照目录：data 目录 = dirname(config.databasePath)
   const snapshotsDir = join(dirname(config.databasePath), 'snapshots');
@@ -710,6 +804,12 @@ export async function commitRestore(
   const itemRows: (typeof learningItems.$inferInsert)[] = backup.items.map((item) => ({
     id: item.id,
     type: item.type,
+    productionEnabledOverride:
+      !('productionEnabledOverride' in item) || item.productionEnabledOverride === null
+        ? null
+        : item.productionEnabledOverride
+          ? 1
+          : 0,
     target: item.target,
     meaning: item.meaning,
     ipa: item.ipa ?? null,

@@ -27,6 +27,7 @@ import {
 } from '../../db/schema.js';
 import { englishWordCount } from '../../ai/invariants.js';
 import { AppError, appError } from '../../lib/errors.js';
+import { isV2CutoverApplied } from '../review/v2-cutover.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -109,9 +110,7 @@ export async function loadRealReadDeps(): Promise<ReadDeps> {
             .join('\n'),
           old_list:
             input.oldItems.length > 0
-              ? input.oldItems
-                  .map((f) => `- ${f.target}（${f.meaning}）`)
-                  .join('\n')
+              ? input.oldItems.map((f) => `- ${f.target}（${f.meaning}）`).join('\n')
               : '（无）',
         },
       )) as {
@@ -311,7 +310,7 @@ function cmpAscNullable(a: string | null, b: string | null): number {
 }
 
 // ---------------------------------------------------------------------------
-// checks 存储（read_articles.checks_json；correctOptionId 仅服务端判定用）
+// checks 存储（read_articles.checks_json）——V1 遗留数据只读；V2 新文章恒为 '[]'
 // ---------------------------------------------------------------------------
 
 export interface StoredReadCheck {
@@ -321,7 +320,7 @@ export interface StoredReadCheck {
   options: Array<{ id: string; text: string }>;
   correctOptionId: string;
   explanation?: string | null;
-  /** 首答后写入（幂等 + 重启安全） */
+  /** V1 首答记录（幂等 + 重启安全）；V2 起不再写入 */
   answered?: {
     selectedOptionId: string;
     correct: boolean;
@@ -343,9 +342,10 @@ function parseChecks(json: string): StoredReadCheck[] {
 // ---------------------------------------------------------------------------
 
 /**
- * 实时生成一篇 Read（PRODUCT §8.1）：
- * 选词 → AI 生成（事务外，completeStructured 含词数/coverage/surface_form 不变式）
- * → 同步事务落库（article + items + checks_json）→ 返回视图（不含 correctOptionId）。
+ * 实时生成一篇 Read（PRODUCT §8.1，V2 纯阅读）：
+ * 选词 → AI 生成（事务外，completeStructured 含词数/coverage/surface_form 不变式，
+ * Schema strict 拒绝含 checks 的输出并重试）→ 同步事务落库（article + items，
+ * checks_json='[]'）→ 返回视图（checks=[]）。
  */
 export async function generateReadArticle(
   db: AppDatabase,
@@ -369,13 +369,6 @@ export async function generateReadArticle(
   const nowIso = now.toISOString();
   const expiresIso = new Date(now.getTime() + READ_KEEP_DAYS * DAY_MS).toISOString();
   const articleId = randomUUID();
-  const checks: StoredReadCheck[] = data.checks.map((c) => ({
-    id: randomUUID(),
-    learningItemId: c.learning_item_id,
-    question: c.question,
-    options: c.options,
-    correctOptionId: c.correct_option_id,
-  }));
   const coverageById = new Map(data.coverage.map((c) => [c.learning_item_id, c.surface_form]));
   const focusIds = new Set(selection.focusItems.map((f) => f.id));
 
@@ -392,7 +385,8 @@ export async function generateReadArticle(
         promptVersion: meta.version,
         promptHash: meta.hash,
         model,
-        checksJson: JSON.stringify(checks),
+        // V2：纯阅读，不再携带检查题
+        checksJson: '[]',
         createdAt: nowIso,
         expiresAt: expiresIso,
       })
@@ -422,9 +416,6 @@ export async function generateReadArticle(
     }
   });
 
-  const targetById = new Map(
-    [...selection.focusItems, ...selection.oldItems].map((x) => [x.id, x.target]),
-  );
   return {
     id: articleId,
     title: data.title,
@@ -442,13 +433,7 @@ export async function generateReadArticle(
     oldItems: selection.oldItems
       .filter((o) => !focusIds.has(o.id))
       .map((o) => ({ learningItemId: o.id, target: o.target })),
-    checks: checks.map((c) => ({
-      checkId: c.id,
-      learningItemId: c.learningItemId,
-      target: targetById.get(c.learningItemId) ?? '',
-      question: c.question,
-      options: c.options,
-    })),
+    checks: [],
   };
 }
 
@@ -502,6 +487,14 @@ export function getReadArticle(db: AppDatabase, articleId: string, now: Date): R
       target: targetById.get(c.learningItemId) ?? '',
       question: c.question,
       options: c.options,
+      // V1 遗留只读回放：已答回放首答与当时已揭晓的正确选项；未答不泄露答案
+      answered: c.answered
+        ? {
+            selectedOptionId: c.answered.selectedOptionId,
+            correctOptionId: c.correctOptionId,
+            correct: c.answered.correct,
+          }
+        : null,
     })),
   };
 }
@@ -573,10 +566,12 @@ export function setReadFavorite(
 // ---------------------------------------------------------------------------
 
 /**
- * 轻量检查判定（PRODUCT §8.2）：
- * - 与 checks_json 的 correctOptionId 比对 → correct；
- * - 写 attempt（mode='read_check'，question_id=null，不计 daily_stats/不推进 review_states/不影响 Today）；
- * - 答错：置 needs_reinforcement=1；答对不清旗（旗只由正式复习清）；
+ * 轻量检查判定（PRODUCT §8.2，V1 遗留兼容路径）：
+ * - V2 cutover 后检查题停用：任何提交（旧/新文章）一律 409，不写 attempt、不置旗；
+ * - cutover 前的遗留窗口仍可判定（供最后一次 V1.2 会话收尾）：
+ *   与 checks_json 的 correctOptionId 比对 → correct；写 attempt（mode='read_check'，
+ *   不计 daily_stats/不推进 review_states/不影响 Today）；但不再置 needs_reinforcement
+ *   （V2：Read 路径不产生补强，旧行的清旗归 cutover/正式复习）；
  * - 同 checkId 只结算一次：首答结果写入 checks_json.answered，重复提交幂等返回。
  */
 export function answerReadCheck(
@@ -585,6 +580,10 @@ export function answerReadCheck(
   body: { checkId: string; selectedOptionId: string },
   now: Date,
 ): ReadCheckResponse {
+  if (isV2CutoverApplied(db)) {
+    throw appError('CONFLICT', 'Read 检查题已停用，请刷新页面');
+  }
+
   const nowIso = now.toISOString();
   return db.transaction((tx) => {
     const article = tx.select().from(readArticles).where(eq(readArticles.id, articleId)).get();
@@ -612,15 +611,6 @@ export function answerReadCheck(
     if (!item) throw appError('NOT_FOUND', '学习项不存在');
 
     const correct = check.correctOptionId === body.selectedOptionId;
-    let marked = false;
-    if (!correct) {
-      // 答错置旗：下一次 Today start 生成一题额外正式复习（read_reinforcement）
-      tx.update(learningItems)
-        .set({ needsReinforcement: 1, updatedAt: nowIso })
-        .where(eq(learningItems.id, item.id))
-        .run();
-      marked = true;
-    }
 
     tx.insert(attempts)
       .values({
@@ -653,7 +643,8 @@ export function answerReadCheck(
       answered: {
         selectedOptionId: body.selectedOptionId,
         correct,
-        needsReinforcementMarked: marked,
+        // V2：不再置补强旗
+        needsReinforcementMarked: false,
       },
     };
     tx.update(readArticles)
@@ -661,6 +652,6 @@ export function answerReadCheck(
       .where(eq(readArticles.id, articleId))
       .run();
 
-    return { correct, correctOptionId: check.correctOptionId, needsReinforcementMarked: marked };
+    return { correct, correctOptionId: check.correctOptionId, needsReinforcementMarked: false };
   });
 }

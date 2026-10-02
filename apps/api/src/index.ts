@@ -5,13 +5,15 @@ import { createDatabase } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { buildApp } from './app.js';
 import { loadPromptRegistry, validateRegistry } from './ai/promptRegistry.js';
+import { applyV2Cutover } from './modules/review/v2-cutover.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const db = createDatabase(config.databasePath);
   runMigrations(db);
 
-  // Prompt Registry fail fast：加载失败则拒绝启动（TECHNICAL_DESIGN §10.4）
+  // Prompt Registry fail fast：加载失败则拒绝启动（TECHNICAL_DESIGN §10.4）。
+  // 必须先于 V2 cutover：否则校验失败退出时 DB 已被切换却没有服务可用。
   try {
     const registry = loadPromptRegistry(fileURLToPath(new URL('../prompts', import.meta.url)));
     validateRegistry(registry);
@@ -19,6 +21,8 @@ async function main(): Promise<void> {
     console.error(`[boot] Prompt Registry 校验失败：${(err as Error).message}`);
     process.exit(1);
   }
+
+  applyV2Cutover(db, new Date(), config.appTimezone);
 
   const app = buildApp({ config, db });
   await app.listen({ port: config.port, host: config.host });

@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { AnswerResponse, TodayStatusResponse } from '@el/shared';
+import { eq } from 'drizzle-orm';
+import { reviewTasks } from '../../src/db/schema.js';
 import { loadRealTodayDeps, setTodayDepsForTests } from '../../src/modules/today/service.js';
 import { createTestApp, loginCookie, type TestApp } from '../helpers/test-app.js';
 import { seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
@@ -60,6 +62,13 @@ describe.skipIf(realDeps === null)('today 与 review/questions 真实模块绑�
     if (status.status !== 'active') throw new Error('应 active');
     const taskId = status.currentTask!.taskId;
 
+    const prepared = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/today/tasks/${taskId}/prepare`,
+      headers: { cookie },
+    });
+    expect(prepared.statusCode).toBe(200);
+
     const answer = await ctx.app.inject({
       method: 'POST',
       url: `/api/today/tasks/${taskId}/answer`,
@@ -81,5 +90,66 @@ describe.skipIf(realDeps === null)('today 与 review/questions 真实模块绑�
       .get();
     expect(state?.level).toBeGreaterThan(3);
     expect(state?.nextReviewAt).not.toBeNull();
+  });
+
+  it('P-L1 有旧 cloze 库存时，新 Today 仍绑定 production 题', async () => {
+    const isolated = createTestApp();
+    apps.push(isolated.app);
+    const isolatedCookie = await loginCookie(isolated.app);
+    const itemId = await seedItem(isolated.db, {
+      id: 'rb-p-v2',
+      type: 'chunk',
+      target: 'wear down',
+      meaning: '逐渐消耗',
+      queueState: 'started',
+    });
+    await seedReviewState(isolated.db, itemId, 'production', { level: 1, nextReviewAt: dayAgo() });
+    for (let index = 0; index < 3; index++) {
+      await seedQuestion(isolated.db, itemId, {
+        id: `legacy-cloze-${index}`,
+        type: 'cloze',
+        status: 'fresh',
+        promptText: 'It ____ me down.',
+        payloadJson: JSON.stringify({ acceptedAnswers: ['wears'] }),
+      });
+    }
+    await seedQuestion(isolated.db, itemId, {
+      id: 'v2-production',
+      type: 'production',
+      status: 'fresh',
+      meaningSnapshot: '逐渐消耗',
+      promptText: '长期压力让我疲惫。',
+      payloadJson: JSON.stringify({
+        mustUse: 'wear down',
+        referenceAnswer: 'Long-term stress wears me down.',
+        acceptanceNotes: '允许正常词形变化。',
+      }),
+    });
+
+    const start = await isolated.app.inject({
+      method: 'POST',
+      url: '/api/today/start',
+      headers: { cookie: isolatedCookie },
+    });
+    expect(start.statusCode).toBe(200);
+    const started = TodayStatusResponse.parse(start.json());
+    expect(started.status).toBe('active');
+    if (started.status !== 'active') throw new Error('应 active');
+    expect(started.currentTask?.taskType).toBe('production');
+    const bound = isolated.db
+      .select()
+      .from(reviewTasks)
+      .where(eq(reviewTasks.id, started.currentTask!.taskId))
+      .get();
+    expect(bound?.questionId).toBeNull();
+    const prepared = await isolated.app.inject({
+      method: 'POST',
+      url: `/api/today/tasks/${started.currentTask!.taskId}/prepare`,
+      headers: { cookie: isolatedCookie },
+    });
+    expect(prepared.statusCode).toBe(200);
+    expect(
+      isolated.db.select().from(reviewTasks).where(eq(reviewTasks.id, bound!.id)).get()?.questionId,
+    ).toBe('v2-production');
   });
 });

@@ -85,10 +85,11 @@ describe('Read 首页', () => {
     expect(await screen.findByRole('heading', { name: 'A Quiet Morning' })).toBeVisible();
     expect(screen.getByText('故事')).toBeVisible();
     expect(screen.getByText('重点复现')).toBeVisible();
-    expect(screen.getByText(/文中 stable 的意思是什么？/)).toBeVisible();
+    // V2 纯阅读：生成的文章无检查题
+    expect(screen.queryByText('检查题（历史）')).not.toBeInTheDocument();
   });
 
-  it('生成成功进入文章：标题/类型/正文/检查题可见，且不触发 GET /api/read/:id', async () => {
+  it('生成成功进入文章：标题/类型/正文可见，且不触发 GET /api/read/:id', async () => {
     stubApi({
       [RECENT_URL]: makeHistoryResponse([]),
       '/api/read/generate': makeArticle(),

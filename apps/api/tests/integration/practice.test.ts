@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { PracticeAnswerResponse, PracticeStartResponse } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
 import {
@@ -14,7 +14,12 @@ import {
 import { setPracticeDepsForTests, type PracticeDeps } from '../../src/modules/practice/service.js';
 import { createTestApp, loginCookie, type TestApp } from '../helpers/test-app';
 import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed';
-import { choicePayload, createFakeDeps, DEFAULT_OPTIONS } from '../helpers/today-fakes';
+import {
+  choicePayload,
+  createFakeDeps,
+  type FakeDepsOptions,
+  DEFAULT_OPTIONS,
+} from '../helpers/today-fakes';
 
 const apps: FastifyInstance[] = [];
 const dayAgo = () => new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -33,13 +38,12 @@ async function newCtx(seed: (db: AppDatabase) => Promise<void>): Promise<Ctx> {
 }
 
 /** 从 today fake 复用 acquire/generate/evaluate*，组合成 PracticeDeps */
-function practiceFakes(): PracticeDeps {
-  const f = createFakeDeps();
+function practiceFakes(opts: FakeDepsOptions = {}): PracticeDeps {
+  const f = createFakeDeps(opts);
   return {
     acquire: f.acquire,
     generate: f.generate,
     evaluateChoice: f.evaluateChoice,
-    evaluateCloze: f.evaluateCloze,
     evaluateProduction: f.evaluateProduction,
   };
 }
@@ -48,37 +52,75 @@ async function post(ctx: Ctx, url: string, payload?: Record<string, unknown>) {
   return ctx.app.inject({ method: 'POST', url, headers: { cookie: ctx.cookie }, payload });
 }
 
+// ---------------------------------------------------------------------------
+// V2（Phase 9）种子：practice 一律 [recall] 或 [recall, production]，无 cloze。
+// 释义（meaning）只允许出现在作答响应（reveal），start 响应绝不泄漏。
+// ---------------------------------------------------------------------------
+
+const SOURCE_EXAMPLE = 'The connection has been stable all week.';
+const MEANING = '测试释义';
+
 const PROD_PAYLOAD = JSON.stringify({
   mustUse: 'stable',
   referenceAnswer: 'The connection is stable.',
   acceptanceNotes: '允许变化。',
 });
 
-async function seedWithP(db: AppDatabase, itemId: string, pLevel: number | null): Promise<void> {
-  await seedItem(db, { id: itemId, target: 'stable', queueState: 'started' });
-  await seedExample(db, itemId, 'source', 'The connection has been stable all week.');
+interface SeedOpts {
+  type?: 'word' | 'chunk';
+  override?: number | null;
+  pLevel?: number | null;
+  understandingStock?: boolean;
+  clozeStock?: boolean;
+  productionStock?: boolean;
+}
+
+async function seedV2Item(db: AppDatabase, itemId: string, opts: SeedOpts = {}): Promise<void> {
+  const {
+    type = 'word',
+    override = null,
+    pLevel = null,
+    understandingStock = true,
+    clozeStock = false,
+    productionStock = true,
+  } = opts;
+  await seedItem(db, {
+    id: itemId,
+    type,
+    productionEnabledOverride: override,
+    target: 'stable',
+    meaning: MEANING,
+    queueState: 'started',
+  });
+  await seedExample(db, itemId, 'source', SOURCE_EXAMPLE);
   if (pLevel !== null) {
     await seedReviewState(db, itemId, 'production', { level: pLevel, nextReviewAt: dayAgo() });
   }
-  await seedQuestion(db, itemId, {
-    type: 'understanding',
-    payloadJson: choicePayload(DEFAULT_OPTIONS, '理解解释'),
-    correctOptionId: 'o1',
-    contextText: 'A ____ sentence.',
-    promptText: 'stable 最接近什么意思？',
-  });
-  await seedQuestion(db, itemId, {
-    type: 'cloze',
-    payloadJson: JSON.stringify({ acceptedAnswers: ['stable'], explanation: 'cloze 解释' }),
-    promptText: 'The connection is ____.',
-    correctOptionId: null,
-  });
-  await seedQuestion(db, itemId, {
-    type: 'production',
-    promptText: '请使用 stable 描述一个稳定的连接。',
-    payloadJson: PROD_PAYLOAD,
-    correctOptionId: null,
-  });
+  if (understandingStock) {
+    await seedQuestion(db, itemId, {
+      type: 'understanding',
+      payloadJson: choicePayload(DEFAULT_OPTIONS, '理解解释'),
+      correctOptionId: 'o1',
+      contextText: 'A ____ sentence.',
+      promptText: 'stable 最接近什么意思？',
+    });
+  }
+  if (clozeStock) {
+    await seedQuestion(db, itemId, {
+      type: 'cloze',
+      payloadJson: JSON.stringify({ acceptedAnswers: ['stable'], explanation: 'cloze 解释' }),
+      promptText: 'The connection is ____.',
+      correctOptionId: null,
+    });
+  }
+  if (productionStock) {
+    await seedQuestion(db, itemId, {
+      type: 'production',
+      promptText: '请使用 stable 描述一个稳定的连接。',
+      payloadJson: PROD_PAYLOAD,
+      correctOptionId: null,
+    });
+  }
 }
 
 afterAll(async () => {
@@ -86,59 +128,74 @@ afterAll(async () => {
   for (const app of apps) await app.close();
 });
 
-describe('POST /api/library/:id/practice（start）', () => {
-  it('无 P 状态 → 2 选择 + 1 填空；响应符合冻结契约', async () => {
+describe('POST /api/library/:id/practice（start，V2：Recall + 可选 Production）', () => {
+  it('word（production 默认关，即便有 P 状态）：恰好 [recall]；target/原句在、释义不泄漏', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-1', null);
+      await seedV2Item(db, 'pr-1', { type: 'word', override: null, pLevel: 4 });
     });
     const res = await post(ctx, '/api/library/pr-1/practice');
     expect(res.statusCode).toBe(200);
     const body = PracticeStartResponse.parse(res.json());
-    expect(body.questions).toHaveLength(3);
-    const counts = {
-      choice: body.questions.filter((q) => q.qtype === 'choice').length,
-      cloze: body.questions.filter((q) => q.qtype === 'cloze').length,
-      production: body.questions.filter((q) => q.qtype === 'production').length,
-    };
-    expect(counts).toEqual({ choice: 2, cloze: 1, production: 0 });
+    expect(body.questions.map((q) => q.qtype)).toEqual(['recall']);
+    const recall = body.questions[0]!;
+    if (recall.qtype !== 'recall') throw new Error('unreachable');
+    expect(recall.questionId).toBeTruthy();
+    expect(recall.target).toBe('stable');
+    expect(recall.context).toBe(SOURCE_EXAMPLE);
+    expect(recall.hint.kind).toBe('context_meaning');
+    expect(recall.hint.context).toBe('A ____ sentence.');
+    expect(recall.hint.question).toBe('stable 最接近什么意思？');
+    expect(recall.hint.options).toHaveLength(4);
+    // 揭示前不泄漏释义（reveal 只在作答响应）
+    expect(JSON.stringify(res.json())).not.toContain(MEANING);
   });
 
-  it('P-L4 → 1 选择 + 2 表达题；production 视图不含 reference', async () => {
+  it('chunk（production 默认开）：恰好 [recall, production]；production 视图不含 reference', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-2', 4);
+      await seedV2Item(db, 'pr-2', { type: 'chunk', override: null });
     });
     const res = await post(ctx, '/api/library/pr-2/practice');
     expect(res.statusCode).toBe(200);
     const body = PracticeStartResponse.parse(res.json());
-    expect(body.questions).toHaveLength(3);
-    const counts = {
-      choice: body.questions.filter((q) => q.qtype === 'choice').length,
-      production: body.questions.filter((q) => q.qtype === 'production').length,
-    };
-    expect(counts).toEqual({ choice: 1, production: 2 });
-    const prod = body.questions.find((q) => q.qtype === 'production')!;
+    expect(body.questions.map((q) => q.qtype)).toEqual(['recall', 'production']);
+    const prod = body.questions[1]!;
     if (prod.qtype !== 'production') throw new Error('unreachable');
     expect(prod.zhPrompt).toBe('请使用 stable 描述一个稳定的连接。');
     expect(prod.mustUse).toBe('stable');
-    expect(JSON.stringify(body.questions)).not.toContain('The connection is stable.');
+    expect(JSON.stringify(res.json())).not.toContain('The connection is stable.');
+    expect(JSON.stringify(res.json())).not.toContain(MEANING);
   });
 
-  it('P-L1 → 1 选择 + 2 填空（early 阶段填空为主）', async () => {
+  it('override 覆盖类型默认：word override=1 → [recall, production]；chunk override=0 → [recall]', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-3', 1);
+      await seedV2Item(db, 'pr-3a', { type: 'word', override: 1 });
+      await seedV2Item(db, 'pr-3b', { type: 'chunk', override: 0 });
     });
-    const body = PracticeStartResponse.parse(
-      (await post(ctx, '/api/library/pr-3/practice')).json(),
-    );
-    expect(body.questions.filter((q) => q.qtype === 'choice')).toHaveLength(1);
-    expect(body.questions.filter((q) => q.qtype === 'cloze')).toHaveLength(2);
+    const a = PracticeStartResponse.parse((await post(ctx, '/api/library/pr-3a/practice')).json());
+    expect(a.questions.map((q) => q.qtype)).toEqual(['recall', 'production']);
+    const b = PracticeStartResponse.parse((await post(ctx, '/api/library/pr-3b/practice')).json());
+    expect(b.questions.map((q) => q.qtype)).toEqual(['recall']);
   });
 
-  it('优先从库存取：返回已种子的题（id 来自库存），不依赖生成', async () => {
+  it('旧 P-L1 + cloze 库存也不出填空（Phase 9：P 阶段题一律 production）', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-4', null);
-      // 无 P 状态需要 2 道选择题：再补一道库存，避免触发懒生成
-      await seedQuestion(db, 'pr-4', {
+      // 旧数据画像：P-L1（V1 映射填空）+ 历史 cloze 库存
+      await seedV2Item(db, 'pr-4a', { type: 'word', override: 1, pLevel: 1, clozeStock: true });
+      await seedV2Item(db, 'pr-4b', { type: 'word', override: null, pLevel: 1, clozeStock: true });
+    });
+    const a = PracticeStartResponse.parse((await post(ctx, '/api/library/pr-4a/practice')).json());
+    expect(a.questions.map((q) => q.qtype)).toEqual(['recall', 'production']);
+    const b = PracticeStartResponse.parse((await post(ctx, '/api/library/pr-4b/practice')).json());
+    expect(b.questions.map((q) => q.qtype)).toEqual(['recall']);
+    expect(JSON.stringify(a.questions)).not.toContain('cloze');
+    expect(JSON.stringify(b.questions)).not.toContain('cloze');
+  });
+
+  it('库存优先：全部题来自库存且不重复（不依赖生成）', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedV2Item(db, 'pr-5', { type: 'chunk' });
+      // 多余的 understanding 库存，验证取题排除已用 id
+      await seedQuestion(db, 'pr-5', {
         type: 'understanding',
         payloadJson: choicePayload(DEFAULT_OPTIONS, '第二道'),
         correctOptionId: 'o1',
@@ -149,16 +206,46 @@ describe('POST /api/library/:id/practice（start）', () => {
     const stockIds = ctx.db
       .select({ id: questions.id })
       .from(questions)
-      .where(eq(questions.learningItemId, 'pr-4'))
+      .where(eq(questions.learningItemId, 'pr-5'))
       .all()
       .map((r) => r.id);
-    expect(stockIds).toHaveLength(4);
+    expect(stockIds).toHaveLength(3);
     const body = PracticeStartResponse.parse(
-      (await post(ctx, '/api/library/pr-4/practice')).json(),
+      (await post(ctx, '/api/library/pr-5/practice')).json(),
     );
-    expect(body.questions).toHaveLength(3);
+    expect(body.questions).toHaveLength(2);
     expect(body.questions.every((q) => stockIds.includes(q.questionId))).toBe(true);
-    expect(new Set(body.questions.map((q) => q.questionId)).size).toBe(3); // 不重复取同一题
+    expect(new Set(body.questions.map((q) => q.questionId)).size).toBe(2); // 不重复取同一题
+  });
+
+  it('无 understanding 库存 → 懒生成一道（fake）并用于 recall', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedV2Item(db, 'pr-6', { understandingStock: false });
+    });
+    const res = await post(ctx, '/api/library/pr-6/practice');
+    expect(res.statusCode).toBe(200);
+    const body = PracticeStartResponse.parse(res.json());
+    expect(body.questions.map((q) => q.qtype)).toEqual(['recall']);
+    const recall = body.questions[0]!;
+    if (recall.qtype !== 'recall') throw new Error('unreachable');
+    expect(recall.hint.options.length).toBeGreaterThanOrEqual(2); // fake 生成的选项可用作 Hint
+  });
+
+  it('understanding 生成失败 → 502 AI_PROVIDER_ERROR；依赖恢复后重试成功', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedV2Item(db, 'pr-7', { understandingStock: false, productionStock: false });
+    });
+    setPracticeDepsForTests(practiceFakes({ generateFailFor: new Set(['pr-7:understanding']) }));
+    const fail = await post(ctx, '/api/library/pr-7/practice');
+    expect(fail.statusCode).toBe(502);
+    expect(fail.json().error.code).toBe('AI_PROVIDER_ERROR');
+
+    setPracticeDepsForTests(practiceFakes()); // AI 恢复 → 重试成功
+    const ok = await post(ctx, '/api/library/pr-7/practice');
+    expect(ok.statusCode).toBe(200);
+    expect(PracticeStartResponse.parse(ok.json()).questions.map((q) => q.qtype)).toEqual([
+      'recall',
+    ]);
   });
 
   it('item 不存在 → 404', async () => {
@@ -168,16 +255,16 @@ describe('POST /api/library/:id/practice（start）', () => {
   });
 });
 
-describe('POST /api/library/:id/practice/:questionId/answer', () => {
-  it('选择题：pass/fail 判定与揭示；零状态影响（review_states/next_review_at/status/daily_stats 全不变）', async () => {
+describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
+  it('Recall 直判：recalled→pass、forgot→fail；作答响应揭示释义；零状态影响', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-10', 3);
+      await seedV2Item(db, 'pr-10', { type: 'word', override: 1, pLevel: 3 });
     });
     const start = PracticeStartResponse.parse(
       (await post(ctx, '/api/library/pr-10/practice')).json(),
     );
-    const choice = start.questions.find((q) => q.qtype === 'choice')!;
-    if (choice.qtype !== 'choice') throw new Error('unreachable');
+    const recall = start.questions[0]!;
+    if (recall.qtype !== 'recall') throw new Error('unreachable');
 
     const stateBefore = ctx.db
       .select()
@@ -190,25 +277,26 @@ describe('POST /api/library/:id/practice/:questionId/answer', () => {
       .where(eq(learningItems.id, 'pr-10'))
       .get()!;
 
-    const ok = await post(ctx, `/api/library/pr-10/practice/${choice.questionId}/answer`, {
-      selectedOptionId: 'o1',
+    const ok = await post(ctx, `/api/library/pr-10/practice/${recall.questionId}/answer`, {
+      recall: 'recalled',
     });
     const okBody = PracticeAnswerResponse.parse(ok.json());
     expect(ok.statusCode).toBe(200);
     expect(okBody.result).toBe('pass');
     expect(okBody.correct).toBe(true);
-    expect(okBody.explanation).toBeNull();
+    expect(okBody.meaning).toBe(MEANING); // reveal 只在作答后
+    expect(okBody.correctOptionId).toBeNull();
     expect(okBody.personalExampleSaved).toBe(false);
 
-    const bad = await post(ctx, `/api/library/pr-10/practice/${choice.questionId}/answer`, {
-      selectedOptionId: 'o2',
+    const bad = await post(ctx, `/api/library/pr-10/practice/${recall.questionId}/answer`, {
+      recall: 'forgot',
     });
     const badBody = PracticeAnswerResponse.parse(bad.json());
     expect(badBody.result).toBe('fail');
-    expect(badBody.explanation).toBe('理解解释');
-    expect(badBody.correctOptionId).toBe('o1');
+    expect(badBody.correct).toBe(false);
+    expect(badBody.meaning).toBe(MEANING);
 
-    // 零状态影响
+    // 零状态影响（review_states/next_review_at/status/daily_stats 全不变）
     expect(
       ctx.db.select().from(reviewStates).where(eq(reviewStates.learningItemId, 'pr-10')).all(),
     ).toEqual(stateBefore);
@@ -224,54 +312,100 @@ describe('POST /api/library/:id/practice/:questionId/answer', () => {
     const rows = ctx.db
       .select()
       .from(attempts)
-      .where(eq(attempts.questionId, choice.questionId))
+      .where(eq(attempts.questionId, recall.questionId))
       .all();
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.mode === 'library_practice' && r.reviewTaskId === null)).toBe(true);
+    expect(rows.every((r) => r.selectedOptionId === null)).toBe(true); // 直判不带选项
   });
 
-  it('填空题：判定与完整句揭示；不写 daily_stats', async () => {
+  it('Recall Hint：答对 basic_pass、答错 fail 揭示正确项与解释；零状态影响', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-11', 3);
+      await seedV2Item(db, 'pr-11', { type: 'chunk', pLevel: 2 });
     });
     const start = PracticeStartResponse.parse(
       (await post(ctx, '/api/library/pr-11/practice')).json(),
     );
-    const cloze = start.questions.find((q) => q.qtype === 'cloze')!;
-    if (cloze.qtype !== 'cloze') throw new Error('unreachable');
+    const recall = start.questions[0]!;
+    if (recall.qtype !== 'recall') throw new Error('unreachable');
 
-    const res = await post(ctx, `/api/library/pr-11/practice/${cloze.questionId}/answer`, {
-      answerText: ' stable ',
+    const stateBefore = ctx.db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, 'pr-11'))
+      .all();
+
+    const ok = await post(ctx, `/api/library/pr-11/practice/${recall.questionId}/answer`, {
+      selectedOptionId: 'o1',
+      hintUsed: true,
     });
-    const body = PracticeAnswerResponse.parse(res.json());
-    expect(body.result).toBe('pass');
-    expect(body.completeSentence).toBe('The connection is stable.');
-    expect(body.acceptedAnswer).toBe('stable');
+    const okBody = PracticeAnswerResponse.parse(ok.json());
+    expect(ok.statusCode).toBe(200);
+    expect(okBody.result).toBe('basic_pass'); // 提示后对 = 基础通过（与 Today Recall 判定一致）
+    expect(okBody.correct).toBe(true);
+    expect(okBody.meaning).toBe(MEANING);
+
+    const bad = await post(ctx, `/api/library/pr-11/practice/${recall.questionId}/answer`, {
+      selectedOptionId: 'o2',
+    });
+    const badBody = PracticeAnswerResponse.parse(bad.json());
+    expect(badBody.result).toBe('fail');
+    expect(badBody.explanation).toBe('理解解释');
+    expect(badBody.correctOptionId).toBe('o1');
+    expect(badBody.meaning).toBe(MEANING);
+
+    expect(
+      ctx.db.select().from(reviewStates).where(eq(reviewStates.learningItemId, 'pr-11')).all(),
+    ).toEqual(stateBefore);
     expect(ctx.db.select().from(dailyStats).all()).toHaveLength(0);
+    const rows = ctx.db
+      .select()
+      .from(attempts)
+      .where(eq(attempts.questionId, recall.questionId))
+      .all();
+    expect(rows.map((r) => r.selectedOptionId)).toEqual(['o1', 'o2']);
+    expect(rows.every((r) => r.mode === 'library_practice' && r.reviewTaskId === null)).toBe(true);
   });
 
-  it('表达题：correction 返回、优质句沉淀 personal、attempt 携带 prompt 元数据、零状态影响', async () => {
+  it('Recall 缺作答字段 → 400（空体 / 仅 hintUsed）', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-12', 4);
+      await seedV2Item(db, 'pr-12', { type: 'word' });
     });
     const start = PracticeStartResponse.parse(
       (await post(ctx, '/api/library/pr-12/practice')).json(),
     );
-    const prod = start.questions.find((q) => q.qtype === 'production')!;
+    const recall = start.questions[0]!;
+    const empty = await post(ctx, `/api/library/pr-12/practice/${recall.questionId}/answer`, {});
+    expect(empty.statusCode).toBe(400);
+    const hintOnly = await post(ctx, `/api/library/pr-12/practice/${recall.questionId}/answer`, {
+      hintUsed: true,
+    });
+    expect(hintOnly.statusCode).toBe(400);
+  });
+
+  it('表达题：correction 返回、优质句沉淀 personal、attempt 携带 prompt 元数据、零状态影响', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedV2Item(db, 'pr-13', { type: 'word', override: 1, pLevel: 4 });
+    });
+    const start = PracticeStartResponse.parse(
+      (await post(ctx, '/api/library/pr-13/practice')).json(),
+    );
+    const prod = start.questions[1]!;
     if (prod.qtype !== 'production') throw new Error('unreachable');
 
     const stateBefore = ctx.db
       .select()
       .from(reviewStates)
-      .where(eq(reviewStates.learningItemId, 'pr-12'))
+      .where(eq(reviewStates.learningItemId, 'pr-13'))
       .all();
 
-    const res = await post(ctx, `/api/library/pr-12/practice/${prod.questionId}/answer`, {
+    const res = await post(ctx, `/api/library/pr-13/practice/${prod.questionId}/answer`, {
       answerText: 'The bridge is stable enough for now.',
     });
     expect(res.statusCode).toBe(200);
     const body = PracticeAnswerResponse.parse(res.json());
     expect(body.result).toBe('pass');
+    expect(body.meaning).toBeNull(); // production 无 recall 揭示
     expect(body.correction).toEqual({
       segments: [{ text: 'The bridge is stable enough for now.', type: 'same' }],
       correctedSentence: 'The bridge is stable enough for now.',
@@ -283,7 +417,7 @@ describe('POST /api/library/:id/practice/:questionId/answer', () => {
     const personal = ctx.db
       .select()
       .from(learningExamples)
-      .where(eq(learningExamples.learningItemId, 'pr-12'))
+      .where(eq(learningExamples.learningItemId, 'pr-13'))
       .all()
       .filter((e) => e.kind === 'personal');
     expect(personal).toHaveLength(1);
@@ -302,30 +436,23 @@ describe('POST /api/library/:id/practice/:questionId/answer', () => {
 
     // 零状态影响 + 不写 daily_stats
     expect(
-      ctx.db.select().from(reviewStates).where(eq(reviewStates.learningItemId, 'pr-12')).all(),
+      ctx.db.select().from(reviewStates).where(eq(reviewStates.learningItemId, 'pr-13')).all(),
     ).toEqual(stateBefore);
     expect(ctx.db.select().from(dailyStats).all()).toHaveLength(0);
   });
 
-  it('表达题批改失败 → AI_PROVIDER_ERROR 且零写入', async () => {
+  it('表达题批改失败 → AI_PROVIDER_ERROR 且零写入（可重试）', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-13', 4);
+      await seedV2Item(db, 'pr-14', { type: 'chunk' });
     });
-    setPracticeDepsForTests(practiceFakes()); // 默认成功 fake；下面换失败
     const start = PracticeStartResponse.parse(
-      (await post(ctx, '/api/library/pr-13/practice')).json(),
+      (await post(ctx, '/api/library/pr-14/practice')).json(),
     );
-    const prod = start.questions.find((q) => q.qtype === 'production')!;
+    const prod = start.questions[1]!;
 
-    const failing = createFakeDeps({ productionFail: true });
-    setPracticeDepsForTests({
-      acquire: failing.acquire,
-      generate: failing.generate,
-      evaluateChoice: failing.evaluateChoice,
-      evaluateCloze: failing.evaluateCloze,
-      evaluateProduction: failing.evaluateProduction,
-    });
-    const res = await post(ctx, `/api/library/pr-13/practice/${prod.questionId}/answer`, {
+    const failing = practiceFakes({ productionFail: true });
+    setPracticeDepsForTests(failing);
+    const res = await post(ctx, `/api/library/pr-14/practice/${prod.questionId}/answer`, {
       answerText: 'some text',
     });
     expect(res.statusCode).toBe(502);
@@ -333,30 +460,39 @@ describe('POST /api/library/:id/practice/:questionId/answer', () => {
     expect(ctx.db.select().from(attempts).all()).toHaveLength(0);
   });
 
-  it('题目不存在 / 属于其他 item / 答案缺失 → 404 / 404 / 400', async () => {
+  it('旧 cloze 库存题直答 → 409（V2 练习已不支持填空）', async () => {
     const ctx = await newCtx(async (db) => {
-      await seedWithP(db, 'pr-14', null);
-      await seedWithP(db, 'pr-15', null);
+      await seedV2Item(db, 'pr-15', { clozeStock: true });
     });
-    const noSuch = await post(ctx, '/api/library/pr-14/practice/no-such-q/answer', {
-      selectedOptionId: 'o1',
+    const clozeId = ctx.db
+      .select({ id: questions.id })
+      .from(questions)
+      .where(and(eq(questions.learningItemId, 'pr-15'), eq(questions.type, 'cloze')))
+      .get()!.id;
+    const res = await post(ctx, `/api/library/pr-15/practice/${clozeId}/answer`, {
+      answerText: 'stable',
+    });
+    expect(res.statusCode).toBe(409);
+    expect(ctx.db.select().from(attempts).all()).toHaveLength(0);
+  });
+
+  it('题目不存在 / 属于其他 item → 404 / 404', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedV2Item(db, 'pr-16', { type: 'word' });
+      await seedV2Item(db, 'pr-17', { type: 'word' });
+    });
+    const noSuch = await post(ctx, '/api/library/pr-16/practice/no-such-q/answer', {
+      recall: 'recalled',
     });
     expect(noSuch.statusCode).toBe(404);
 
-    const start15 = PracticeStartResponse.parse(
-      (await post(ctx, '/api/library/pr-15/practice')).json(),
+    const start17 = PracticeStartResponse.parse(
+      (await post(ctx, '/api/library/pr-17/practice')).json(),
     );
-    const other = start15.questions[0]!;
-    const crossItem = await post(ctx, `/api/library/pr-14/practice/${other.questionId}/answer`, {
-      selectedOptionId: 'o1',
+    const other = start17.questions[0]!;
+    const crossItem = await post(ctx, `/api/library/pr-16/practice/${other.questionId}/answer`, {
+      recall: 'recalled',
     });
     expect(crossItem.statusCode).toBe(404);
-
-    const start14 = PracticeStartResponse.parse(
-      (await post(ctx, '/api/library/pr-14/practice')).json(),
-    );
-    const choice = start14.questions.find((q) => q.qtype === 'choice')!;
-    const missing = await post(ctx, `/api/library/pr-14/practice/${choice.questionId}/answer`, {});
-    expect(missing.statusCode).toBe(400);
   });
 });

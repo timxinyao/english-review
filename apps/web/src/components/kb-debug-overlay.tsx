@@ -27,7 +27,10 @@ function snapOf(ev: string): Snap {
     ih: Math.round(window.innerHeight),
     vh: vv ? Math.round(vv.height) : -1,
     vo: vv ? Math.round(vv.offsetTop) : -1,
-    inset: Math.max(0, Math.round(window.innerHeight - (vv ? vv.height + vv.offsetTop : window.innerHeight))),
+    inset: Math.max(
+      0,
+      Math.round(window.innerHeight - (vv ? vv.height + vv.offsetTop : window.innerHeight)),
+    ),
     sy: Math.round(window.scrollY),
   };
 }

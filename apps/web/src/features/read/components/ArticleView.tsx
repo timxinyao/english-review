@@ -28,8 +28,8 @@ function HighlightedParagraph({ text, surfaceForms }: { text: string; surfaceFor
 }
 
 /**
- * 文章视图（PRODUCT §5.3/§8）：标题/类型/收藏/时间 + 高亮正文 + 重点复现 + 检查题。
- * old 词不展示、不高亮；检查题不 shuffle、每题提交一次后锁定。
+ * 文章视图（PRODUCT §5.3/§8，V2 纯阅读）：标题/类型/收藏/时间 + 高亮正文 + 重点复现。
+ * old 词不展示、不高亮；V2 新文章无检查题，V1 遗留检查题只读回放（无提交入口）。
  * favorite 等经 article 缓存订阅（收藏乐观更新即时生效）。
  */
 export function ArticleView({ article: initial }: { article: ReadArticleView }) {
@@ -68,7 +68,11 @@ export function ArticleView({ article: initial }: { article: ReadArticleView }) 
           <span>{relativeTime(article.createdAt)}</span>
           <span aria-hidden>·</span>
           <span>{article.contentLevel}</span>
-          <Button variant="ghost" size="sm" onClick={() => speak(article.body, { userGesture: true })}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => speak(article.body, { userGesture: true })}
+          >
             <Volume2 className="h-4 w-4" aria-hidden />
             朗读全文
           </Button>
@@ -90,9 +94,9 @@ export function ArticleView({ article: initial }: { article: ReadArticleView }) 
 
       {article.checks.length > 0 && (
         <section className="space-y-4 border-t border-border pt-4">
-          <h2 className="text-sm font-medium">检查题</h2>
+          <h2 className="text-sm font-medium">检查题（历史）</h2>
           {article.checks.map((check, i) => (
-            <ReadCheckItem key={check.checkId} articleId={article.id} check={check} index={i} />
+            <ReadCheckItem key={check.checkId} check={check} index={i} />
           ))}
         </section>
       )}

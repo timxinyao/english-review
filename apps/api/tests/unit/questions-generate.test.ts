@@ -14,6 +14,7 @@ import {
 } from '../../src/modules/questions/service.js';
 import { buildMockRuntime, recordingProvider, throwingProvider } from '../helpers/ai';
 import { seedExample, seedItem, seedQuestion } from '../helpers/seed.js';
+import { updateLearningItem } from '../../src/modules/learning-items/service.js';
 
 let db: AppDatabase;
 
@@ -79,32 +80,15 @@ describe('generateQuestionsForItem：understanding', () => {
   });
 });
 
-describe('generateQuestionsForItem：cloze', () => {
-  it('生成填空题：payload 含 acceptedAnswers、correctOptionId 为空、promptText 含空格占位', async () => {
+describe('generateQuestionsForItem：V2 不生成 cloze', () => {
+  it('直接请求新 cloze 题会被拒绝，旧题库存保持原样', async () => {
     const item = await seededItem();
-    const rows = await generateQuestionsForItem(
-      { db, runtime: buildMockRuntime() },
-      item.id,
-      'cloze',
-      2,
-    );
-
-    expect(rows).toHaveLength(2);
-    const registry = loadPromptRegistry(join(process.cwd(), 'prompts'));
-    const prompt = registry.get('generate_cloze')!;
-    for (const row of rows) {
-      expect(row.type).toBe('cloze');
-      expect(row.promptKey).toBe('generate_cloze');
-      expect(row.promptVersion).toBe(prompt.version);
-      expect(row.promptHash).toBe(prompt.hash);
-      expect(row.correctOptionId).toBeNull();
-      expect(row.promptText).toContain('____');
-      expect(row.meaningSnapshot).toBe(item.meaning);
-      const payload = JSON.parse(row.payloadJson) as { acceptedAnswers: string[] };
-      expect(payload.acceptedAnswers.length).toBeGreaterThanOrEqual(1);
-      expect(payload.acceptedAnswers).toContain(item.target); // mock 以 target 为答案
-    }
-    expect(rowsFor(item.id)).toHaveLength(2);
+    await seedQuestion(db, item.id, { id: 'legacy-cloze', type: 'cloze', status: 'fresh' });
+    await expect(
+      generateQuestionsForItem({ db, runtime: buildMockRuntime() }, item.id, 'cloze', 2),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(rowsFor(item.id)).toHaveLength(1);
+    expect(countQuestionStock(db, item.id, 'cloze')).toBe(1);
   });
 });
 
@@ -152,6 +136,32 @@ describe('generateQuestionsForItem：变量组装', () => {
 });
 
 describe('generateQuestionsForItem：失败路径', () => {
+  it('target 在 AI 等待期间被编辑时不保存旧目标题目', async () => {
+    const item = await seededItem();
+    const inner = createMockProvider();
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runtime = buildMockRuntime({
+      name: 'mock',
+      async complete(request) {
+        enter();
+        await blocked;
+        return inner.complete(request);
+      },
+    });
+    const generation = generateQuestionsForItem({ db, runtime }, item.id, 'understanding', 1);
+    await entered;
+    await updateLearningItem(db, item.id, { target: 'wear away' }, 'Asia/Shanghai');
+    release();
+    await expect(generation).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(rowsFor(item.id)).toHaveLength(0);
+  });
   it('provider 失败抛错且不入库', async () => {
     const item = await seededItem();
     await expect(

@@ -34,10 +34,7 @@ export function ClozeQuestionView({ task, question, result, onAnswered, onAdvanc
         )
       }
       onGiveUp={() =>
-        answer.mutate(
-          { taskId: task.taskId, body: { giveUp: true } },
-          { onSuccess: onAnswered },
-        )
+        answer.mutate({ taskId: task.taskId, body: { giveUp: true } }, { onSuccess: onAnswered })
       }
       onAdvance={onAdvance}
     />

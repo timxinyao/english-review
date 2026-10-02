@@ -14,9 +14,10 @@ import {
 } from '../../src/db/schema.js';
 import {
   answerTodayTask,
+  prepareTodayTask,
   deferTodayTask,
   reportBadQuestion,
-  startTodaySession,
+  startTodaySession as startTodaySessionRaw,
   submitTaskFeedback,
   undoTodayTask,
   type TodayDeps,
@@ -39,6 +40,27 @@ beforeEach(() => {
   deps = createFakeDeps();
 });
 
+async function startTodaySession(
+  testDb: AppDatabase,
+  testDeps: TodayDeps,
+  timezone: string,
+  now: Date,
+) {
+  const result = await startTodaySessionRaw(testDb, testDeps, timezone, now);
+  if (result.status === 'active') {
+    for (const task of testDb.select().from(reviewTasks).all()) {
+      if (
+        task.sessionId === result.session.id &&
+        task.completedAt === null &&
+        task.canceledAt === null
+      ) {
+        await prepareTodayTask(testDb, testDeps, timezone, now, task.id);
+      }
+    }
+  }
+  return result;
+}
+
 async function seedDueChoiceItem(itemId: string, level = 3): Promise<void> {
   await seedItem(db, { id: itemId, target: itemId, queueState: 'started' });
   await seedReviewState(db, itemId, 'understanding', {
@@ -56,6 +78,7 @@ async function seedDueChoiceItem(itemId: string, level = 3): Promise<void> {
 async function seedLearnItem(itemId: string): Promise<void> {
   await seedItem(db, {
     id: itemId,
+    type: 'chunk',
     target: itemId,
     queueState: 'new',
     createdAt: '2026-09-01T00:00:00.000Z',
@@ -116,7 +139,7 @@ describe('later（稍后再做）', () => {
     await startSession();
     const a = taskByItem('item-a')!; // sortKey 1
 
-    const res = deferTodayTask(db, a.id);
+    const res = deferTodayTask(db, a.id, TZ, NOW);
     expect(res.ok).toBe(true);
     expect(res.progress).toEqual({ completed: 0, total: 3 }); // 进度不变
 
@@ -132,8 +155,8 @@ describe('later（稍后再做）', () => {
     await seedDueChoiceItem('item-b');
     await startSession();
     const a = taskByItem('item-a')!;
-    deferTodayTask(db, a.id); // 未完成最大 sortKey=2 → 1002
-    deferTodayTask(db, a.id); // 未完成最大 sortKey=1002 → 2002
+    deferTodayTask(db, a.id, TZ, NOW); // 未完成最大 sortKey=2 → 1002
+    deferTodayTask(db, a.id, TZ, NOW); // 未完成最大 sortKey=1002 → 2002
     const moved = taskByItem('item-a')!;
     expect(moved.deferCount).toBe(2);
     expect(moved.sortKey).toBe(2002);
@@ -145,7 +168,7 @@ describe('later（稍后再做）', () => {
     await startSession();
     const a = taskByItem('item-a')!;
     const b = taskByItem('item-b')!;
-    deferTodayTask(db, a.id);
+    deferTodayTask(db, a.id, TZ, NOW);
 
     const resB = await answerTodayTask(db, deps, TZ, NOW, b.id, { selectedOptionId: 'o1' });
     expect(resB.completed).toBeNull(); // later 的任务未清空 → 未完成
@@ -159,8 +182,10 @@ describe('later（稍后再做）', () => {
     await startSession();
     const a = taskByItem('item-a')!;
     await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' });
-    await expect(async () => deferTodayTask(db, a.id)).rejects.toMatchObject({ code: 'CONFLICT' });
-    await expect(async () => deferTodayTask(db, 'no-such')).rejects.toMatchObject({
+    await expect(async () => deferTodayTask(db, a.id, TZ, NOW)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    await expect(async () => deferTodayTask(db, 'no-such', TZ, NOW)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
@@ -174,7 +199,7 @@ describe('bad-question（坏题撤销）', () => {
     const a = taskByItem('item-a')!;
     await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' }); // 提交选项 = hint 语义 → basic_pass
 
-    const res = reportBadQuestion(db, a.id, T1);
+    const res = reportBadQuestion(db, a.id, T1, TZ);
     expect(res.ok).toBe(true);
     expect(res.progress).toEqual({ completed: 0, total: 1 }); // 撤销后 a 不再计入
 
@@ -205,7 +230,7 @@ describe('bad-question（坏题撤销）', () => {
     const learn = taskByItem('new-1', { type: 'learn' })!;
     await answerTodayTask(db, deps, TZ, NOW, learn.id, { selectedOptionId: 'o1' });
 
-    reportBadQuestion(db, learn.id, T1);
+    reportBadQuestion(db, learn.id, T1, TZ);
 
     expect(db.select().from(reviewStates).all()).toHaveLength(0);
     const item = db.select().from(learningItems).where(eq(learningItems.id, 'new-1')).get()!;
@@ -225,7 +250,7 @@ describe('bad-question（坏题撤销）', () => {
     expect(res.reinforcementAdded).toBe(true);
     const rf = tasks().find((t) => t.origin === 'reinforcement')!;
 
-    reportBadQuestion(db, a.id, T1);
+    reportBadQuestion(db, a.id, T1, TZ);
 
     const rfRow = tasks().find((t) => t.id === rf.id)!;
     expect(rfRow.canceledAt).toBe(T1.toISOString());
@@ -241,7 +266,7 @@ describe('bad-question（坏题撤销）', () => {
     const rf = tasks().find((t) => t.origin === 'reinforcement')!;
     await answerTodayTask(db, deps, TZ, T1, rf.id, { selectedOptionId: 'o1' }); // 后续作答
 
-    await expect(async () => reportBadQuestion(db, a.id, T2)).rejects.toMatchObject({
+    await expect(async () => reportBadQuestion(db, a.id, T2, TZ)).rejects.toMatchObject({
       code: 'CONFLICT',
       message: expect.stringContaining('后续作答'),
     });
@@ -251,14 +276,14 @@ describe('bad-question（坏题撤销）', () => {
     await seedDueChoiceItem('item-a');
     await startSession();
     const a = taskByItem('item-a')!;
-    await expect(async () => reportBadQuestion(db, a.id, NOW)).rejects.toMatchObject({
+    await expect(async () => reportBadQuestion(db, a.id, NOW, TZ)).rejects.toMatchObject({
       code: 'CONFLICT',
     });
 
     await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' });
-    const first = reportBadQuestion(db, a.id, T1);
+    const first = reportBadQuestion(db, a.id, T1, TZ);
     expect(first.ok).toBe(true);
-    const second = reportBadQuestion(db, a.id, T2); // 幂等
+    const second = reportBadQuestion(db, a.id, T2, TZ); // 幂等
     expect(second.ok).toBe(true);
     expect(db.select().from(attempts).all()).toHaveLength(1);
   });
@@ -361,7 +386,7 @@ describe('feedback（答题反馈调整）', () => {
     await startSession();
     const a = taskByItem('item-a')!;
     await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o1' });
-    reportBadQuestion(db, a.id, T1);
+    reportBadQuestion(db, a.id, T1, TZ);
     await expect(async () =>
       submitTaskFeedback(db, deps, TZ, a.id, 'guessed', T2),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
@@ -547,7 +572,7 @@ describe('undo（回滚覆盖）', () => {
     level: number,
     opts: { understanding?: { level: number; stable?: boolean } } = {},
   ): Promise<void> {
-    await seedItem(db, { id: itemId, target: itemId, queueState: 'started' });
+    await seedItem(db, { id: itemId, type: 'chunk', target: itemId, queueState: 'started' });
     await seedReviewState(db, itemId, 'production', {
       level,
       nextReviewAt: '2026-09-23T00:00:00.000Z',
@@ -798,9 +823,12 @@ describe('undo（回滚覆盖）', () => {
       .where(eq(learningItems.id, 'rd-1'))
       .run();
     await startSession();
-    const t = tasks().find(
-      (x) => x.learningItemId === 'rd-1' && x.origin === 'read_reinforcement',
-    )!;
+    // 显式复原切换前已绑定的 Read 任务；V2 不再从 needsReinforcement 新排任务。
+    const t = tasks().find((x) => x.learningItemId === 'rd-1')!;
+    db.update(reviewTasks)
+      .set({ origin: 'read_reinforcement' })
+      .where(eq(reviewTasks.id, t.id))
+      .run();
     await answerTodayTask(db, deps, TZ, NOW, t.id, { recall: 'recalled' });
     expect(
       db.select().from(learningItems).where(eq(learningItems.id, 'rd-1')).get()!.needsReinforcement,
@@ -899,7 +927,7 @@ describe('undo（保留数据恢复）', () => {
     itemId: string,
     personal: Array<Partial<typeof learningExamples.$inferInsert>> = [],
   ): Promise<void> {
-    await seedItem(db, { id: itemId, target: itemId, queueState: 'started' });
+    await seedItem(db, { id: itemId, type: 'chunk', target: itemId, queueState: 'started' });
     await seedReviewState(db, itemId, 'production', { level: 4, nextReviewAt: DUE });
     for (const suffix of ['p1', 'p2'] as const) {
       await seedQuestion(db, itemId, {

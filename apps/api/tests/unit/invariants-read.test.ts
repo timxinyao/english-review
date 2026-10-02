@@ -14,19 +14,6 @@ function readOutput(overrides: Partial<GenerateReadResult> = {}): GenerateReadRe
     type: 'story',
     body: bodyOf(200, 'The long week wore me down and the raw data made sense.'),
     coverage: [{ learning_item_id: 'item-1', surface_form: 'wore me down' }],
-    checks: [
-      {
-        learning_item_id: 'item-1',
-        question: '文中 wore me down 的意思是什么？',
-        options: [
-          { id: 'o1', text: '逐渐消耗' },
-          { id: 'o2', text: '甲' },
-          { id: 'o3', text: '乙' },
-          { id: 'o4', text: '丙' },
-        ],
-        correct_option_id: 'o1',
-      },
-    ],
     ...overrides,
   };
 }
@@ -39,7 +26,7 @@ const VARS = {
 };
 
 describe('generateRead 机器不变式', () => {
-  it('合法输出（词数/coverage/surface_form 实际出现/checks）无违规', () => {
+  it('合法输出（词数/coverage/surface_form 实际出现，V2 无 checks）无违规', () => {
     expect(checkAiOutput('generateRead', readOutput(), VARS)).toEqual([]);
   });
 

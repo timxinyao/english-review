@@ -167,4 +167,20 @@ describe('ImportWizard 导入向导', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('重新预览');
     expect(screen.queryByRole('heading', { name: '导入完成' })).toBeNull();
   });
+
+  it('V2 goal conflict is visible and requires the user to acknowledge before commit', async () => {
+    const { textarea } = await openWizard();
+    const fixture = makePreview();
+    fixture.items[0]!.productionGoalChange = { from: null, to: false };
+    preview.mockResolvedValue(fixture);
+    fireEvent.change(textarea, {
+      target: { value: JSON.stringify({ version: '2.0', items: [candidate('alpha')] }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '预览' }));
+    await screen.findByRole('heading', { name: '导入预览' });
+    expect(screen.getByText(/按类型默认.*不需要造句/)).toBeVisible();
+    expect(screen.getByRole('button', { name: /确认导入/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: /确认第 1 项造句目标变化/ }));
+    expect(screen.getByRole('button', { name: /确认导入/ })).toBeEnabled();
+  });
 });

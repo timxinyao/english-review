@@ -29,6 +29,9 @@ export const ImportPreviewItem = z.object({
   suggestion: ImportPreviewSuggestion,
   /** 触发比对的已有项；无匹配时为 null */
   match: ImportPreviewMatch.nullable(),
+  productionGoalChange: z
+    .object({ from: z.boolean().nullable(), to: z.boolean().nullable() })
+    .nullable(),
   /** 字段完整性提示（不阻断导入）：如 word 缺音标 */
   warnings: z.array(z.string()),
 });

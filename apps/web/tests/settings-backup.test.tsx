@@ -204,7 +204,6 @@ describe('恢复向导', () => {
     renderBackupSection();
     const doc = {
       ...backupJson(),
-      version: '1.0',
       items: [{ ...backupItem(), target: '' }],
     };
     await selectFile(doc);
@@ -212,7 +211,6 @@ describe('恢复向导', () => {
       fireEvent.click(screen.getByRole('button', { name: '校验并预览' }));
     });
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('文件格式');
     expect(alert).toHaveTextContent('第 1 项');
     expect(apiMock.mock.calls.filter(([p]) => p === '/api/restore/preview')).toHaveLength(0);
   });

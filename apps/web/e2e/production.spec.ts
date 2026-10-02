@@ -149,7 +149,9 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
     await expect(page.getByRole('button', { name: '收藏', exact: true })).toBeVisible();
   });
 
-  test('Library 练一下：进入练习 → 答题（表达题通过 + diff）→ 完成返回详情', async ({ page }) => {
+  test('Library 练一下（V2）：Recall 自评+释义揭示 → 表达题通过 + diff → 完成返回详情', async ({
+    page,
+  }) => {
     await login(page);
     await page.goto('/library');
 
@@ -161,62 +163,88 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
     await expect(page).toHaveURL(/\/library\/[a-z0-9-]+$/i);
 
     await page.getByRole('button', { name: '练一下' }).click();
-    // 练习视图：顶部小进度 1 / 3
-    await expect(page.getByText(/^\d+ \/ 3$/)).toBeVisible();
+    // V2（Phase 9）：word + production 开 → 恰好 2 题（recall → production），无 cloze
+    await expect(page.getByText(/^\d+ \/ 2$/)).toBeVisible();
 
-    let done = false;
-    for (let step = 0; step < 12 && !done; step++) {
-      if (await page.getByText('练习完成').isVisible()) {
-        done = true;
-        break;
-      }
+    // 第 1 题 Recall 卡：词面 + 原句；释义（reveal）作答前不可见
+    await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
+    await expect(page.getByText('After months of failure, he refused to give up.')).toBeVisible();
+    await expect(page.getByText('放弃', { exact: true })).toHaveCount(0);
 
-      // 表达题：答包含 give up 的句子 → 通过 + diff
-      const textarea = page.getByLabel('表达答案');
-      if (await textarea.isVisible()) {
-        await textarea.fill('He decided to give up smoking.');
-        await page.getByRole('button', { name: '提交' }).click();
-        await expect(page.getByText('通过', { exact: true })).toBeVisible();
-        await expect(page.getByText('He decided to give up smoking.').first()).toBeVisible();
-        await page.getByRole('button', { name: '下一题' }).click();
-        continue;
-      }
+    await page.getByRole('button', { name: '想起来了' }).click();
+    await expect(page.getByText('想起来了', { exact: true })).toBeVisible();
+    await expect(page.getByText('放弃', { exact: true })).toBeVisible(); // 释义揭示
+    await page.getByRole('button', { name: '下一题' }).click();
 
-      // 填空题：提交后手动下一题（对错都接受）
-      const blank = page.getByLabel('填空答案');
-      if (await blank.isVisible()) {
-        await blank.fill('give up');
-        await page.getByRole('button', { name: '提交' }).click();
-        await Promise.race([
-          page.getByText('回答正确').waitFor({ timeout: 5000 }),
-          page.getByText('回答错误').waitFor({ timeout: 5000 }),
-        ]);
-        await page.getByRole('button', { name: '下一题' }).click();
-        continue;
-      }
+    // 第 2 题 表达题：答包含 give up 的句子 → 通过 + diff
+    const textarea = page.getByLabel('表达答案');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('He decided to give up smoking.');
+    await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+    await expect(page.getByText('He decided to give up smoking.').first()).toBeVisible();
+    await page.getByRole('button', { name: '下一题' }).click();
 
-      // 选择题：任选一项
-      const options = page.getByRole('group', { name: '选项' }).getByRole('button');
-      if (await options.first().isVisible()) {
-        await options.first().click();
-        await Promise.race([
-          page.getByText('回答正确').waitFor({ timeout: 5000 }),
-          page.getByText('回答错误').waitFor({ timeout: 5000 }),
-        ]);
-        if (await page.getByText('回答正确').isVisible()) {
-          await continueAfterCorrect(page);
-        } else {
-          await page.getByRole('button', { name: '下一题' }).click();
-        }
-        continue;
-      }
-
-      await page.waitForTimeout(300);
-    }
-
-    expect(done, '练习应在有限步数内完成').toBe(true);
+    await expect(page.getByText('练习完成')).toBeVisible();
     await page.getByRole('button', { name: '返回详情' }).click();
     await expect(page.getByRole('heading', { name: 'give up' })).toBeVisible();
     await expect(page.getByRole('button', { name: '编辑' })).toBeVisible();
+  });
+});
+
+test.describe('Phase 9（Task 10）：练一下按有效造句目标选择性出题', () => {
+  test('word 默认关只出 Recall；chunk 默认开出 Recall + 表达；全程无填空', async ({ page }) => {
+    await login(page);
+    await resetSeedData(page);
+
+    // ---- stable（word、override=null → 默认关）：恰好 1 题 Recall，无表达题 ----
+    await page.goto('/library');
+    await page.getByLabel('搜索学习项').fill('stable');
+    await page
+      .getByRole('link', { name: /stable/ })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/library\/[a-z0-9-]+$/i);
+    await page.getByRole('button', { name: '练一下' }).click();
+
+    await expect(page.getByText('1 / 1', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'stable' })).toBeVisible();
+    await expect(page.getByText('The connection has been stable all week.')).toBeVisible();
+    await expect(page.getByText('稳定的', { exact: true })).toHaveCount(0); // 释义揭示前不泄露
+    await expect(page.getByLabel('表达答案')).toHaveCount(0); // 默认关：无表达题
+    await expect(page.getByLabel('填空答案')).toHaveCount(0); // V2：练习不再出旧填空
+
+    await page.getByRole('button', { name: '想起来了' }).click();
+    await expect(page.getByText('稳定的', { exact: true })).toBeVisible(); // 作答后揭示
+    await page.getByRole('button', { name: '下一题' }).click();
+    await expect(page.getByText('练习完成')).toBeVisible();
+    await page.getByRole('button', { name: '返回详情' }).click();
+
+    // ---- make sense（chunk、override=null → 默认开）：Recall → 表达 恰好 2 题 ----
+    await page.goto('/library');
+    await page.getByLabel('搜索学习项').fill('make sense');
+    await page
+      .getByRole('link', { name: /make sense/ })
+      .first()
+      .click();
+    await page.getByRole('button', { name: '练一下' }).click();
+
+    await expect(page.getByText('1 / 2', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+    await expect(page.getByText('讲得通', { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: '想起来了' }).click();
+    await expect(page.getByText('讲得通', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '下一题' }).click();
+
+    // 第 2 题 表达：fake 批改按 mustUse 判定（含 "make sense" → 通过）
+    await expect(page.getByText('必须使用：make sense')).toBeVisible();
+    const textarea = page.getByLabel('表达答案');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('It does make sense to me.');
+    await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '下一题' }).click();
+    await expect(page.getByText('练习完成')).toBeVisible();
+    await expect(page.getByLabel('填空答案')).toHaveCount(0);
   });
 });

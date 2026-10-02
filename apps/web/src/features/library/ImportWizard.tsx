@@ -22,6 +22,10 @@ import {
 const textareaClass =
   'flex min-h-[220px] w-full rounded-lg border border-input bg-card px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
 
+function goalLabel(value: boolean | null): string {
+  return value === null ? '按类型默认' : value ? '需要造句' : '不需要造句';
+}
+
 /** 把 Zod 校验错误整理成「第 N 项：字段 错误」逐条列表 */
 function formatImportErrors(error: ZodError): string[] {
   const lines: string[] = [];
@@ -44,6 +48,7 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
   const [errors, setErrors] = useState<string[]>([]);
   const [preview, setPreview] = useState<ImportPreviewResponse | null>(null);
   const [decisions, setDecisions] = useState<Record<number, DuplicateDecision>>({});
+  const [confirmedGoalChanges, setConfirmedGoalChanges] = useState<Record<number, boolean>>({});
   const [summary, setSummary] = useState<ImportCommitResponse | null>(null);
   const [commitError, setCommitError] = useState<string | null>(null);
 
@@ -52,6 +57,7 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
     onSuccess: (resp) => {
       setPreview(resp);
       setDecisions(Object.fromEntries(resp.items.map((i) => [i.index, i.suggestion.action])));
+      setConfirmedGoalChanges({});
       setErrors([]);
       setStep('preview');
     },
@@ -68,6 +74,8 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
     onError: (err) => {
       if (err instanceof ApiError && err.status === 404) {
         setCommitError('预览已过期或已提交，请返回上一步重新预览。');
+      } else if (err instanceof ApiError && err.status === 409) {
+        setCommitError('学习项已被其他设备修改，请返回编辑后重新预览。');
       } else {
         setCommitError(`提交失败：${err.message}`);
       }
@@ -136,7 +144,7 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
               id="import-json"
               rows={12}
               className={textareaClass}
-              placeholder='{"version":"1.2","items":[…]}'
+              placeholder='{"version":"2.0","items":[…]}'
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
@@ -197,58 +205,81 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
           </div>
 
           <ul className="border-t border-border">
-            {preview.items.map(({ index, candidate, suggestion, match, warnings }) => {
-              const decision = decisions[index] ?? suggestion.action;
-              return (
-                <li key={index} className="space-y-1.5 border-b border-border py-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-foreground">
-                      {index + 1}. {candidate.target}
-                    </p>
-                    <span
-                      title={suggestion.reason}
-                      className="rounded-full border border-border px-2 py-0.5 text-xs text-foreground"
-                    >
-                      {IMPORT_DECISION_LABELS[suggestion.action]}
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{candidate.meaning}</p>
-                  <p className="text-xs text-muted-foreground">{candidate.source_example}</p>
-                  {warnings && warnings.length > 0 && (
-                    <p className="text-xs text-accent">
-                      {warnings.map((w) => `⚠ ${w}`).join('  ')}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      建议：{IMPORT_DECISION_LABELS[suggestion.action]} ·{' '}
-                      {SUGGESTION_SOURCE_LABELS[suggestion.source]}
-                      {match ? ` · 与已有「${match.existingTarget}」比对` : ''}
-                    </span>
-                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      决定
-                      <select
-                        aria-label={`决定：第 ${index + 1} 项`}
-                        value={decision}
-                        onChange={(e) =>
-                          setDecisions((prev) => ({
-                            ...prev,
-                            [index]: e.target.value as DuplicateDecision,
-                          }))
-                        }
-                        className="h-8 rounded-lg border border-input bg-card px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            {preview.items.map(
+              ({ index, candidate, suggestion, match, productionGoalChange, warnings }) => {
+                const decision = decisions[index] ?? suggestion.action;
+                return (
+                  <li key={index} className="space-y-1.5 border-b border-border py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">
+                        {index + 1}. {candidate.target}
+                      </p>
+                      <span
+                        title={suggestion.reason}
+                        className="rounded-full border border-border px-2 py-0.5 text-xs text-foreground"
                       >
-                        {IMPORT_DECISION_OPTIONS.map(({ value, label }) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
+                        {IMPORT_DECISION_LABELS[suggestion.action]}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{candidate.meaning}</p>
+                    <p className="text-xs text-muted-foreground">{candidate.source_example}</p>
+                    {productionGoalChange && (
+                      <div className="space-y-1 rounded-lg border border-accent/40 p-2 text-xs text-foreground">
+                        <p>
+                          造句目标：{goalLabel(productionGoalChange.from)} →{' '}
+                          {goalLabel(productionGoalChange.to)}
+                        </p>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={confirmedGoalChanges[index] ?? false}
+                            onChange={(e) =>
+                              setConfirmedGoalChanges((prev) => ({
+                                ...prev,
+                                [index]: e.target.checked,
+                              }))
+                            }
+                          />
+                          确认第 {index + 1} 项造句目标变化（选择跳过则保留现值）
+                        </label>
+                      </div>
+                    )}
+                    {warnings && warnings.length > 0 && (
+                      <p className="text-xs text-accent">
+                        {warnings.map((w) => `⚠ ${w}`).join('  ')}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        建议：{IMPORT_DECISION_LABELS[suggestion.action]} ·{' '}
+                        {SUGGESTION_SOURCE_LABELS[suggestion.source]}
+                        {match ? ` · 与已有「${match.existingTarget}」比对` : ''}
+                      </span>
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        决定
+                        <select
+                          aria-label={`决定：第 ${index + 1} 项`}
+                          value={decision}
+                          onChange={(e) =>
+                            setDecisions((prev) => ({
+                              ...prev,
+                              [index]: e.target.value as DuplicateDecision,
+                            }))
+                          }
+                          className="h-8 rounded-lg border border-input bg-card px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                        >
+                          {IMPORT_DECISION_OPTIONS.map(({ value, label }) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </span>
+                    </div>
+                  </li>
+                );
+              },
+            )}
           </ul>
 
           {commitError && (
@@ -257,7 +288,15 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
             </p>
           )}
           <div>
-            <Button onClick={commit} disabled={commitMutation.isPending}>
+            <Button
+              onClick={commit}
+              disabled={
+                commitMutation.isPending ||
+                preview.items.some(
+                  (item) => item.productionGoalChange && !confirmedGoalChanges[item.index],
+                )
+              }
+            >
               {commitMutation.isPending ? '提交中…' : `确认导入（${preview.items.length} 项）`}
             </Button>
           </div>

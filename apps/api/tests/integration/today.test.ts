@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import {
@@ -15,12 +15,20 @@ import {
   dailyStats,
   learningExamples,
   learningItems,
+  questions,
   reviewStates,
+  reviewSessions,
   reviewTasks,
 } from '../../src/db/schema.js';
 import { setTodayDepsForTests, type TodayDeps } from '../../src/modules/today/service.js';
 import { createTestApp, loginCookie, type TestApp } from '../helpers/test-app.js';
-import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
+import {
+  seedExample,
+  seedItem,
+  seedLegacyBoundTask,
+  seedQuestion,
+  seedReviewState,
+} from '../helpers/seed.js';
 import { choicePayload, createFakeDeps, DEFAULT_OPTIONS } from '../helpers/today-fakes.js';
 
 const apps: FastifyInstance[] = [];
@@ -44,6 +52,15 @@ async function get(ctx: Ctx, url: string) {
 }
 
 async function post(ctx: Ctx, url: string, payload?: Record<string, unknown>) {
+  const answer = url.match(/^\/api\/today\/tasks\/([^/]+)\/answer$/);
+  if (answer) {
+    // V2 作答前由客户端按需准备；本文件既有答题契约复用这一步。
+    await ctx.app.inject({
+      method: 'POST',
+      url: `/api/today/tasks/${answer[1]}/prepare`,
+      headers: { cookie: ctx.cookie },
+    });
+  }
   return ctx.app.inject({ method: 'POST', url, headers: { cookie: ctx.cookie }, payload });
 }
 
@@ -71,7 +88,7 @@ async function seedDueCloze(db: AppDatabase, itemId: string, target: string): Pr
 }
 
 async function seedDueProduction(db: AppDatabase, itemId: string, target: string): Promise<void> {
-  await seedItem(db, { id: itemId, target, queueState: 'started' });
+  await seedItem(db, { id: itemId, type: 'chunk', target, queueState: 'started' });
   await seedReviewState(db, itemId, 'production', { level: 4, nextReviewAt: dayAgo() });
   await seedQuestion(db, itemId, {
     type: 'production',
@@ -115,7 +132,7 @@ describe('GET /api/today 契约（三态）', () => {
     const body = res.json();
     expect(TodayStatusResponse.safeParse(body).success).toBe(true);
     expect(body.status).toBe('idle');
-    expect(body.dueItems).toBe(2);
+    expect(body.dueItems).toBe(1); // Word 默认关闭 P；旧 cloze 库存不再计入到期任务
     expect(body.newTodayAvailable).toBe(10);
     expect(body.totalItems).toBe(14); // 2 started + 12 new（active）
     expect(body.newQueueCount).toBe(12);
@@ -135,6 +152,29 @@ describe('GET /api/today 契约（三态）', () => {
     const second = await post(ctx, '/api/today/start');
     expect(second.json().status).toBe('active');
     expect(second.json().session.id).toBe(first.json().session.id);
+  });
+
+  it('repeated start only warms the same two lookahead tasks, not later pending tasks', async () => {
+    const ctx = await newCtx(async (db) => {
+      for (let index = 0; index < 7; index += 1) {
+        await seedDueChoice(db, `lookahead-${index}`, `target-${index}`);
+      }
+    });
+    const boundCount = () =>
+      ctx.db
+        .select()
+        .from(reviewTasks)
+        .all()
+        .filter((task) => task.questionId !== null).length;
+    expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
+    await vi.waitFor(() => expect(boundCount()).toBe(2));
+    expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(boundCount()).toBe(2);
+    expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(boundCount()).toBe(2);
+    expect(ctx.db.select().from(reviewTasks).all()).toHaveLength(7);
   });
 
   it('active 的 currentTask：选择题视图不泄漏正确答案；理解题携带 sourceExample（前端按需展示）', async () => {
@@ -158,10 +198,51 @@ describe('GET /api/today 契约（三态）', () => {
 });
 
 describe('POST /api/today/tasks/:id/answer 契约', () => {
+  it('失效待答题刷新后呈 pending，可重新 prepare；已答历史仍可读', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedDueChoice(db, 'edited-pending', 'stable');
+    });
+    const started = (await post(ctx, '/api/today/start')).json();
+    const taskId = started.currentTask.taskId;
+    const old = (await post(ctx, `/api/today/tasks/${taskId}/prepare`)).json();
+    ctx.db
+      .update(questions)
+      .set({ status: 'retired' })
+      .where(eq(questions.id, old.question.questionId))
+      .run();
+    expect((await get(ctx, '/api/today')).json().currentTask.question).toBeNull();
+    expect((await get(ctx, '/api/today/tasks')).json().tasks[0].task.question).toBeNull();
+    const ready = await post(ctx, `/api/today/tasks/${taskId}/prepare`);
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json().question.questionId).not.toBe(old.question.questionId);
+    expect(
+      (await post(ctx, `/api/today/tasks/${taskId}/answer`, { recall: 'recalled' })).statusCode,
+    ).toBe(200);
+    ctx.db.update(questions).set({ status: 'retired' }).run();
+    const history = (await get(ctx, '/api/today/tasks')).json().tasks[0];
+    expect(history.task.question).not.toBeNull();
+    expect(history.result.result).toBe('pass');
+  });
+  it('prepare pending task returns an answer-free view and is idempotent', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedDueChoice(db, 'prepare-route', 'stable');
+    });
+    const started = TodayStatusResponse.parse((await post(ctx, '/api/today/start')).json());
+    if (started.status !== 'active') throw new Error('expected active');
+    expect(started.currentTask?.question).toBeNull();
+    const taskId = started.currentTask!.taskId;
+    const first = await post(ctx, `/api/today/tasks/${taskId}/prepare`);
+    expect(first.statusCode).toBe(200);
+    expect(first.json().question.questionId).toEqual(expect.any(String));
+    expect(JSON.stringify(first.json())).not.toContain('correctOptionId');
+    const second = await post(ctx, `/api/today/tasks/${taskId}/prepare`);
+    expect(second.statusCode).toBe(200);
+    expect(second.json().question.questionId).toBe(first.json().question.questionId);
+  });
   it('作答 → AnswerResponse 契约；重复提交 alreadyCompleted；全部完成 → completed 摘要', async () => {
     const ctx = await newCtx(async (db) => {
       await seedDueChoice(db, 'it-1', 'stable');
-      await seedDueCloze(db, 'it-2', 'raw');
+      await seedDueProduction(db, 'it-2', 'raw');
     });
     await post(ctx, '/api/today/start');
 
@@ -356,6 +437,12 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
       await seedDueCloze(db, 'gu-2', 'raw');
     });
     await post(ctx, '/api/today/start');
+    const question = ctx.db
+      .select()
+      .from(questions)
+      .where(eq(questions.learningItemId, 'gu-2'))
+      .get()!;
+    seedLegacyBoundTask(ctx.db, 'gu-2', question.id, new Date(), 'Asia/Shanghai');
     const taskId = taskIdOf(ctx, 'gu-2');
 
     const res = await post(ctx, `/api/today/tasks/${taskId}/answer`, { giveUp: true });
@@ -445,12 +532,15 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
   it('unsubmitted task hides answers', async () => {
     const ctx = await newCtx(async (db) => {
       await seedDueChoice(db, 'hd-1', 'stable');
-      await seedDueCloze(db, 'hd-2', 'quartz');
+      await seedDueProduction(db, 'hd-2', 'quartz');
       await seedDueProduction(db, 'hd-3', 'wear down');
     });
     await post(ctx, '/api/today/start');
 
     // GET /api/today 当前任务视图：无正确选项/参考句/可接受答案
+    for (const task of ctx.db.select().from(reviewTasks).all()) {
+      expect((await post(ctx, `/api/today/tasks/${task.id}/prepare`)).statusCode).toBe(200);
+    }
     const status = TodayStatusResponse.parse((await get(ctx, '/api/today')).json());
     if (status.status !== 'active' || status.currentTask === null) throw new Error('应 active');
     const current = JSON.stringify(status.currentTask);
@@ -549,7 +639,7 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
   it('giveUp 与作答内容互斥 → 400；缺答案且无 giveUp → 400 且零写入', async () => {
     const ctx = await newCtx(async (db) => {
       await seedDueChoice(db, 'vd-1', 'stable');
-      await seedDueCloze(db, 'vd-2', 'raw');
+      await seedDueProduction(db, 'vd-2', 'raw');
     });
     await post(ctx, '/api/today/start');
     const choiceId = taskIdOf(ctx, 'vd-1');
@@ -692,6 +782,57 @@ describe('POST /api/today/tasks/:id/undo 契约', () => {
 });
 
 describe('later / bad-question / feedback HTTP 契约', () => {
+  it('旧日本地 Session 的 answer/replay/later/bad-question/feedback/undo 全部 409 且零写入', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedDueChoice(db, 'old-done', 'stable');
+      await seedDueChoice(db, 'old-pending', 'steady');
+    });
+    await post(ctx, '/api/today/start');
+    const [done, pending] = ctx.db.select().from(reviewTasks).all();
+    await post(ctx, `/api/today/tasks/${done!.id}/answer`, { recall: 'recalled' });
+    await post(ctx, `/api/today/tasks/${pending!.id}/prepare`);
+    ctx.db.update(reviewSessions).set({ sessionDate: '2000-01-01' }).run();
+    const snapshot = () => ({
+      tasks: ctx.db.select().from(reviewTasks).all(),
+      attempts: ctx.db.select().from(attempts).all(),
+      states: ctx.db.select().from(reviewStates).all(),
+      stats: ctx.db.select().from(dailyStats).all(),
+    });
+    const before = snapshot();
+    for (const [task, action, body] of [
+      [pending!, 'answer', { recall: 'recalled' }],
+      [done!, 'answer', { recall: 'recalled' }],
+      [pending!, 'later', undefined],
+      [done!, 'bad-question', undefined],
+      [done!, 'feedback', { feedback: 'too_easy' }],
+      [done!, 'undo', undefined],
+    ] as const) {
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/today/tasks/${task.id}/${action}`,
+        headers: { cookie: ctx.cookie },
+        payload: body,
+      });
+      expect(res.statusCode, action).toBe(409);
+      expect(snapshot(), action).toEqual(before);
+    }
+  });
+
+  it('未绑定题目不能通过 answer 路由写入作答', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedDueChoice(db, 'unbound', 'stable');
+    });
+    const started = (await post(ctx, '/api/today/start')).json();
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/today/tasks/${started.currentTask.taskId}/answer`,
+      headers: { cookie: ctx.cookie },
+      payload: { recall: 'recalled' },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(ctx.db.select().from(attempts).all()).toEqual([]);
+    expect(ctx.db.select().from(dailyStats).all()).toEqual([]);
+  });
   it('later：ok+progress、未知任务 404、已完成任务 409', async () => {
     const ctx = await newCtx(async (db) => {
       await seedDueChoice(db, 'lt-1', 'wear down');
@@ -779,9 +920,8 @@ describe('later / bad-question / feedback HTTP 契约', () => {
       const status = TodayStatusResponse.parse((await get(ctx, '/api/today')).json());
       if (status.status !== 'active' || status.currentTask === null) break;
       const task = status.currentTask;
-      const isChoice = task.question !== null && 'options' in task.question;
       const res = await post(ctx, `/api/today/tasks/${task.taskId}/answer`, {
-        ...(isChoice ? { selectedOptionId: 'o1' } : { answerText: 'gravity' }),
+        recall: 'recalled',
       });
       expect(res.statusCode).toBe(200);
       if (task.taskType === 'understanding') targetTaskId = task.taskId;

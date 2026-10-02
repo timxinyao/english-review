@@ -20,7 +20,7 @@
 | check_cloze | `check_cloze.v1.md` |
 | generate_production_prompt | `generate_production_prompt.v1.md` |
 | check_production | `check_production.v1.md` |
-| generate_read | `generate_read.v1.md` |
+| generate_read | `generate_read.v2.md` |
 | judge_duplicate_meaning | `judge_duplicate_meaning.v1.md` |
 
 修改前同时阅读 `docs/AI_RULES.md`。

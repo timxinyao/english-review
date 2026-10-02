@@ -1,8 +1,15 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
+import { localDateString } from '@el/shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppDatabase } from '../../src/db/client.js';
-import { learningExamples, learningItems, reviewStates } from '../../src/db/schema.js';
+import {
+  learningExamples,
+  learningItems,
+  reviewSessions,
+  reviewStates,
+  reviewTasks,
+} from '../../src/db/schema.js';
 import { createTestApp, loginCookie, type TestApp } from '../helpers/test-app.js';
 import { seedExample, seedItem, seedReviewState } from '../helpers/seed.js';
 import { previewImport, type DuplicateJudge } from '../../src/modules/import-export/service.js';
@@ -596,12 +603,199 @@ describe('POST /api/import/commit', () => {
   });
 });
 
+describe('V2 import production goal', () => {
+  async function preview(ctx: TestApp & { cookie: string }, item: Record<string, unknown>) {
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/import/preview',
+      headers: { cookie: ctx.cookie },
+      payload: { version: '2.0', items: [item] },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json();
+  }
+
+  async function commitGoal(
+    ctx: TestApp & { cookie: string },
+    token: string,
+    decisions: unknown[],
+  ) {
+    return ctx.app.inject({
+      method: 'POST',
+      url: '/api/import/commit',
+      headers: { cookie: ctx.cookie },
+      payload: { previewToken: token, decisions },
+    });
+  }
+
+  it.each([true, false, null])('new item saves explicit override %s', async (override) => {
+    const ctx = await newApp();
+    const doc = await preview(ctx, {
+      type: 'word',
+      target: 'gravity',
+      meaning: '重力',
+      source_example: 'Gravity pulls.',
+      production_enabled_override: override,
+    });
+    expect(doc.items[0].productionGoalChange).toBeNull();
+    const res = await commitGoal(ctx, doc.previewToken, []);
+    expect(res.statusCode).toBe(200);
+    const row = ctx.db
+      .select()
+      .from(learningItems)
+      .where(eq(learningItems.target, 'gravity'))
+      .get()!;
+    expect(row.productionEnabledOverride).toBe(override === null ? null : override ? 1 : 0);
+  });
+
+  it('absent override preserves existing explicit goal on merge', async () => {
+    const ctx = await newApp();
+    const id = await seedWearDown(ctx.db);
+    ctx.db
+      .update(learningItems)
+      .set({ productionEnabledOverride: 0 })
+      .where(eq(learningItems.id, id))
+      .run();
+    const doc = await preview(ctx, {
+      type: 'chunk',
+      target: 'wear down',
+      meaning: '磨损',
+      source_example: 'The stairs wore down.',
+    });
+    expect(doc.items[0].productionGoalChange).toBeNull();
+    expect((await commitGoal(ctx, doc.previewToken, [])).statusCode).toBe(200);
+    expect(
+      ctx.db.select().from(learningItems).where(eq(learningItems.id, id)).get()!
+        .productionEnabledOverride,
+    ).toBe(0);
+  });
+
+  it.each([true, false, null])(
+    'exact duplicate explicit %s conflict requires a decision; merge changes goal',
+    async (to) => {
+      const ctx = await newApp();
+      const id = await seedWearDown(ctx.db);
+      const from = to === null ? 0 : to ? 0 : 1;
+      ctx.db
+        .update(learningItems)
+        .set({ productionEnabledOverride: from })
+        .where(eq(learningItems.id, id))
+        .run();
+      const item = {
+        type: 'chunk',
+        target: 'wear down',
+        meaning: '逐渐使疲惫；消耗',
+        source_example: 'It wears you down.',
+        production_enabled_override: to,
+      };
+      const doc = await preview(ctx, item);
+      expect(doc.items[0].productionGoalChange).toEqual({ from: from === 1, to });
+      expect(doc.items[0].suggestion.action).toBe('merge');
+      expect((await commitGoal(ctx, doc.previewToken, [])).statusCode).toBe(400);
+      const again = await preview(ctx, item);
+      expect(
+        (await commitGoal(ctx, again.previewToken, [{ index: 0, action: 'merge' }])).statusCode,
+      ).toBe(200);
+      expect(
+        ctx.db.select().from(learningItems).where(eq(learningItems.id, id)).get()!
+          .productionEnabledOverride,
+      ).toBe(to === null ? null : to ? 1 : 0);
+    },
+  );
+
+  it('explicit skip preserves goal; concurrent goal edit rejects stale preview', async () => {
+    const ctx = await newApp();
+    const id = await seedWearDown(ctx.db);
+    const item = {
+      type: 'chunk',
+      target: 'wear down',
+      meaning: '逐渐使疲惫；消耗',
+      source_example: 'It wears you down.',
+      production_enabled_override: false,
+    };
+    const first = await preview(ctx, item);
+    expect(
+      (await commitGoal(ctx, first.previewToken, [{ index: 0, action: 'skip_exact_duplicate' }]))
+        .statusCode,
+    ).toBe(200);
+    expect(
+      ctx.db.select().from(learningItems).where(eq(learningItems.id, id)).get()!
+        .productionEnabledOverride,
+    ).toBeNull();
+    const second = await preview(ctx, item);
+    ctx.db
+      .update(learningItems)
+      .set({ productionEnabledOverride: 1 })
+      .where(eq(learningItems.id, id))
+      .run();
+    const stale = await commitGoal(ctx, second.previewToken, [{ index: 0, action: 'merge' }]);
+    expect(stale.statusCode).toBe(409);
+    expect(
+      ctx.db.select().from(learningItems).where(eq(learningItems.id, id)).get()!
+        .productionEnabledOverride,
+    ).toBe(1);
+  });
+
+  it('explicit merge disabling Production cancels the current pending P task', async () => {
+    const ctx = await newApp();
+    const id = await seedWearDown(ctx.db);
+    const now = new Date().toISOString();
+    ctx.db
+      .insert(reviewSessions)
+      .values({
+        id: 'import-goal-session',
+        sessionDate: localDateString(new Date(), 'Asia/Shanghai'),
+        startedAt: now,
+        completedAt: null,
+        baseTaskCount: 1,
+        newItemsStarted: 0,
+        createdAt: now,
+      })
+      .run();
+    ctx.db
+      .insert(reviewTasks)
+      .values({
+        id: 'import-pending-p',
+        sessionId: 'import-goal-session',
+        learningItemId: id,
+        dimension: 'production',
+        questionId: null,
+        taskType: 'production',
+        origin: 'base',
+        sortKey: 1,
+        createdAt: now,
+      })
+      .run();
+    const doc = await preview(ctx, {
+      type: 'chunk',
+      target: 'wear down',
+      meaning: '逐渐使疲惫；消耗',
+      source_example: 'It wears you down.',
+      production_enabled_override: false,
+    });
+    const res = await commitGoal(ctx, doc.previewToken, [{ index: 0, action: 'merge' }]);
+    expect(res.statusCode).toBe(200);
+    expect(
+      ctx.db.select().from(reviewTasks).where(eq(reviewTasks.id, 'import-pending-p')).get()!
+        .canceledAt,
+    ).not.toBeNull();
+    expect(
+      ctx.db
+        .select()
+        .from(reviewSessions)
+        .where(eq(reviewSessions.id, 'import-goal-session'))
+        .get()!.completedAt,
+    ).not.toBeNull();
+  });
+});
+
 describe('GET /api/export/library', () => {
   it('导出非 archived 项；含 extra/personal（corrected 文本）例句与全部字段；attachment 头', async () => {
     const ctx = await newApp();
     const t1 = '2026-09-01T00:00:00.000Z';
     const gravity = await seedItem(ctx.db, {
       type: 'word',
+      productionEnabledOverride: 1,
       target: 'gravity',
       meaning: '重力；严重性',
       ipa: 'ˈɡravəti',
@@ -643,10 +837,11 @@ describe('GET /api/export/library', () => {
     expect(res.headers['content-disposition']).toMatch(/^attachment; filename="library-.*\.json"$/);
 
     const body = res.json();
-    expect(body.version).toBe('1.2');
+    expect(body.version).toBe('2.0');
     expect(body.items).toHaveLength(1); // archived 被排除
     const item = body.items[0];
     expect(item.type).toBe('word');
+    expect(item.production_enabled_override).toBe(true);
     expect(item.target).toBe('gravity');
     expect(item.ipa).toBe('ˈɡravəti');
     expect(item.source_example).toBe('Gravity is a force.');

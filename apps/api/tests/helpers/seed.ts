@@ -1,6 +1,63 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
+import { localDateString } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
-import { learningExamples, learningItems, questions, reviewStates } from '../../src/db/schema.js';
+import {
+  learningExamples,
+  learningItems,
+  questions,
+  reviewSessions,
+  reviewStates,
+  reviewTasks,
+} from '../../src/db/schema.js';
+
+/** 已绑定的切换前任务夹具：不调用 V2 调度/生成，不表示 V2 可分配 cloze/Read。 */
+export function seedLegacyBoundTask(
+  db: AppDatabase,
+  itemId: string,
+  questionId: string,
+  now: Date,
+  timezone: string,
+  origin: 'base' | 'read_reinforcement' = 'base',
+): string {
+  const date = localDateString(now, timezone);
+  let session = db.select().from(reviewSessions).where(eq(reviewSessions.sessionDate, date)).get();
+  if (!session) {
+    session = {
+      id: randomUUID(),
+      sessionDate: date,
+      startedAt: now.toISOString(),
+      completedAt: null,
+      baseTaskCount: 0,
+      newItemsStarted: 0,
+      createdAt: now.toISOString(),
+    };
+    db.insert(reviewSessions).values(session).run();
+  }
+  const question = db.select().from(questions).where(eq(questions.id, questionId)).get()!;
+  const id = randomUUID();
+  db.insert(reviewTasks)
+    .values({
+      id,
+      sessionId: session.id,
+      learningItemId: itemId,
+      dimension: question.type === 'understanding' ? 'understanding' : 'production',
+      questionId,
+      taskType: question.type,
+      origin,
+      sortKey: session.baseTaskCount + 1,
+      deferCount: 0,
+      completedAt: null,
+      canceledAt: null,
+      createdAt: now.toISOString(),
+    })
+    .run();
+  db.update(reviewSessions)
+    .set({ baseTaskCount: session.baseTaskCount + 1, completedAt: null })
+    .where(eq(reviewSessions.id, session.id))
+    .run();
+  return id;
+}
 
 export async function seedItem(
   db: AppDatabase,

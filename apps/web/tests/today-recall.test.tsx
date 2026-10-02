@@ -111,7 +111,10 @@ describe('Recall Card（understanding）', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
     expect(await screen.findByText('稳定的')).toBeVisible();
-    expect(screen.getByRole('button', { name: '想错了' })).toBeVisible();
+    const wrongBtn = screen.getByRole('button', { name: '想错了' });
+    expect(wrongBtn).toBeVisible();
+    expect(wrongBtn.className).toContain('text-destructive'); // 否定键暖红语义色
+    expect(screen.getByRole('button', { name: '想起来了' }).className).toContain('bg-accent');
     expect(screen.getByRole('button', { name: '想起来了' })).toBeVisible();
     const notesDetails = screen.getByText('笔记').closest('details');
     expect(notesDetails).toHaveAttribute('open');

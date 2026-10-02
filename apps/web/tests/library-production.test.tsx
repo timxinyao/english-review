@@ -205,7 +205,9 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     });
 
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
+    const failBtn = await screen.findByRole('button', { name: '没想起来' });
+    expect(failBtn.className).toContain('text-destructive'); // 否定键暖红语义色（与 Today 一致）
+    fireEvent.click(failBtn);
 
     await waitFor(() => {
       expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);

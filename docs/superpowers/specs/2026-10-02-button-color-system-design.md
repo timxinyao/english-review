@@ -26,9 +26,11 @@
 | --- | --- | --- | --- |
 | `primary`（=现 default，保留 default 为别名） | `bg-accent text-accent-foreground hover:opacity-90` | 肯定/主操作 | 想起来了、提交、下一题、保存 |
 | `neutral`（新增，取代 outline 的中性角色） | `border border-input bg-accent-soft text-foreground hover:brightness-95` | 中性/次要操作 | 显示答案、取消、关闭 |
-| `negative`（新增） | `border border-destructive/50 bg-transparent text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive` | 学习流否定自评 | 想错了、没想起来 |
+| `negative`（新增） | `border border-destructive/50 bg-destructive/10 text-destructive hover:border-destructive hover:bg-destructive/20 hover:text-destructive` | 学习流否定自评 | 想错了、没想起来 |
 | `destructive`（保留，升级为实心） | `bg-destructive text-white hover:opacity-90` | 不可逆危险操作确认 | 恢复备份确认、归档 |
-| `ghost` | `hover:bg-muted`（不变） | 弱操作/工具性 | 给我提示、刷新、图标按钮 |
+| `ghost` | `bg-muted text-foreground hover:brightness-95` | 弱操作/工具性 | 给我提示、刷新、图标按钮 |
+
+> 2026-10-02 用户真机反馈修订：negative 与 ghost 静止态不得透明融入背景——negative 由 `bg-transparent` 改静止浅红填充 `bg-destructive/10`（悬停 /20）；ghost 由纯悬停态改静止灰浅填充 `bg-muted`。原则：任何变体静止态都必须与所在背景有可辨识的填充差异。
 
 - 禁用态统一 `disabled:opacity-50`（已有）；焦点环 `focus-visible:ring-accent/40` 不变。
 - **规则**：业务代码的 Button className 只允许布局/尺寸类（`flex-1`、`hidden md:inline-flex`、宽高覆盖等），不允许颜色类（bg-/text-/border- 色彩、hover 色彩）。sweep 中违反者归位到变体。

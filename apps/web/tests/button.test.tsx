@@ -19,9 +19,9 @@ describe('Button 基础组件', () => {
     expect(btn.className).toContain('bg-accent');
   });
 
-  it('渲染 outline 变体与自定义类', () => {
+  it('渲染 neutral 变体与自定义类', () => {
     render(
-      <Button variant="outline" className="w-full">
+      <Button variant="neutral" className="w-full">
         继续
       </Button>,
     );

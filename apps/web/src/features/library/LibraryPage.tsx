@@ -47,7 +47,7 @@ export function LibraryPage() {
         <h1 className="hidden text-lg font-semibold md:block">Library</h1>
         {/* 导入只在 PC（PRODUCT §4.1） */}
         <Button
-          variant="outline"
+          variant="neutral"
           size="sm"
           className="hidden md:inline-flex"
           onClick={() => setView('import')}
@@ -87,7 +87,7 @@ export function LibraryPage() {
       {isError && (
         <div className="space-y-2 py-8 text-center">
           <p className="text-sm text-destructive">读取失败，请重试。</p>
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+          <Button variant="neutral" size="sm" onClick={() => void refetch()}>
             重试
           </Button>
         </div>
@@ -97,7 +97,7 @@ export function LibraryPage() {
         <div className="space-y-3 py-16 text-center">
           <p className="text-sm text-muted-foreground">还没有学习项，点击导入开始</p>
           <Button
-            variant="outline"
+            variant="neutral"
             size="sm"
             className="hidden md:inline-flex"
             onClick={() => setView('import')}
@@ -155,7 +155,7 @@ export function LibraryPage() {
       {data && totalPages > 1 && (
         <div className="flex items-center justify-between pt-1">
           <Button
-            variant="outline"
+            variant="neutral"
             size="sm"
             disabled={page <= 1 || isFetching}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -166,7 +166,7 @@ export function LibraryPage() {
             第 {page} / {totalPages} 页 · 共 {data.total} 项
           </p>
           <Button
-            variant="outline"
+            variant="neutral"
             size="sm"
             disabled={page >= totalPages || isFetching}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}

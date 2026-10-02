@@ -184,7 +184,7 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
             生成练习失败：{practice.error?.message ?? '请重试。'}
           </p>
           <div className="flex justify-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => practice.mutate()}>
+            <Button variant="neutral" size="sm" onClick={() => practice.mutate()}>
               重试
             </Button>
           </div>
@@ -198,7 +198,7 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
       {finished && (
         <div className="space-y-4 py-12 text-center">
           <p className="text-base font-medium text-foreground">练习完成</p>
-          <Button variant="outline" size="sm" onClick={onExit}>
+          <Button variant="neutral" size="sm" onClick={onExit}>
             返回详情
           </Button>
         </div>

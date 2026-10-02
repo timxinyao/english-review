@@ -199,7 +199,7 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
             共 {preview.items.length} 项候选；系统建议仅供参考，可逐条调整最终决定。
           </p>
           <div>
-            <Button variant="outline" size="sm" onClick={applyAllSuggestions}>
+            <Button variant="neutral" size="sm" onClick={applyAllSuggestions}>
               全部采用系统建议
             </Button>
           </div>

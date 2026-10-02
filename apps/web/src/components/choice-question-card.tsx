@@ -145,7 +145,7 @@ export function ChoiceQuestionCard({
         return (
           <Button
             key={option.id}
-            variant="outline"
+            variant="neutral"
             aria-pressed={isChosen}
             disabled={pending || phase !== 'answering'}
             className={cn(

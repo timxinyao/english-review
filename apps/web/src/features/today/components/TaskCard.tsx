@@ -38,7 +38,7 @@ function PendingQuestion({ taskId }: { taskId: string }) {
       )}
       <div className="flex shrink-0 gap-2" data-slot="dock">
         {prepare.isError && <Button onClick={() => mutate(taskId)}>重试</Button>}
-        <Button variant="outline" disabled={later.isPending} onClick={() => later.mutate(taskId)}>
+        <Button variant="neutral" disabled={later.isPending} onClick={() => later.mutate(taskId)}>
           稍后再做
         </Button>
         {(prepare.isError || later.isError) && (

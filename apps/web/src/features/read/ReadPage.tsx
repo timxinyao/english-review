@@ -78,7 +78,7 @@ function ReadArticle({ articleId }: { articleId: string }) {
   return (
     <div className="space-y-2 py-8 text-center">
       <p className="text-sm text-destructive">文章加载失败，请重试。</p>
-      <Button variant="outline" size="sm" onClick={() => void refetch()}>
+      <Button variant="neutral" size="sm" onClick={() => void refetch()}>
         重试
       </Button>
     </div>
@@ -134,7 +134,7 @@ function ReadHome({
           <div className="mt-3 space-y-2">
             <p className="text-sm text-destructive">生成失败，请重试。</p>
             <Button
-              variant="outline"
+              variant="neutral"
               size="sm"
               disabled={generate.isPending}
               onClick={generateOnce}

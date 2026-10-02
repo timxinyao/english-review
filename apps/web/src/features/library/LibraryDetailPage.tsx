@@ -288,7 +288,7 @@ function EditItemForm({
         </div>
         <Button
           type="button"
-          variant="outline"
+          variant="neutral"
           size="sm"
           onClick={() => setForm((f) => ({ ...f, extraExamples: [...f.extraExamples, ''] }))}
         >
@@ -573,15 +573,15 @@ export function LibraryDetailPage() {
           </section>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            <Button variant="neutral" size="sm" onClick={() => setEditing(true)}>
               编辑
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setPracticing(true)}>
+            <Button variant="neutral" size="sm" onClick={() => setPracticing(true)}>
               练一下
             </Button>
             {item.status === 'active' && (
               <Button
-                variant="outline"
+                variant="neutral"
                 size="sm"
                 disabled={action.isPending}
                 onClick={() => runAction(() => pauseLibraryItem(id))}
@@ -591,7 +591,7 @@ export function LibraryDetailPage() {
             )}
             {item.status === 'paused' && (
               <Button
-                variant="outline"
+                variant="neutral"
                 size="sm"
                 disabled={action.isPending}
                 onClick={() => runAction(() => resumeLibraryItem(id))}
@@ -601,7 +601,7 @@ export function LibraryDetailPage() {
             )}
             {item.status === 'archived' ? (
               <Button
-                variant="outline"
+                variant="neutral"
                 size="sm"
                 disabled={action.isPending}
                 onClick={() => runAction(() => restoreLibraryItem(id))}
@@ -619,7 +619,7 @@ export function LibraryDetailPage() {
               </Button>
             )}
             <Button
-              variant="outline"
+              variant="neutral"
               size="sm"
               onClick={() =>
                 setConfirm({
@@ -633,7 +633,7 @@ export function LibraryDetailPage() {
             </Button>
             {item.status !== 'mastered' && (
               <Button
-                variant="outline"
+                variant="neutral"
                 size="sm"
                 disabled={action.isPending}
                 onClick={() => runAction(() => masterLibraryItem(id))}

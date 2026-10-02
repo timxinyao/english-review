@@ -14,8 +14,6 @@ const buttonVariants = cva(
           'border border-destructive/50 bg-transparent text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive',
         ghost: 'hover:bg-muted',
         destructive: 'bg-destructive text-white hover:opacity-90',
-        // 旧中性样式，全量 sweep 后在 Task 3 删除
-        outline: 'border border-border bg-transparent hover:bg-muted',
       },
       size: {
         default: 'h-10 px-4',

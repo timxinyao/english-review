@@ -206,7 +206,7 @@ export function RecallCard({
       {!frozen && !revealed && (
         <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
           <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setRevealed(true)}>
+            <Button variant="neutral" className="flex-1" onClick={() => setRevealed(true)}>
               显示答案
             </Button>
             <Button

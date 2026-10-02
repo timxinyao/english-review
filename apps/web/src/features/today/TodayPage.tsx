@@ -50,7 +50,7 @@ export function TodayPage() {
       {isError && (
         <div className="space-y-2 py-8 text-center">
           <p className="text-sm text-destructive">读取失败，请重试。</p>
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+          <Button variant="neutral" size="sm" onClick={() => void refetch()}>
             重试
           </Button>
         </div>

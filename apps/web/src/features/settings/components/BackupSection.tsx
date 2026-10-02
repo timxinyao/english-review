@@ -149,7 +149,7 @@ export function BackupSection({ reload = () => window.location.reload() }: Backu
         <h2 className="text-sm font-semibold">备份与恢复</h2>
 
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={onExport} disabled={exporting}>
+          <Button variant="neutral" size="sm" onClick={onExport} disabled={exporting}>
             {exporting ? '导出中…' : '导出完整备份'}
           </Button>
           <span className="text-xs text-muted-foreground">完整备份含学习项、复习进度与统计。</span>

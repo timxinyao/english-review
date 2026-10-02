@@ -192,6 +192,11 @@ export function SettingsPage() {
       <Link to="/stats" className="block text-sm text-accent hover:underline">
         查看统计
       </Link>
+
+      {/* 低调入口：iOS 主屏 PWA 无地址栏，/tokens 色卡页由此可达 */}
+      <Link to="/tokens" className="block text-xs text-muted-foreground hover:underline">
+        设计色卡
+      </Link>
     </section>
   );
 }

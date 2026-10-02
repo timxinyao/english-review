@@ -333,4 +333,19 @@ describe('SettingsPage 集成', () => {
     expect(section.className).toContain('md:block');
     expect(within(section).getByRole('button', { name: '导出完整备份' })).toBeVisible();
   });
+
+  it('Settings 页尾有低调的 /tokens 色卡入口（iOS 主屏 PWA 无地址栏）', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter>{children}</MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { SettingsPage } = await import('../src/features/settings/SettingsPage');
+    render(<SettingsPage />, { wrapper });
+
+    const link = await screen.findByRole('link', { name: '设计色卡' });
+    expect(link).toHaveAttribute('href', '/tokens');
+    expect(link.className).toContain('text-muted-foreground'); // 低调小字，非 accent 主链接
+  });
 });

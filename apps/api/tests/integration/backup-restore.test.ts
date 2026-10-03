@@ -951,6 +951,108 @@ describe('FSRS 换轨恢复（Task 3：旧格式折算 / 新格式 round-trip）
     });
   });
 
+  it('V1.2 stable word 项恢复后翻回 mastered（折算 S=120 + commit 末尾 reconcile）；chunk 因 P 未激活保持 active', async () => {
+    const { app, db, cookie } = await newFileApp();
+    const backup = {
+      version: '1.2',
+      exportedAt: NOW,
+      settings: { maxNewItemsPerDay: 10, contentLevel: 'B1', preferredTtsVoice: null },
+      items: [
+        {
+          // 旧版 U stable=1 的 word（production 默认关闭）在导出时就是 mastered
+          id: 'v12-stable-word',
+          type: 'word',
+          target: 'stable word',
+          meaning: '已稳定旧词',
+          ipa: null,
+          source: null,
+          sourceUrl: null,
+          tags: [],
+          notes: null,
+          status: 'mastered',
+          queueState: 'started',
+          needsReinforcement: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+          archivedAt: null,
+          examples: [{ kind: 'source', text: 'A stable sentence.' }],
+          reviewStates: [
+            legacyState(
+              'understanding',
+              5,
+              1,
+              '2026-10-01T00:00:00.000Z',
+              '2026-09-01T00:00:00.000Z',
+              5,
+            ),
+          ],
+        },
+        {
+          // 同样 U stable=1 的 chunk：production 默认开启，V1.2 normalize 后 P 恒未激活 → 不翻 mastered
+          id: 'v12-stable-chunk',
+          type: 'chunk',
+          target: 'stable chunk',
+          meaning: '已稳定旧块',
+          ipa: null,
+          source: null,
+          sourceUrl: null,
+          tags: [],
+          notes: null,
+          status: 'mastered',
+          queueState: 'started',
+          needsReinforcement: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+          archivedAt: null,
+          examples: [{ kind: 'source', text: 'A stable chunk sentence.' }],
+          reviewStates: [
+            legacyState(
+              'understanding',
+              5,
+              1,
+              '2026-10-01T00:00:00.000Z',
+              '2026-09-01T00:00:00.000Z',
+              5,
+            ),
+          ],
+        },
+      ],
+      dailyStats: [],
+    };
+
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/restore/preview',
+      headers: { cookie },
+      payload: backup,
+    });
+    expect(preview.statusCode).toBe(200);
+    const commit = await app.inject({
+      method: 'POST',
+      url: '/api/restore/commit',
+      headers: { cookie },
+      payload: { previewToken: preview.json().previewToken },
+    });
+    expect(commit.statusCode).toBe(200);
+
+    // U 折算 stable→S=120，且 word（production 关闭）当场翻回 mastered，不等下次作答
+    expect(
+      db.select().from(learningItems).where(eq(learningItems.id, 'v12-stable-word')).get()!.status,
+    ).toBe('mastered');
+    expect(
+      db
+        .select()
+        .from(reviewStates)
+        .where(eq(reviewStates.learningItemId, 'v12-stable-word'))
+        .all()
+        .find((s) => s.dimension === 'understanding'),
+    ).toMatchObject({ stability: 120 });
+    // chunk：P 重置未激活 → 掌握线要求 P，保持 active
+    expect(
+      db.select().from(learningItems).where(eq(learningItems.id, 'v12-stable-chunk')).get()!.status,
+    ).toBe('active');
+  });
+
   it('2.0 含 FSRS 字段 round-trip：D/S/reps/lapses 精确保留，不走折算', async () => {
     const { app, db, cookie } = await newFileApp();
     const backup = {

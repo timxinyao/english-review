@@ -2356,7 +2356,14 @@ export function submitTaskFeedback(
     const newPost = snapshotOf(tx, itemId);
     newPost.reinforcementTaskIds = oldPost?.reinforcementTaskIds ?? [];
     tx.update(attempts)
-      .set({ feedback, result: adjusted, postStateJson: JSON.stringify(newPost) })
+      .set({
+        feedback,
+        result: adjusted,
+        // too_easy 调整为 pass 时补写 easy：历史回放（ratingOfAttempt）按 outcomeSource 评
+        // Easy 而非 Good；上限 basic_pass（回放恒 Hard）不改写，保留作答时的原值
+        outcomeSource: adjusted === 'pass' ? 'easy' : attempt.outcomeSource,
+        postStateJson: JSON.stringify(newPost),
+      })
       .where(eq(attempts.id, attempt.id))
       .run();
 

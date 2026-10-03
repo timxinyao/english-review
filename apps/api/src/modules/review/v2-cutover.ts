@@ -128,7 +128,8 @@ export function normalizeRestoredV1_2BackupForV2(backup: BackupExport, now: Date
         wrongStreak: 0,
       };
       // 1.2 backups predate FSRS：U 维无 stability 字段 → isMastered 恒 false，统一回落 active；
-      // 进度回放（Task 3）负责把历史换算回 FSRS 状态。
+      // stable=1 的掌握语义由恢复折算承接（estimateFsrsFromLegacy → S=120），commitRestore
+      // 事务末尾按 reconcile 翻回 mastered——production 开启的词条 P 已重置未激活，仍保持 active。
       const mastered = isMastered(
         u
           ? {

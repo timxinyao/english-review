@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import {
   DEFAULT_BACKUP_SETTINGS,
   localDateString,
@@ -46,6 +46,7 @@ import type { DbTx } from '../questions/service.js';
 import { reconcileProductionGoalChange } from '../learning-items/service.js';
 import { normalizeRestoredV1_2BackupForV2 } from '../review/v2-cutover.js';
 import { estimateFsrsFromLegacy } from '../review/fsrs-cutover.js';
+import { reconcileItemStatus } from '../review/service.js';
 
 // ---------- 归一化 ----------
 
@@ -903,6 +904,15 @@ export async function commitRestore(
       })
       .run();
     for (const rows of chunk(dailyRows, 200)) tx.insert(dailyStats).values(rows).run();
+    // 折算后的行可能已越过掌握线而备份/normalize 写下的 status 未跟上（V1.2 stable → S=120）：
+    // 事务末尾按作答路径同语义 reconcile，避免要等下次作答才翻回 mastered（paused/archived 不动）
+    for (const item of tx
+      .select({ id: learningItems.id })
+      .from(learningItems)
+      .where(inArray(learningItems.status, ['active', 'mastered']))
+      .all()) {
+      reconcileItemStatus(tx, item.id, nowIso);
+    }
   });
 
   return {

@@ -22,7 +22,7 @@ export type BackupExample = z.infer<typeof BackupExample>;
 
 export const BackupReviewState = z.object({
   dimension: z.enum(['understanding', 'production']),
-  /** 旧备份（FSRS 前）字段：恢复时忽略，进度回放见 Task 3 */
+  /** 旧备份（FSRS 前）字段：恢复时折算重建而非回放（estimateFsrsFromLegacy：stable→S=120、level 阶梯 1/3/7/14/30/60/120） */
   level: z.number().int().min(0).max(7).optional(),
   stable: z.number().int().min(0).max(1).optional(),
   /** FSRS 字段（2.1 备份起）；旧备份缺省 → 未激活 */

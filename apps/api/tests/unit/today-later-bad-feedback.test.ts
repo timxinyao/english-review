@@ -340,6 +340,8 @@ describe('feedback（答题反馈调整）', () => {
     expect(dim('item-a', 'understanding')!.stability!).toBeGreaterThan(15);
     expect(firstAttempt().result).toBe('pass');
     expect(firstAttempt().feedback).toBe('too_easy');
+    // 历史回放（ratingOfAttempt）按 outcomeSource 区分 Easy/Good → 必须补写 easy
+    expect(firstAttempt().outcomeSource).toBe('easy');
   });
 
   it('too_easy 且查看过原句 → 结果上限 basic_pass', async () => {
@@ -354,6 +356,9 @@ describe('feedback（答题反馈调整）', () => {
     const res = submitTaskFeedback(db, deps, TZ, a.id, 'too_easy', T1);
     expect(res.adjustedResult).toBe('basic_pass');
     expect(dim('item-a', 'understanding')!.correctStreak).toBe(0); // 结果上限 basic_pass：不记对
+    // 上限 basic_pass（回放恒 Hard）不改写 outcomeSource，保留作答时的 assisted
+    expect(firstAttempt().result).toBe('basic_pass');
+    expect(firstAttempt().outcomeSource).toBe('assisted');
   });
 
   it('guessed 降级语义与 reconcileItemStatus 一致：production 关闭且无 P 行的 mastered 不被误降', async () => {

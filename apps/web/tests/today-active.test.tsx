@@ -2,9 +2,11 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiCalls,
+  jsonBodyOf,
   makeActive,
   makeCanceledEntry,
   makeChoiceTask,
+  makeCorrectAnswer,
   makeLearnTask,
   makeProductionTask,
   makeSessionEntry,
@@ -16,35 +18,55 @@ import {
 
 afterEach(cleanup);
 
-describe('V2 pending 题目准备', () => {
+describe('V2 pending 题目准备（2026-10-03 两级契约）', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('pending 显示正在准备且无答案，prepare 成功后显示 Recall；选项不可达', async () => {
-    const pending = makeChoiceTask({ question: null });
-    const ready = makeChoiceTask();
-    let prepared = false;
-    let resolve!: (value: typeof ready) => void;
+  /** 理解题不消费绑定题：question=null 也立即渲染 RecallCard，不触发 prepare（反白屏核心） */
+  it('understanding question=null 立即渲染 RecallCard：无正在准备、不调 prepare、可直接作答', async () => {
+    const task = makeChoiceTask({ question: null });
     stubApi({
-      '/api/today': () => makeActive(prepared ? ready : pending),
-      '/api/today/tasks/task-1/prepare': () =>
-        new Promise((r) => {
-          resolve = (value) => {
-            prepared = true;
-            r(value);
-          };
-        }),
+      '/api/today': () => makeActive(task),
+      '/api/today/tasks/task-1/answer': () => makeCorrectAnswer({ outcomeSource: 'recalled' }),
     });
     renderTodayApp();
-    expect(await screen.findByText('正在准备…')).toBeVisible();
-    expect(screen.queryByText('稳定的')).toBeNull();
-    expect(screen.queryByRole('button', { name: '显示答案' })).toBeNull();
-    expect(screen.queryByRole('group', { name: '选项' })).toBeNull();
-    await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/prepare')).toHaveLength(1));
-    resolve(ready);
-    expect(await screen.findByRole('button', { name: '显示答案' })).toBeVisible();
-    // 选择题不再出现在正式 Recall 流（仅历史作答回放）
-    expect(screen.queryByRole('group', { name: '选项' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '给我提示' })).toBeNull();
+    // 词行与原句即时可见（已知内容不白屏），显示答案可点
+    expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
+    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
+    expect(screen.getByRole('button', { name: '显示答案' })).toBeVisible();
+    expect(screen.queryByText('正在准备…')).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(apiCalls('/api/today/tasks/task-1/prepare')).toHaveLength(0);
+    // 可直接作答：显示答案 → 良好 → POST recall（未绑题也能走完整作答流）
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    fireEvent.click(screen.getByRole('button', { name: '良好' }));
+    await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1));
+    expect(apiCalls('/api/today/tasks/task-1/answer')[0]!.init).toMatchObject({ method: 'POST' });
+    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-1/answer')[0]!)).toEqual({
+      recall: 'recalled',
+    });
+  });
+
+  it('表达题 question=null：词行+原句+加载态 dock，in-flight 无稍后再做', async () => {
+    const pending = makeProductionTask({ question: null });
+    let resolve!: () => void;
+    const held = new Promise<void>((r) => {
+      resolve = r;
+    });
+    stubApi({
+      '/api/today': () => makeActive(pending),
+      '/api/today/tasks/task-prod/prepare': () => held.then(() => pending),
+    });
+    renderTodayApp();
+    // 已知内容（词行+原句）即时渲染，输入框不可达
+    expect(await screen.findByRole('heading', { name: 'give up' })).toBeVisible();
+    expect(screen.getByText('Never give up your dreams.')).toBeVisible();
+    expect(screen.getByText('正在准备…')).toBeVisible();
+    expect(screen.queryByLabelText('表达答案')).toBeNull();
+    // in-flight 期间不提供稍后再做/重试（只在生成失败后出现）
+    expect(screen.queryByRole('button', { name: '稍后再做' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
+    await waitFor(() => expect(apiCalls('/api/today/tasks/task-prod/prepare')).toHaveLength(1));
+    resolve();
   });
 
   it('生成失败保留任务和总数，重试后 Production target 与底部输入可达', async () => {
@@ -56,8 +78,12 @@ describe('V2 pending 题目准备', () => {
         ++tries === 1 ? Promise.reject(new Error('题目暂时无法生成，请稍后重试')) : ready,
     });
     renderTodayApp();
+    // 失败态：错误文案 + dock 三键（重试/稍后再做/刷新今日学习）
     expect(await screen.findByText('题目暂时无法生成，请稍后重试')).toBeVisible();
     expect(screen.getByText('0 / 1')).toBeVisible();
+    expect(screen.getByRole('button', { name: '重试' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '稍后再做' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '刷新今日学习' })).toBeVisible();
     expect(screen.queryByLabelText('表达答案')).toBeNull();
     expect(apiCalls('/api/today/tasks/task-prod/answer')).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
@@ -66,17 +92,15 @@ describe('V2 pending 题目准备', () => {
     expect(screen.queryByLabelText('填空答案')).toBeNull();
   });
 
-  it('失败任务可稍后再做，进度总数不减少且下一张卡可答', async () => {
+  it('失败任务可稍后再做（POST /later），进度总数不减少且下一张卡可答', async () => {
     let deferred = false;
+    const pending = makeProductionTask({ question: null });
     stubApi({
       '/api/today': () =>
-        makeActive(deferred ? makeLearnTask() : makeChoiceTask({ question: null }), {
-          completed: 0,
-          total: 2,
-        }),
-      '/api/today/tasks/task-1/prepare': () =>
+        makeActive(deferred ? makeLearnTask() : pending, { completed: 0, total: 2 }),
+      '/api/today/tasks/task-prod/prepare': () =>
         Promise.reject(new Error('题目暂时无法生成，请稍后重试')),
-      '/api/today/tasks/task-1/later': () => {
+      '/api/today/tasks/task-prod/later': () => {
         deferred = true;
         return { ok: true, progress: { completed: 0, total: 2 } };
       },
@@ -84,6 +108,8 @@ describe('V2 pending 题目准备', () => {
     renderTodayApp();
     await screen.findByText('题目暂时无法生成，请稍后重试');
     fireEvent.click(screen.getByRole('button', { name: '稍后再做' }));
+    await waitFor(() => expect(apiCalls('/api/today/tasks/task-prod/later')).toHaveLength(1));
+    expect(apiCalls('/api/today/tasks/task-prod/later')[0]!.init).toMatchObject({ method: 'POST' });
     expect(await screen.findByRole('heading', { name: 'gravity' })).toBeVisible();
     expect(screen.getByText('0 / 2')).toBeVisible();
   });

@@ -329,6 +329,58 @@ describe('answer：理解题（understanding 复习）', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
+  // ---- 未绑题（V2 懒绑定）：理解卡不依赖绑定题，2026-10-03 起可不 prepare 直接三档自评 ----
+
+  it('未绑题 recall=recalled → pass：attempt.questionId=null、状态照常推进、无题面揭示', async () => {
+    await seedDueChoiceItem('item-a');
+    // 直接 start、不 prepare：任务保持 questionId=null（前端 RecallCard 即时渲染路径）
+    const res = await startTodaySessionRaw(db, deps, TZ, NOW);
+    if (res.status !== 'active') throw new Error(`start 失败：${res.status}`);
+    const task = taskByItem('item-a')!;
+    expect(task.questionId).toBeNull();
+
+    const answer = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'recalled' });
+    expect(answer.result).toBe('pass');
+    expect(answer.outcomeSource).toBe('recalled');
+    expect(answer.explanation).toBeNull(); // 无题面解释可揭示
+    expect(answer.correctOptionId).toBeNull();
+    // FSRS 照常推进（与绑题路径同种子同结果：reps 累计、S 上升）
+    const u = dim('item-a', 'understanding')!;
+    expect(u.reps).toBe(4);
+    expect(u.stability!).toBeGreaterThan(15);
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.questionId).toBeNull();
+    expect(attempt.result).toBe('pass');
+    expect(tasks()[0]!.completedAt).toBe(iso(NOW));
+    // 幂等回放对 questionId=null 同样健壮
+    const replay = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'recalled' });
+    expect(replay.alreadyCompleted).toBe(true);
+    expect(replay.result).toBe('pass');
+  });
+
+  it('未绑题 recall=forgot → fail：补强题照常插入；提交选项仍拒绝', async () => {
+    await seedDueChoiceItem('item-a');
+    await seedDueChoiceItem('item-b');
+    const res = await startTodaySessionRaw(db, deps, TZ, NOW);
+    if (res.status !== 'active') throw new Error(`start 失败：${res.status}`);
+    const task = taskByItem('item-a')!;
+
+    const answer = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'forgot' });
+    expect(answer.result).toBe('fail');
+    expect(answer.outcomeSource).toBe('forgot');
+    expect(answer.reinforcementAdded).toBe(true);
+    // 补强任务绑定新取的题（未绑题路径无排除列表）
+    const rf = tasks().find((t) => t.origin === 'reinforcement')!;
+    expect(rf.questionId).not.toBeNull();
+    // 选项提交（hint 旧契约）在未绑题下仍拒绝：无题可判
+    await expect(
+      answerTodayTask(db, deps, TZ, NOW, taskByItem('item-b')!.id, {
+        selectedOptionId: 'o1',
+        hintUsed: true,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', message: '该任务没有可用题目' });
+  });
+
   it('任务不存在 → 404', async () => {
     await expect(
       answerTodayTask(db, deps, TZ, NOW, 'no-such-task', { selectedOptionId: 'o1' }),
@@ -550,11 +602,14 @@ describe('answer：幂等', () => {
     }).toEqual(before);
   });
 
-  it('题目未绑定时拒绝作答，不写 attempt 或统计', async () => {
+  it('题目未绑定时依赖题面的提交仍拒绝（选项），recall 自评已放行（2026-10-03 见上）', async () => {
     await seedDueChoiceItem('pending');
     await startTodaySessionRaw(db, deps, TZ, NOW);
     await expect(
-      answerTodayTask(db, deps, TZ, NOW, tasks()[0]!.id, { recall: 'recalled' }),
+      answerTodayTask(db, deps, TZ, NOW, tasks()[0]!.id, {
+        selectedOptionId: 'o1',
+        hintUsed: true,
+      }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(db.select().from(attempts).all()).toEqual([]);
     expect(stats()).toBeNull();
@@ -945,9 +1000,16 @@ describe('learn Recall（初见即回忆，方案 A）', () => {
     await seedLearnItem('new-2'); // recalled 对照
     await startSession();
 
-    const res = await answerTodayTask(db, deps, TZ, NOW, taskByItem('new-1', { type: 'learn' })!.id, {
-      recall: 'easy',
-    });
+    const res = await answerTodayTask(
+      db,
+      deps,
+      TZ,
+      NOW,
+      taskByItem('new-1', { type: 'learn' })!.id,
+      {
+        recall: 'easy',
+      },
+    );
     expect(res.result).toBe('pass');
     expect(res.outcomeSource).toBe('easy');
     expect(res.correct).toBe(true);

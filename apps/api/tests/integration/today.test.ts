@@ -837,20 +837,31 @@ describe('later / bad-question / feedback HTTP 契约', () => {
     }
   });
 
-  it('未绑定题目不能通过 answer 路由写入作答', async () => {
+  it('未绑定题目：recall 自评可写入（V2 理解题不依赖绑定题）；依赖题面的提交仍 409', async () => {
     const ctx = await newCtx(async (db) => {
       await seedDueChoice(db, 'unbound', 'stable');
     });
     const started = (await post(ctx, '/api/today/start')).json();
-    const res = await ctx.app.inject({
+    // 依赖题面的提交（选项）在未绑题下拒绝，零写入
+    const rejected = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/today/tasks/${started.currentTask.taskId}/answer`,
+      headers: { cookie: ctx.cookie },
+      payload: { selectedOptionId: 'o1', hintUsed: true },
+    });
+    expect(rejected.statusCode).toBe(409);
+    expect(ctx.db.select().from(attempts).all()).toEqual([]);
+    expect(ctx.db.select().from(dailyStats).all()).toEqual([]);
+    // recall 三档自评放行：写入 attempt（question_id=null）并结算
+    const accepted = await ctx.app.inject({
       method: 'POST',
       url: `/api/today/tasks/${started.currentTask.taskId}/answer`,
       headers: { cookie: ctx.cookie },
       payload: { recall: 'recalled' },
     });
-    expect(res.statusCode).toBe(409);
-    expect(ctx.db.select().from(attempts).all()).toEqual([]);
-    expect(ctx.db.select().from(dailyStats).all()).toEqual([]);
+    expect(accepted.statusCode).toBe(200);
+    expect((accepted.json() as { result: string }).result).toBe('pass');
+    expect(ctx.db.select().from(attempts).all()[0]!.questionId).toBeNull();
   });
   it('later：ok+progress、未知任务 404、已完成任务 409', async () => {
     const ctx = await newCtx(async (db) => {

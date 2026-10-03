@@ -1554,15 +1554,21 @@ export async function answerTodayTask(
   const question = task.questionId
     ? (db.select().from(questions).where(eq(questions.id, task.questionId)).get() ?? null)
     : null;
-  if (!question) throw appError('CONFLICT', '该任务没有可用题目');
-  if (question.status !== 'fresh' && question.status !== 'active') {
+  // Recall 判定契约（understanding 复习与 learn 新学"初见即回忆"共用，判定完全一致）
+  const isRecallTask = task.taskType === 'understanding' || task.taskType === 'learn';
+  // 未绑题（V2 懒绑定）仅放行 recall 三档自评 / giveUp：判定不依赖题目（2026-10-03 起
+  // 理解题卡不消费绑定题，可不 prepare 直接作答）；选项/填空/表达提交仍必须有绑定题
+  const recallWithoutQuestion =
+    question === null && isRecallTask && (body.recall !== undefined || body.giveUp === true);
+  if (!question && !recallWithoutQuestion) {
+    throw appError('CONFLICT', '该任务没有可用题目');
+  }
+  if (question && question.status !== 'fresh' && question.status !== 'active') {
     throw appError('CONFLICT', '题目已失效，请刷新今日学习');
   }
 
-  const isCloze = question.type === 'cloze';
-  const isProduction = question.type === 'production';
-  // Recall 判定契约（understanding 复习与 learn 新学"初见即回忆"共用，判定完全一致）
-  const isRecallTask = task.taskType === 'understanding' || task.taskType === 'learn';
+  const isCloze = question?.type === 'cloze';
+  const isProduction = question?.type === 'production';
   // 主动不会（PRODUCT §7.6）：独立的作答动作，与任何作答内容互斥（服务层兜底，路由层 Zod 已拦截）
   const giveUp = body.giveUp === true;
   if (giveUp) {
@@ -1595,7 +1601,7 @@ export async function answerTodayTask(
   if (giveUp) {
     // 主动不会：直接按 fail 结算，零生产/填空/选择判定调用（TECHNICAL_DESIGN §7.5）
     outcome = { correct: false };
-  } else if (isProduction) {
+  } else if (question && isProduction) {
     try {
       production = await deps.evaluateProduction(db, question, body.answerText!);
     } catch (err) {
@@ -1604,14 +1610,17 @@ export async function answerTodayTask(
       throw appError('AI_PROVIDER_ERROR', '批改失败，请重试');
     }
     outcome = { correct: production.result !== 'fail' };
-  } else if (isCloze) {
+  } else if (question && isCloze) {
     outcome = await deps.evaluateCloze(db, question, body.answerText!);
   } else if (isRecallTask && body.recall) {
     // Recall Card 三档自评（2026-10-03）：recalled/easy 为通过（pass），forgot 未通过；
     // understanding 与 learn（新词初见即回忆）共用，cloze 误传 recall 不生效，落入 cloze 路径
     outcome = { correct: body.recall !== 'forgot' };
-  } else {
+  } else if (question) {
     outcome = deps.evaluateChoice(question, body.selectedOptionId!);
+  } else {
+    // 未绑题只允许 recall/giveUp（recallWithoutQuestion 已拦截其余提交），此处不可达
+    throw appError('INTERNAL', '未绑定题目的作答缺少判定依据');
   }
   const correct = outcome.correct === true;
   const viewedSource = body.viewedSource === true;
@@ -1655,7 +1664,7 @@ export async function answerTodayTask(
       task.learningItemId,
       reinforceType,
       now,
-      [question.id],
+      question ? [question.id] : undefined,
     );
   }
 
@@ -1668,13 +1677,15 @@ export async function answerTodayTask(
     requireCurrentSession(tx, fresh.sessionId, timezone, settlementNow());
     if (fresh.canceledAt !== null) throw appError('CONFLICT', '该任务已撤销');
     if (fresh.completedAt !== null) return replayAnswer(tx, fresh);
-    const freshQuestion = tx.select().from(questions).where(eq(questions.id, question.id)).get();
-    if (
-      fresh.questionId !== question.id ||
-      !freshQuestion ||
-      (freshQuestion.status !== 'fresh' && freshQuestion.status !== 'active')
-    ) {
-      throw appError('CONFLICT', '题目已失效，请刷新今日学习');
+    if (question) {
+      const freshQuestion = tx.select().from(questions).where(eq(questions.id, question.id)).get();
+      if (
+        fresh.questionId !== question.id ||
+        !freshQuestion ||
+        (freshQuestion.status !== 'fresh' && freshQuestion.status !== 'active')
+      ) {
+        throw appError('CONFLICT', '题目已失效，请刷新今日学习');
+      }
     }
 
     const itemId = task.learningItemId;
@@ -1788,24 +1799,28 @@ export async function answerTodayTask(
       }
     }
 
-    const reveal = isCloze ? clozeReveal(question) : null;
+    const reveal = question && isCloze ? clozeReveal(question) : null;
     // 主动不会的表达题揭示：参考句/用法说明取自绑定题目 payload（仅作答后返回）
-    const giveUpProductionReveal = giveUp && isProduction ? productionReveal(question) : null;
-    const explanation = giveUp
-      ? // 主动不会：表达题无批改说明（揭示走 payload 参考句/用法说明）；选择/填空揭示解释
-        isProduction
-        ? null
-        : revealExplanation(question, false)
-      : isProduction
-        ? production!.explanation
-        : revealExplanation(question, correct);
+    const giveUpProductionReveal =
+      giveUp && question && isProduction ? productionReveal(question) : null;
+    const explanation = question
+      ? giveUp
+        ? // 主动不会：表达题无批改说明（揭示走 payload 参考句/用法说明）；选择/填空揭示解释
+          isProduction
+          ? null
+          : revealExplanation(question, false)
+        : isProduction
+          ? production!.explanation
+          : revealExplanation(question, correct)
+      : null; // 未绑题的 recall 自评/giveUp 无题面解释可揭示
     const attemptId = randomUUID();
     tx.insert(attempts)
       .values({
         id: attemptId,
         reviewTaskId: task.id,
         learningItemId: task.learningItemId,
-        questionId: question.id,
+        // 未绑题的 recall 作答允许 question_id=null（列本就可空，schema set null）
+        questionId: question?.id ?? null,
         mode: 'today',
         answerText: body.answerText ?? null,
         // recall 直判时归一化丢弃并存选项，避免统计层误读
@@ -1884,7 +1899,7 @@ export async function answerTodayTask(
       referenceAnswer: giveUpProductionReveal?.referenceAnswer ?? null,
       answerNote: giveUpProductionReveal?.answerNote ?? null,
       explanation,
-      correctOptionId: !isCloze && !isProduction ? question.correctOptionId : null,
+      correctOptionId: question && !isCloze && !isProduction ? question.correctOptionId : null,
       completeSentence: reveal?.completeSentence ?? null,
       acceptedAnswer: reveal?.acceptedAnswer ?? null,
       correction: production

@@ -1,18 +1,27 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AnswerResponse, TodayTaskView } from '@el/shared';
+import { Volume2 } from 'lucide-react';
 import { ChoiceQuestionView } from './ChoiceQuestionView';
 import { ClozeQuestionView } from './ClozeQuestionView';
 import { ProductionQuestionView } from './ProductionQuestionView';
 import { RecallCard } from './RecallCard';
 import { Button } from '../../../components/ui/button';
 import { todayKeys, useLater, usePrepareTask } from '../api';
+import { speak } from '../../../lib/tts';
 
-function PendingQuestion({ taskId }: { taskId: string }) {
+/**
+ * 占位卡：仍依赖绑定题的任务（production；历史 cloze 展示路径）。已知内容（词行+原句）
+ * 即时渲染，加载态只在 dock 一行低调提示——不占正文中央大空白（2026-10-03 反白屏）。
+ * 理解/learn 不进这里：RecallCard 不消费绑定题，question=null 直接渲染。
+ * 稍后再做仅在生成失败的 dock 出现；in-flight 期间绝不提供。
+ */
+function PendingQuestion({ task }: { task: TodayTaskView }) {
   const prepare = usePrepareTask();
   const later = useLater();
   const queryClient = useQueryClient();
   const started = useRef(false);
+  const taskId = task.taskId;
   const { mutate } = prepare;
   useEffect(() => {
     if (started.current) return;
@@ -20,34 +29,74 @@ function PendingQuestion({ taskId }: { taskId: string }) {
     mutate(taskId);
   }, [taskId, mutate]);
 
+  const word = task.item;
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div
-        className="flex min-h-0 flex-1 items-center justify-center"
-        role="status"
-        aria-live="polite"
-      >
-        <p className="text-sm text-muted-foreground">
-          {prepare.isError ? prepare.error.message : '正在准备…'}
-        </p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* 滚动区：已知内容（与 RecallCard 同版式的词行 + 原句） */}
+      <div className="min-h-0 flex-1 space-y-7 overflow-y-auto pr-1" data-slot="body">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pr-9">
+          <h3 className="study-title min-w-0">{word.target}</h3>
+          {word.type === 'word' && word.ipa !== null && (
+            <span className="text-sm text-muted-foreground">{word.ipa}</span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="发音"
+            onClick={() => void speak(word.target, { userGesture: true })}
+          >
+            <Volume2 className="h-4 w-4" aria-hidden />
+          </Button>
+        </div>
+        {task.sourceExample !== null && (
+          <p className="study-example">
+            <span className="mb-1 block text-xs text-muted-foreground">原句</span>
+            {task.sourceExample}
+          </p>
+        )}
+        {prepare.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {prepare.error.message}
+          </p>
+        )}
       </div>
       {later.isError && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="mt-2 shrink-0 text-sm text-destructive">
           {later.error.message}
         </p>
       )}
-      <div className="flex shrink-0 flex-wrap gap-2" data-slot="dock">
-        {prepare.isError && <Button onClick={() => mutate(taskId)}>重试</Button>}
-        <Button variant="neutral" disabled={later.isPending} onClick={() => later.mutate(taskId)}>
-          稍后再做
-        </Button>
-        {(prepare.isError || later.isError) && (
-          <Button
-            variant="ghost"
-            onClick={() => void queryClient.invalidateQueries({ queryKey: todayKeys.all })}
-          >
-            刷新今日学习
-          </Button>
+      <div className="study-dock" data-slot="dock">
+        {prepare.isError ? (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => mutate(taskId)}>重试</Button>
+            <Button
+              variant="neutral"
+              disabled={later.isPending}
+              onClick={() => later.mutate(taskId)}
+            >
+              稍后再做
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => void queryClient.invalidateQueries({ queryKey: todayKeys.all })}
+            >
+              刷新今日学习
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+              正在准备…
+            </p>
+            {later.isError && (
+              <Button
+                variant="ghost"
+                onClick={() => void queryClient.invalidateQueries({ queryKey: todayKeys.all })}
+              >
+                刷新今日学习
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -86,9 +135,19 @@ export function TaskCard({ task, result, undoControl, onAnswered, onAdvance }: P
         </div>
       )}
 
-      {/* 理解题（learn 新词 + understanding 复习）：Recall Card——主动回忆优先，直判/显示答案两条路 */}
-      {!question ? (
-        <PendingQuestion taskId={task.taskId} />
+      {/* 理解题（learn 新词 + understanding 复习）：Recall Card——主动回忆优先，直判/显示答案两条路。
+          卡面内容全部来自 task.item，不消费绑定题：question=null 也直接渲染（2026-10-03 起不再
+          为 U 触发 prepare，消除评分即前进切卡时的白板闪现）；占位卡只留给依赖题面的任务 */}
+      {!question && (task.taskType === 'understanding' || task.taskType === 'learn') ? (
+        <RecallCard
+          task={task}
+          result={result}
+          outcomeSource={result?.outcomeSource ?? null}
+          onAnswered={onAnswered ?? (() => {})}
+          onAdvance={onAdvance ?? (() => {})}
+        />
+      ) : !question ? (
+        <PendingQuestion task={task} />
       ) : 'options' in question ? (
         task.taskType === 'understanding' || task.taskType === 'learn' ? (
           <RecallCard

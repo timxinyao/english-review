@@ -31,7 +31,11 @@ describe('V2 pending 题目准备（2026-10-03 两级契约）', () => {
     renderTodayApp();
     // 词行与原句即时可见（已知内容不白屏），显示答案可点
     expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
-    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
+    expect(
+      screen.getByText(
+        (_, el) => el?.tagName === 'P' && el.textContent === '原句The ladder feels stable.',
+      ),
+    ).toBeVisible();
     expect(screen.getByRole('button', { name: '显示答案' })).toBeVisible();
     expect(screen.queryByText('正在准备…')).toBeNull();
     await new Promise((r) => setTimeout(r, 50));
@@ -59,7 +63,11 @@ describe('V2 pending 题目准备（2026-10-03 两级契约）', () => {
     renderTodayApp();
     // 已知内容（词行+原句）即时渲染，输入框不可达
     expect(await screen.findByRole('heading', { name: 'give up' })).toBeVisible();
-    expect(screen.getByText('Never give up your dreams.')).toBeVisible();
+    expect(
+      screen.getByText(
+        (_, el) => el?.tagName === 'P' && el.textContent === '原句Never give up your dreams.',
+      ),
+    ).toBeVisible();
     expect(screen.getByText('正在准备…')).toBeVisible();
     expect(screen.queryByLabelText('表达答案')).toBeNull();
     // in-flight 期间不提供稍后再做/重试（只在生成失败后出现）

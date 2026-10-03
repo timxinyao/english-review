@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { AnswerRequest, AnswerResponse, TodayTaskView } from '@el/shared';
 import { Volume2 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
+import { HighlightText } from '../../../components/highlight-text';
 import { todayKeys, useAnswer } from '../api';
 import { speak } from '../../../lib/tts';
 
@@ -50,7 +51,7 @@ function RecallFeedback({
       {task.sourceExample !== null && (
         <p className="study-example">
           <span className="mb-1 block text-xs text-muted-foreground">原句</span>
-          {task.sourceExample}
+          <HighlightText text={task.sourceExample} target={task.item.target} />
         </p>
       )}
     </div>
@@ -119,7 +120,7 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
         {task.sourceExample !== null && !frozen && (
           <p className="study-example">
             <span className="mb-1 block text-xs text-muted-foreground">原句</span>
-            {task.sourceExample}
+            <HighlightText text={task.sourceExample} target={word.target} />
           </p>
         )}
 

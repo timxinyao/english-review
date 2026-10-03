@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api';
 import {
@@ -173,7 +173,16 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
 
     // 留在当前卡：判定 + 参考句/用法说明（表达题给-up 揭示来自绑定题目 payload）
     expect(await screen.findByText('主动不会')).toBeVisible();
-    expect(screen.getByText('The constant stress makes me want to give up.')).toBeVisible();
+    // 参考句整块（label + 高亮拆分后按 textContent 定位）；目标词块 give up 以 accent 高亮
+    const reference = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent === '参考句The constant stress makes me want to give up.',
+    );
+    expect(reference).toBeVisible();
+    expect(
+      within(reference).getByText((_, el) => el?.classList.contains('text-accent') === true),
+    ).toHaveTextContent('give up');
     expect(screen.getByText('允许正常时态与人称变化。')).toBeVisible();
     // 无批改即无最小纠错 diff，也不入个人例句
     expect(screen.queryByText('纠正后')).not.toBeInTheDocument();

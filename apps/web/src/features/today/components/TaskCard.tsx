@@ -7,6 +7,7 @@ import { ClozeQuestionView } from './ClozeQuestionView';
 import { ProductionQuestionView } from './ProductionQuestionView';
 import { RecallCard } from './RecallCard';
 import { Button } from '../../../components/ui/button';
+import { HighlightText } from '../../../components/highlight-text';
 import { todayKeys, useLater, usePrepareTask } from '../api';
 import { speak } from '../../../lib/tts';
 
@@ -51,7 +52,7 @@ function PendingQuestion({ task }: { task: TodayTaskView }) {
         {task.sourceExample !== null && (
           <p className="study-example">
             <span className="mb-1 block text-xs text-muted-foreground">原句</span>
-            {task.sourceExample}
+            <HighlightText text={task.sourceExample} target={word.target} />
           </p>
         )}
         {prepare.isError && (

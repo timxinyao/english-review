@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PracticeAnswerResponse, PracticeQuestion, PracticeStartResponse } from '@el/shared';
 import type * as LibraryApi from '../src/features/library/api';
@@ -165,7 +165,16 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
 
     expect(await screen.findByText('1 / 2')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'give up' })).toBeVisible();
-    expect(screen.getByText('After months of failure, he refused to give up.')).toBeVisible();
+    // 原句整块（label + 高亮拆分后按 textContent 定位）；目标词块 give up 以 accent 高亮
+    const context = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent === '原句After months of failure, he refused to give up.',
+    );
+    expect(context).toBeVisible();
+    expect(
+      within(context).getByText((_, el) => el?.classList.contains('text-accent') === true),
+    ).toHaveTextContent('give up');
     // 释义（reveal 内容）与选项在作答前都不渲染
     expect(screen.queryByText('放弃', { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '放弃（动词）' })).not.toBeInTheDocument();

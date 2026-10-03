@@ -68,7 +68,13 @@ describe('Today 沉浸式卡布局', () => {
     const dock = container.querySelector('[data-slot="dock"]');
     expect(body).not.toBeNull();
     expect(dock).not.toBeNull();
-    expect(body!.contains(screen.getByText('The ladder feels stable.'))).toBe(true);
+    expect(
+      body!.contains(
+        screen.getByText(
+          (_, el) => el?.tagName === 'P' && el.textContent === '原句The ladder feels stable.',
+        ),
+      ),
+    ).toBe(true);
     // 揭示前：dock 只有一个全宽主按钮，无任何自评键
     expect(body!.contains(screen.getByRole('button', { name: '显示答案' }))).toBe(false);
     expect(dock!.contains(screen.getByRole('button', { name: '显示答案' }))).toBe(true);

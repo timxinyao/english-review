@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
 import type { PracticeAnswerRequest, PracticeAnswerResponse, PracticeQuestion } from '@el/shared';
 import { ProductionQuestionCard } from '../../components/production-question-card';
+import { HighlightText } from '../../components/highlight-text';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import { speak } from '../../lib/tts';
@@ -79,7 +80,7 @@ function RecallPracticeCard({
       {question.context !== null && (
         <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
           <span className="mr-1 text-xs text-muted-foreground">原句</span>
-          {question.context}
+          <HighlightText text={question.context} target={question.target} />
         </p>
       )}
 

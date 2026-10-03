@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api';
 import {
@@ -49,6 +49,20 @@ function verdictParagraph(text: string): Promise<HTMLElement> {
   return screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === text);
 }
 
+/** 原句块 <p>（label span + 句子；目标词被 HighlightText 拆成 mark 后按整块 textContent 定位） */
+function exampleBlock(sentence: string): HTMLElement {
+  return screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === `原句${sentence}`);
+}
+
+/** 原句块内目标词高亮（HighlightText：词边界命中处 mark 带 text-accent，恰好一次） */
+function expectTargetHighlighted(block: HTMLElement, target: string) {
+  const marks = within(block).getAllByText(
+    (_, el) => el?.classList.contains('text-accent') === true,
+  );
+  expect(marks).toHaveLength(1);
+  expect(marks[0]).toHaveTextContent(target);
+}
+
 describe('Recall Card（understanding）', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -74,8 +88,10 @@ describe('Recall Card（understanding）', () => {
 
     expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
     expect(screen.getByText('/ˈsteɪbl/')).toBeVisible();
-    // 原句默认展示（Recall Card 不再有"查看原句"）
-    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
+    // 原句默认展示（Recall Card 不再有"查看原句"）；目标词以 accent 高亮（HighlightText）
+    const source = exampleBlock('The ladder feels stable.');
+    expect(source).toBeVisible();
+    expectTargetHighlighted(source, 'stable');
     expect(screen.getByRole('button', { name: '发音' })).toBeVisible();
     const revealBtn = screen.getByRole('button', { name: '显示答案' });
     expect(revealBtn).toBeVisible();
@@ -292,7 +308,10 @@ describe('Recall Card（understanding）', () => {
     const verdict = await verdictParagraph('重来');
     expect(verdict.className).toContain('text-destructive');
     expect(screen.getByText('稳定的')).toBeVisible();
-    expect(screen.getByText('The ladder feels stable.')).toBeVisible();
+    // 冻结反馈的原句块同样高亮目标词
+    const frozenExample = exampleBlock('The ladder feels stable.');
+    expect(frozenExample).toBeVisible();
+    expectTargetHighlighted(frozenExample, 'stable');
     expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
   });
 
@@ -335,7 +354,7 @@ describe('learn 分派 RecallCard（新词首触即回忆）', () => {
     // 词行 + 原句（RecallCard 自带）；不剧透：meaning、选择题均不出现
     expect(await screen.findByRole('heading', { name: 'gravity' })).toBeVisible();
     expect(screen.getByText('/ˈɡrævəti/')).toBeVisible();
-    expect(screen.getByText('I laugh at gravity all the time.')).toBeVisible();
+    expect(exampleBlock('I laugh at gravity all the time.')).toBeVisible();
     expect(screen.queryByText('重力')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
     // 揭示前仅全宽「显示答案」：三档自评键都不出现（与 understanding 卡一致）

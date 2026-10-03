@@ -4,6 +4,7 @@ import { Textarea } from './ui/textarea';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { CorrectionDiff } from './correction-diff';
+import { HighlightText } from './highlight-text';
 import { PRODUCTION_VERDICTS, type QuestionAnswerResult } from './question-answer';
 import { positionTodayDockAfterClick, rememberTodayInputTouch } from '../lib/keyboard-inset';
 
@@ -101,7 +102,7 @@ export function ProductionQuestionCard({
           {result.referenceAnswer && (
             <p className="study-example">
               <span className="mb-1 block text-xs text-muted-foreground">参考句</span>
-              {result.referenceAnswer}
+              <HighlightText text={result.referenceAnswer} target={question.mustUse} />
             </p>
           )}
           {result.answerNote && (

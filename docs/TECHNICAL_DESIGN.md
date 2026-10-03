@@ -289,25 +289,25 @@ iOS 键盘状态不得以 `innerHeight - visualViewport.height - visualViewport.
 
 键盘交互回归门禁：组件测试覆盖原位聚焦、锁定与释放；移动端 E2E 必须覆盖完整 `pointerdown → pointerup → click`，并模拟视口在 click 前缩小，断言 click 仍命中输入框且焦点保留。浏览器模拟只能检查事件命中和最终几何，不能证明 iOS 主屏 PWA 的原生滚动与动画平顺。调整 `focus` 时机、输入框命中区域、页面壳定位、`visualViewport` 或 dock 算法后，发布验收还须在已添加到主屏幕的 iPhone 上检查：首次聚焦、输入、收起、再次聚焦，以及填空和表达两种输入；全过程顶栏/题面不跳动、键盘不自行消失、输入框停在键盘上方。遇到「静态位置正确但动画抖动」时，先记录 `innerHeight`、`visualViewport.height/offsetTop`、`scrollY` 与顶栏/卡片/input 矩形，确认是否发生 document 原生滚动，不再直接增加整页逐帧位移补偿。
 
-# 8. 复习状态机实现
+# 8. 复习状态机实现（2026-10-03 起 FSRS）
 
-Understanding 与 Production 使用同一通用状态结构，不共享 Level。业务代码只通过 review service 改变状态，其他模块不得直接 update level。
+Understanding 与 Production 使用同一通用状态结构，不共享 FSRS 状态。业务代码只通过 review service 改变状态，其他模块不得直接 update。
 
-```text
-levels: L1 → L2 → L3 → L4 → L5 → L6 → L7 → stable
-intervals after success: 1d, 3d, 7d, 14d, 30d, 60d, 120d
-```
+核心为 ts-fsrs 引擎封装（`apps/api/src/modules/review/fsrs-engine.ts`）：`request_retention 0.90`、官方默认权重、`maximum_interval 365`、`enable_short_term=false`（分钟级学习步与产品天粒度排期不兼容）。单次演进读 review_states 行 → 还原 FSRS Card（`cardFromSnapshot`）→ `repeat(card, now, rating)` → 写回 D/S/reps/lapses 与 next/last；间隔 clamp 1..365 天；streaks 仅作展示照常更新。
 
-| 结果 | 状态变化 |
+| 结果 | 评分与状态变化 |
 | --- | --- |
-| pass | level + 1；若 L7 到期再次 pass → stable。 |
-| basic_pass | level 不变；next_review_at 使用较短间隔。 |
-| fail | level - 1，最低 L1；next_review_at 缩短。 |
-| too_easy | pass 后最多额外 +1 level。 |
-| guessed | 按 fail。 |
-| viewed_source | 结果上限 basic_pass。 |
+| pass（自评简单 / tooEasy） | Rating Easy；D/S 演进，间隔最长。 |
+| pass | Rating Good；D/S 演进。 |
+| basic_pass | Rating Hard（P 维度 AI 判分档；U 维度 assisted 仅历史数据）。 |
+| fail | Rating Again；S 下降、间隔缩短，下限 1 天。 |
+| guessed / gave_up | 按 fail（Again）。 |
+| viewed_source | 结果上限 basic_pass（V1.2 历史规则；V2 Recall 卡无查看降档）。 |
+| 所需维度 S 均 ≥ 120 | item → mastered（`reconcileItemStatus` 谓词，目标开关变化时重算）。 |
 
-Production 首次激活发生在新 Item 的首个 Understanding pass 之后，初始 next_review_at = 次日。P-L1/P-L2 使用 cloze；P-L3 混合；P-L4+ 以 production prompt 为主。
+一次性切换（`fsrs-cutover.ts`）：`app_metadata` 写 `fsrs` 标记（幂等，二次运行字节级 no-op），事务内回放 `mode='today'` 且题目 kind 为 understanding/production 的 attempts（cloze/read_check/library_practice/void 跳过，按 created_at 时间序）重建 D/S，随后对全部 active/mastered 重算 status。boot 顺序：迁移 → Prompt Registry 校验 → v2 cutover → fsrs cutover → listen。旧备份恢复不含 attempts，改按 V1.2 level/stable 折算（`estimateFsrsFromLegacy`）。
+
+Production 首次激活安排在 Learn 之后，初始 next_review_at = 次日（`PRODUCTION_FIRST_REVIEW_DELAY_DAYS=1`）。V2 起 P 正式任务均为完整表达题；V1.2 曾按 P-L1/L2 cloze、P-L3 混合、P-L4+ production prompt 分档（仅历史回放兼容）。
 
 # 9. 题库与缓存
 

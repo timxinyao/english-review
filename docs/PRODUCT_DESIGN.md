@@ -9,8 +9,8 @@
 ## V2 生效规则（覆盖下文 V1.2 题型与排期描述）
 
 - 每项长期保存三态 `production_enabled_override`：`null` 随类型默认，`true` 明确需要造句，`false` 明确不需要。有效值为 `override ?? (type === 'chunk')`；Word 默认关闭，Chunk 默认开启。无需 AI 分类，类型不因覆盖而变化。
-- `mastered` 只按当前目标判定：Understanding 稳定且（不需 Production 或 Production 稳定）。目标变化时由服务端重算 active/mastered 与任务资格，保留两个维度的历史、Stage 和排期；paused/archived 不自动恢复。关闭 Production 立即取消当前 Session 未答 P 题；重新开启沿用 V2 中已有的 P 状态。新开启的 P 最早加入下一次 Today，不中途插题。
-- Learn 建立 Understanding；需要 Production 的新词条，首道正式造句最早在 Learn 后下一本地日，不需等待 Understanding 升级。之后 U/P 独立按 1/3/7/14/30/60/120 天阶梯调度。U 正式任务只使用 Recall：看 target 与语境主动回忆，揭示前仅「显示答案」一个入口，答案揭晓后三档自评「重来 / 良好 / 简单」（2026-10-03 起 Anki 式三档，无「给我提示」、无揭示前直判）；历史四选一作答回放仍标出正确选项及理由。P 正式任务只要求在 target 可见时完成具体中文语义任务的完整英语句子，由 AI 判目标用法、语法、搭配及语境；失败不强制当天再次造句。
+- `mastered` 只按当前目标判定：Understanding 越过掌握线（FSRS S ≥ 120 天）且（不需 Production 或 Production 亦然）。目标变化时由服务端重算 active/mastered 与任务资格，保留两个维度的历史、Stage 和排期；paused/archived 不自动恢复。关闭 Production 立即取消当前 Session 未答 P 题；重新开启沿用 V2 中已有的 P 状态。新开启的 P 最早加入下一次 Today，不中途插题。
+- Learn 建立 Understanding；需要 Production 的新词条，首道正式造句最早在 Learn 后下一本地日，不需等待 Understanding 升级。之后 U/P 独立按 FSRS 记忆调度排期（2026-10-03 起替换固定阶梯，目标记忆率 0.90，间隔 1..365 天，见 §6.2）。U 正式任务只使用 Recall：看 target 与语境主动回忆，揭示前仅「显示答案」一个入口，答案揭晓后三档自评「重来 / 良好 / 简单」（2026-10-03 起 Anki 式三档，无「给我提示」、无揭示前直判）；历史四选一作答回放仍标出正确选项及理由。P 正式任务只要求在 target 可见时完成具体中文语义任务的完整英语句子，由 AI 判目标用法、语法、搭配及语境；失败不强制当天再次造句。
 - 不再生成、预取、分配新的填空题。Library「练一下」不凑固定题量：不需 P 时一道 Recall，需 P 时一道 Recall 加一道完整造句；不改变正式 Stage、排期、Today 结算或 mastered，单题生成失败可重试，不用填空或选择题补位。
 - Read 仅提供可选文章和已学表达自然复现，不生成新检查题，不改变 Stage、Today 排期或 reinforcement。旧文章与旧检查作答保留只读；V2 切换时清除旧 Read 检查遗留的 `needs_reinforcement`，不改正式 Stage。
 - Today 显示全部到期任务，无每日旧复习上限或迁移限流；未完成不算失败，次日本地日新 Session 重新纳入。创建 Session 先快速返回任务和进度，仅当前题及少量前瞻题按需生成/绑定；生成失败留下可重试 pending 任务，不计作答或降级，也不从总数消失。题目生成不能在 SQLite 写事务内等待 AI，绑定需并发保护。
@@ -283,32 +283,34 @@ Stats 不放主导航，只提供少量有长期意义的数据：总学习项�
 | Understanding | 看到词/词块和上下文时能否理解。 | 词义选择、上下文理解。 |
 | Production | 能否主动回忆并正确使用。 | 填空、表达题。 |
 
-两个维度各自维护独立 Level、next_review_at、last_review_at 等必要状态。列表默认只显示“初学 / 练习中 / 稳定”等自然语言状态，详情页才显示内部细节。
+两个维度各自维护独立 FSRS 状态（难度 D / 稳定性 S）与 next_review_at、last_review_at 等必要状态。列表默认只显示“未开始 / 新 / 巩固 / 熟练 / 掌握”自然语言状态（按 S 分档，见 §6.2），详情页才显示内部细节。
 
-## 6.2 阶梯间隔
+## 6.2 复习间隔与演进（2026-10-03 起 FSRS 记忆调度）
 
-V1.2 使用透明的阶梯式间隔，不引入 FSRS。默认间隔：1 → 3 → 7 → 14 → 30 → 60 → 120 天。每个维度从 L1 到 L7；首次成功后进入 L1。L7 到期再次成功后，该维度标记 stable。
+**现行规则（2026-10-03 起生效）**：复习间隔由开源 FSRS 记忆调度算法计算（open-spaced-repetition，ts-fsrs 官方 TypeScript 实现），目标记忆率 **0.90**，官方默认参数（个人参数拟合攒约 1000 条作答后另立项）。
+
+- 每个词条的每个维度（U/P）独立维护 FSRS 状态：难度 **D** 与稳定性 **S**（天）。每次正式作答按评分演进 D/S，下次间隔由算法按目标记忆率推算，**下限 1 天、上限 365 天**；`next_review_at = 结算时刻 + 间隔`。当日补强产生的同日重复作答照常进算法。
+- 评分映射：Understanding 三档自评——**重来→Again、良好→Good、简单→Easy**；Production AI 判分——**未通过→Again、基本通过→Hard、通过→Good**。练一下 / read_check 不进状态。
+- **mastered 判定**：所需维度（U 恒需；P 仅有效造句目标时）全部 **S ≥ 120 天** → Learning Item 自动进入 mastered；目标开关变化时服务端重算（V2 生效规则）。
+- 列表阶段标签按 S 分档：NULL=未开始、<7 新、<30 巩固、<120 熟练、≥120 掌握。
+- 2026-10-03 切换迁移：历史 today 正式作答（understanding/production 题）全量回放重建 D/S，一次性、幂等；旧备份恢复按 V1.2 level/stable 折算 D/S。
 
 | 事件 | 处理 |
 | --- | --- |
-| 正常答对 / pass | 当前维度晋升 1 级；按新级别安排 next_review_at。L7 到期再次成功后标记 stable。 |
-| basic_pass | 不升级；按更短间隔再次出现。用于表达题存在轻微错误或用户查看原句后完成。 |
-| 答错 / fail | 当前维度退 1 级（最低不低于 L1）并缩短间隔；理解/填空题可追加补强。 |
-| 主动不会 | 对本题按 fail 处理；理解题为 forgot，填空和表达题分别影响 Production。 |
-| 太简单 | 在正常晋升基础上最多额外跳 1 级，不允许一次跨越多个阶段。 |
-| 两个维度均 stable | Learning Item 自动进入 mastered。 |
+| 简单 / 良好（U 自评） | 评分 Easy / Good：D/S 演进，间隔随 S 增长（Easy 长于 Good）。 |
+| 通过 / 基本通过（P 判分） | 评分 Good / Hard：同上演进，Hard 间隔增长更慢。 |
+| 答错 / 重来 / 主动不会 | 评分 Again：S 下降、间隔缩短（下限 1 天）；理解题可追加补强。 |
+| 所需维度 S 全部 ≥ 120 天 | Learning Item 自动进入 mastered；目标变化时重算。 |
+
+**V1.2 历史（切换前，仅解释历史数据与回放）**：使用透明的阶梯式间隔，不引入 FSRS。默认间隔：1 → 3 → 7 → 14 → 30 → 60 → 120 天。每个维度从 L1 到 L7；首次成功后进入 L1。L7 到期再次成功后，该维度标记 stable。pass 升 1 级；basic_pass 不升级、更短间隔再现（表达题轻微错误或查看原句后完成）；fail 退 1 级（最低 L1）并缩短间隔，理解/填空题可追加补强；主动不会按 fail（理解题为 forgot）；太简单在正常晋升基础上最多额外跳 1 级；两个维度均 stable 时 Item 进入 mastered。
 
 ## 6.3 Production 启动与题型映射
 
-新 Item 首道 Understanding 题通过后，激活 Production。Production 的第一次正式复习默认安排在下一天。
+V2：Learn 完成后激活 Production，首道正式造句最早在 Learn 后下一本地日（初始间隔 1 天），此后按 FSRS 独立排期；P 正式任务只有完整表达题（§7.3）。
 
-| Production 阶段 | 主要题型 |
-| --- | --- |
-| P-L1 ～ P-L2 | 填空为主。 |
-| P-L3 | 填空 + 表达题混合。 |
-| P-L4 ～ P-L7 | 表达题为主，必要时少量填空。 |
+Understanding 到期时使用 Recall Card（主动回忆优先，见 §7.1）。Today 不要求每个 Learning Item 每次做完整套题，只处理真正到期的维度。
 
-Understanding 到期时使用 Recall Card（主动回忆优先，见 §7.1）；Production 到期时按上表选题。Today 不要求每个 Learning Item 每次做完整套题，只处理真正到期的维度。
+V1.2 历史（切换前，仅解释历史数据）：新 Item 首道 Understanding 题通过后激活 Production，第一次正式复习安排在下一天；按 P-L1/L2 填空为主、P-L3 填空+表达混合、P-L4～P-L7 表达题为主分档选题。现列表阶段标签统一按 FSRS S 分档（§6.2）。
 
 ## 6.4 查看原句
 
@@ -338,12 +340,12 @@ Understanding 复习任务的默认形式是 **Recall Card**：展示 target（+
 
 | 自评键 | 判语 | outcome_source | result | 间隔语义 |
 | --- | --- | --- | --- | --- |
-| 简单 | 简单（通过色） | easy | pass | 跳两步（如 next 为 7 天档则直接排 30 天档，封顶 120） |
-| 良好 | 良好（通过色） | recalled | pass | 跳一步（正常晋升） |
-| —（历史） | 提示后想起（基础通过） | assisted | basic_pass | 不升级，更短间隔再现 |
-| 重来 | 重来（未通过） | forgot | fail | 未通过：退 1 级 + 缩短间隔 + 补强 |
+| 简单 | 简单（通过色） | easy | pass | FSRS Easy：间隔明显长于良好 |
+| 良好 | 良好（通过色） | recalled | pass | FSRS Good：正常演进 |
+| —（历史） | 提示后想起（基础通过） | assisted | basic_pass | V1.2 阶梯语义（不升级、更短间隔再现）；2026-10-03 起无此入口 |
+| 重来 | 重来（未通过） | forgot | fail | FSRS Again：S 下降、短间隔回归（下限 1 天）+ 补强 |
 
-- 简单在 U 维度结算等同通过（稳定/连续对数照常累计、计入「通过」统计），唯一区别是间隔前进两步；Learn 首学的简单等同良好（首学无前序间隔，不跳步）。
+- 简单在 U 维度结算等同通过（连续对数照常累计、计入「通过」统计），唯一区别是评分映射 Easy、间隔更长（V1.2 曾为「跳两步封顶 120」，2026-10-03 起由算法自然给出）；Learn 首学的简单等同良好（首学无前序间隔，不区分）。
 - attempts.outcome_source 记录四档来源（历史行为 NULL，回看展示按 result 回退：对=良好 / 错=重来），供未来统计区分"看选项会、主动想不起来"。
 - Recall 卡默认展示 source_example（回忆上下文，不是答案），understanding 不再有"查看原句降档"；forgot 时反馈区突出展示 source_example。
 - 新词首触同 为 Recall Card（2026-09-28"初见即回忆"：导入词已在 ChatGPT 理解过，首触检验回忆；三档都完成新学，forgot 揭示即教学、明日短间隔回归，learn 不再插同会话补强）。选择题缓存与前端 shuffle 机制保留（供历史作答回放与旧数据兼容）。
@@ -567,10 +569,10 @@ V1.2 上线后，只有当某个真实使用痛点反复出现时才新增功能
 
 # 附录 A：核心默认参数
 
-| 参数 | V1.2 默认值 | 说明 |
+| 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | 每日新学习项上限 | 10 | Settings 可调整。 |
-| 复习阶梯 | 1 / 3 / 7 / 14 / 30 / 60 / 120 天 | Understanding 与 Production 独立使用。 |
+| 复习间隔 | FSRS：目标记忆率 0.90，间隔 1..365 天 | 2026-10-03 起替换 V1.2 阶梯（1/3/7/14/30/60/120 天）；U/P 独立。 |
 | 理解题目标库存 | 3 | 最多 8。 |
 | 填空题目标库存 | 3 | 最多 8。 |
 | 表达题目标库存 | 2 | 最多 6。 |

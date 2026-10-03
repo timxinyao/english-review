@@ -372,7 +372,7 @@ test.describe('Today 复习全流程', () => {
 test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
   interface ReviewStateDto {
     dimension: string;
-    level: number;
+    stability: number | null;
     nextReviewAt: string | null;
     lastReviewAt: string | null;
   }
@@ -386,7 +386,7 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
         string,
         {
           dimension: string;
-          level: number;
+          stability: number | null;
           nextReviewAt: string | null;
           lastReviewAt: string | null;
         }[]
@@ -396,7 +396,7 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
         const data = (await r.json()) as {
           reviewStates: {
             dimension: string;
-            level: number;
+            stability: number | null;
             nextReviewAt: string | null;
             lastReviewAt: string | null;
           }[];
@@ -408,7 +408,7 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
   }
 
   /**
-   * Learn→次日 Production：carry on（chunk）今日 Learn 完成初始化 P L0 次日到期；
+   * Learn→次日 Production：carry on（chunk）今日 Learn 完成初始化 P（未激活、次日首排）；
    * set off（chunk）为"昨日 Learn 完成、今日造句到期"的次日态，今日会话出现其表达题。
    * e2e 时钟不可跨日，次日态由种子近似（Learn→次日排期数学由 API 单测钉死）。
    */
@@ -469,7 +469,7 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
     expect(setOffDone, '次日到期的 set off 表达题应出现并作答').toBe(true);
     expect(carryOnDone, 'carry on 应以 Learn 卡（Recall）完成').toBe(true);
 
-    // 库状态核对：Learn 初始化 P L0 次日到期；set off 答对推进 L1；put off 显式关闭保持原状
+    // 库状态核对（FSRS）：Learn 初始化 P 未激活、次日首排；set off 首答激活 D/S；put off 显式关闭保持原状
     const states = await libraryStates(page, [
       'e2e-item-carry-on',
       'e2e-item-set-off',
@@ -478,23 +478,23 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
     const dim = (id: string, d: string) =>
       states[id]!.find((s) => s.dimension === d) ?? {
         dimension: d,
-        level: -1,
+        stability: -1,
         nextReviewAt: null,
         lastReviewAt: null,
       };
     const carryOnP = dim('e2e-item-carry-on', 'production');
-    expect(carryOnP.level).toBe(0);
+    expect(carryOnP.stability).toBeNull(); // FSRS 未激活（原 L0 语义）
     expect(carryOnP.lastReviewAt).toBeNull();
     expect(carryOnP.nextReviewAt, 'carry on 的 P 应排到明天（Learn 次日首排）').not.toBeNull();
     expect(Date.parse(carryOnP.nextReviewAt!)).toBeGreaterThan(Date.now() + 20 * 3600 * 1000);
 
     const setOffP = dim('e2e-item-set-off', 'production');
-    expect(setOffP.level).toBe(1); // L0 答对 → L1
+    expect(setOffP.stability, '未激活 P 首答（Good）应激活 FSRS D/S').not.toBeNull();
     expect(setOffP.lastReviewAt).not.toBeNull();
     expect(setOffP.nextReviewAt).not.toBeNull();
 
     const putOffP = dim('e2e-item-put-off', 'production');
-    expect(putOffP.level).toBe(2); // 显式关闭：被排除且状态不动
+    expect(putOffP.stability).toBe(5); // 显式关闭：被排除且状态不动（种子 S5）
     expect(putOffP.lastReviewAt).not.toBe(setOffP.lastReviewAt);
   });
 

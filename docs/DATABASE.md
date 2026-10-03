@@ -67,8 +67,10 @@ Understanding / Production 共用一张表，每个 Item 两行。
 | id | text/uuid | PK |
 | learning_item_id | FK | |
 | dimension | text | `understanding` / `production` |
-| level | integer | 1..7；未激活可为 0 |
-| stable | integer | 0/1 |
+| difficulty | real nullable | FSRS 难度 D；NULL=未激活（承接原 level=0 语义） |
+| stability | real nullable | FSRS 稳定性 S（天）；mastered 判定 S ≥ 120 |
+| reps | integer | FSRS 重复次数（Card 跨重启重建所需），NOT NULL 默认 0 |
+| lapses | integer | FSRS 遗忘次数，NOT NULL 默认 0 |
 | next_review_at | datetime nullable | 未激活时可空 |
 | last_review_at | datetime nullable | |
 | correct_streak | integer | 可选统计 |
@@ -76,6 +78,8 @@ Understanding / Production 共用一张表，每个 Item 两行。
 | updated_at | datetime | |
 
 唯一约束：`(learning_item_id, dimension)`。
+
+2026-10-03 migration 0007：删 `level`、`stable`，加 `difficulty`/`stability`（NULL=未激活）与 `reps`/`lapses`（FSRS Card 状态重建必需，超出原 spec 字面）；既有 D/S 由 attempts 回放或旧备份折算重建。
 
 ## 5. review_sessions
 
@@ -164,8 +168,8 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 | ai_prompt_version | integer nullable | |
 | ai_prompt_hash | text nullable | |
 | ai_model | text nullable | |
-| pre_state_json | text nullable | Today 正式结算前状态快照，支持坏题撤销 |
-| post_state_json | text nullable | Today 结算后状态、插入的补强/个人例句，以及普通撤销需恢复的被替换个人例句/被裁剪表达历史快照；仅记录本次变动，不复制整库 |
+| pre_state_json | text nullable | Today 正式结算前状态快照，支持坏题撤销；0007 起含 FSRS `difficulty`/`stability`/`reps`/`lapses`，旧快照缺字段时恢复保持现值 |
+| post_state_json | text nullable | Today 结算后状态（含 FSRS 四字段）、插入的补强/个人例句，以及普通撤销需恢复的被替换个人例句/被裁剪表达历史快照；仅记录本次变动，不复制整库 |
 | created_at | datetime | |
 | voided_at | datetime nullable | 坏题或普通撤销后作废 |
 
@@ -227,9 +231,9 @@ PRODUCT_DESIGN 10.3 要求“明细学习日志 60 天；长期只保留聚合�
 
 > `preferred_tts_voice` 因浏览器 voice 集合因设备而异，实际选择存前端 localStorage；该字段仅作保留/提示用途，V1.2 不作为跨设备配置。
 
-## 11B. app_metadata（V2 一次性切换）
+## 11B. app_metadata（一次性切换标记）
 
-`key` 是主键，`value` 保存切换的 APP_TIMEZONE 本地日期，`updated_at` 保存 UTC 时间。`foxi_v2` 标记与旧 P 清零、Read reinforcement 标记清理、状态重算位于同一事务；重复启动只读标记，不再改动 V2 进度。完整备份不包含此数据库级标记：恢复 1.2 备份时每次独立执行旧 P 归一化，恢复 2.0 备份则保留 P 状态。
+`key` 是主键，`value` 保存切换时间表述（`foxi_v2` 为 APP_TIMEZONE 本地日期；`fsrs` 为 boot 时刻 UTC ISO），`updated_at` 保存 UTC 时间。`foxi_v2` 标记与旧 P 清零、Read reinforcement 标记清理、状态重算位于同一事务；重复启动只读标记，不再改动 V2 进度。`fsrs` 标记（2026-10-03）与历史 attempts 回放重建 D/S、active/mastered 重算位于同一事务，boot 顺序为迁移 → Prompt Registry 校验 → v2 cutover → fsrs cutover → listen；重复启动只读标记，字节级 no-op。完整备份不包含此数据库级标记：恢复 1.2 备份时每次独立执行旧 P 归一化，恢复 2.0 备份则保留 P 状态；旧格式备份（仅 level/stable）恢复按 V1.2 等级折算 D/S（备份不含 attempts，不回放），含 FSRS 字段的 2.0 备份直接精确保留。
 
 ## 12. schema 变更规则
 

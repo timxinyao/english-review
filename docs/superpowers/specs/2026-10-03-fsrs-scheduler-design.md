@@ -66,3 +66,9 @@ attempt 状态快照（today/service.ts 的 pre/post JSON）：
 - 个人参数离线拟合管线（py-fsrs，攒数据后另立项）。
 - 前端交互/文案改动（零）；Read 与统计改动。
 - P 维度新增 Easy 档（AI 判分无此档）。
+
+## 7. 实施修订（2026-10-03 实施期裁定，controller 留档）
+
+1. **`enable_short_term=false`**（偏离 §1 参数字面）：ts-fsrs 分钟级学习步与产品 ≥1 天粒度排期不兼容（learning steps 在 1 天下限 clamp 下全部塌缩为 1 天，且 Again/Good 首答同被 clamp 无法区分），引擎显式关闭。
+2. **旧备份恢复不回放**（修订 §2 恢复规则）：备份不含 attempts，覆盖式恢复落库后亦无可回放数据；改按 V1.2 `level`/`stable` 折算 D/S（stable→S=120，L1..L7→1/3/7/14/30/60/120，D=5，reps=level），next/last/streaks 用备份原值。
+3. **`review_states` 增加 `reps`/`lapses` 列**（超出 §2 字面）：跨进程重启把行值完整还原为 FSRS Card（并区分 New/Review 态）需要 reps/lapses，NOT NULL 默认 0。

@@ -194,12 +194,23 @@ export function ActiveSession({
   // 至少插在当前题 3 位之后（TECHNICAL §7.2），紧跟下一题稳定；末题无 entry 回落占位。
   // 刷新落地 advance() 后 frozen 清空、currentTask 接管，同一 taskId 无感衔接；
   // 刷新失败（advancing=false）仍回落旧题反馈页人工兜底。
+  // 快照未绑定的造句题不可乐观渲染：列表是上次作答时的快照，题可能已后台绑好，
+  // 按快照渲染 pending 单词占位会闪一下错误卡面（2026-10-03 闪烁修复）——
+  // 改走 optimisticHold 中性占位，刷新落地即真卡；真未绑定的题仍由刷新后的
+  // PendingQuestion 承载完整准备态。
   const optimisticEntry =
     advancing && entries !== null && currentIdx !== null && currentIdx + 1 < entries.length
       ? entries[currentIdx + 1]!
       : null;
+  const optimisticUnboundProduction =
+    optimisticEntry !== null &&
+    optimisticEntry.task.taskType === 'production' &&
+    optimisticEntry.task.question === null;
   const usableOptimistic =
-    optimisticEntry && !optimisticEntry.canceled && optimisticEntry.result === null
+    optimisticEntry &&
+    !optimisticEntry.canceled &&
+    optimisticEntry.result === null &&
+    !optimisticUnboundProduction
       ? optimisticEntry
       : null;
   const fallbackEntry =

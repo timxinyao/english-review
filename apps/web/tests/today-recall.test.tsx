@@ -8,6 +8,7 @@ import {
   makeChoiceTask,
   makeCorrectAnswer,
   makeLearnTask,
+  makeProductionTask,
   makeSessionEntry,
   makeTasksResponse,
   makeWrongAnswer,
@@ -241,6 +242,40 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
     // 进度同步推进（已完成数/总数）
     expect(screen.getByText('1 / 2')).toBeVisible();
+  });
+
+  it('评分即前进：快照里造句题未绑定时走中性占位，不闪 pending 单词卡', async () => {
+    const prodUnbound = { ...makeProductionTask({ taskId: 'task-prod' }), question: null };
+    let answered = false;
+    stubApi({
+      '/api/today': () => {
+        if (!answered) return makeActive(makeChoiceTask(), { completed: 1, total: 4 });
+        return new Promise(() => {}); // 钉住乐观窗口：/api/today 挂起（真实世界几毫秒后携绑定题落地）
+      },
+      '/api/today/tasks': () =>
+        answered
+          ? makeTasksResponse([
+              makeSessionEntry(makeChoiceTask(), easyAnswer()),
+              makeSessionEntry(prodUnbound, null), // 上次快照：造句题尚未绑定（后台可能已绑好）
+            ])
+          : makeTasksResponse([
+              makeSessionEntry(makeChoiceTask(), null),
+              makeSessionEntry(prodUnbound, null),
+            ]),
+      '/api/today/tasks/task-1/answer': () => {
+        answered = true;
+        return easyAnswer();
+      },
+    });
+    renderTodayApp();
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(screen.getByRole('button', { name: '简单' }));
+    await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/answer')).toHaveLength(1));
+
+    // 中性占位：不按旧快照渲染 pending 单词卡（原句/正在准备），输入框也未到
+    expect(await screen.findByText('正在加载下一题…')).toBeVisible();
+    expect(screen.queryByText('正在准备…')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('表达答案')).not.toBeInTheDocument();
   });
 
   it('评分即前进（末题）：队列无下一题时占位等待刷新（完成页统计只能来自刷新）', async () => {

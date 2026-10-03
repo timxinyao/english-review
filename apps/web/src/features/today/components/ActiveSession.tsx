@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
-import { Volume2, VolumeX } from 'lucide-react';
+import { AudioLines, VolumeX } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { cn } from '../../../lib/utils';
 import { useKeyboardPhase } from '../../../lib/keyboard-inset';
@@ -97,19 +97,25 @@ function ProgressRow({
             </span>
           )}
         </button>
+        {/* 「自动」药丸与词行纯喇叭发音按钮视觉区分（2026-10-03）：开=波形+陶土，关=斜杠喇叭+灰 */}
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="sm"
+          className={cn(
+            'h-7 gap-1 rounded-full px-2.5 text-xs',
+            autoSpeak ? 'text-accent' : 'text-muted-foreground',
+          )}
           aria-label="自动发音"
           aria-pressed={autoSpeak}
           onClick={onToggleAutoSpeak}
         >
           {autoSpeak ? (
-            <Volume2 className="h-3.5 w-3.5" aria-hidden />
+            <AudioLines className="h-3.5 w-3.5" aria-hidden />
           ) : (
             <VolumeX className="h-3.5 w-3.5" aria-hidden />
           )}
+          自动
         </Button>
       </div>
 

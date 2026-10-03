@@ -93,4 +93,18 @@ describe('会话自动发音', () => {
     await waitFor(() => expect(vi.mocked(speak)).toHaveBeenCalledTimes(2));
     expect(vi.mocked(speak).mock.calls[1]?.[0]).toBe('gamma');
   });
+
+  it('与词行发音按钮视觉区分：自动开关为「自动」药丸，词行发音保持纯图标', async () => {
+    stubSession();
+    renderTodayApp();
+    await screen.findByText('2 / 4');
+
+    const autoBtn = screen.getByRole('button', { name: '自动发音' });
+    expect(autoBtn).toHaveTextContent('自动'); // 药丸带文字标签
+    expect(autoBtn.className).toContain('rounded'); // 药丸形态而非裸图标
+    // 词行发音按钮无文字（纯喇叭图标），与自动开关可一眼区分
+    const wordSpeak = screen.getByRole('button', { name: '发音' });
+    expect(wordSpeak).not.toHaveTextContent('自动');
+    expect(wordSpeak.textContent).toBe('');
+  });
 });

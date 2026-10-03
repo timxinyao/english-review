@@ -95,7 +95,7 @@
 | --- | --- | --- |
 | source_example | 永久；每项 1 条 | 最初遇到学习项的原句；首次 Learn 的记忆锚点。 |
 | extra_examples | 长期；建议最多 3 条 | 导入合并或手工编辑得到的补充参考例句，不参与自动淘汰。 |
-| personal_examples | 长期；最多 3 条 | 来自用户表达题的优质句子；使用 corrected 版本。 |
+| personal_examples | 长期；最多 3 条 | 来自用户表达题的优质句子；主文本取更自然版本（betterVersion，缺省 corrected），用户原句保留在 originalText（2026-10-03 起）。 |
 | generated_examples | 短期；随题删除 | 模型为选择题、填空题等生成的新上下文，不污染长期例句库。 |
 
 Personal Example 自动优先选择更具体、与用户自身工作/生活/兴趣相关、目标词用法典型的句子。满 3 条后，如果新句明显更优，只能淘汰未固定（unpinned）的低质量项。

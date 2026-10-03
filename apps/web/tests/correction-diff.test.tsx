@@ -43,7 +43,7 @@ describe('CorrectionDiff（表达题批改 diff，PRODUCT §7.4/§12.2）', () =
     expect(seg.className).not.toContain('line-through');
   });
 
-  it('betterVersion 存在：折叠在“更自然的说法”里，默认不展开', () => {
+  it('betterVersion 存在：「更自然的说法」默认展开直接可见（2026-10-03）', () => {
     render(
       <CorrectionDiff
         segments={SEGMENTS}
@@ -55,7 +55,7 @@ describe('CorrectionDiff（表达题批改 diff，PRODUCT §7.4/§12.2）', () =
     expect(summary).toBeVisible();
     const details = screen.getByText('The constant stress is wearing me down.').closest('details');
     expect(details).not.toBeNull();
-    expect(details).not.toHaveAttribute('open');
+    expect(details).toHaveAttribute('open');
   });
 
   it('betterVersion 为 null：不渲染折叠区', () => {

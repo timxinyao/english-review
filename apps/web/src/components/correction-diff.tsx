@@ -3,7 +3,7 @@ import type { CorrectionSegment } from '@el/shared';
 /**
  * 表达题批改 diff（PRODUCT §7.4/§12.2）：
  * same 正文色、delete 红色删除线、insert 绿色；
- * betterVersion 折叠在低调的“更自然的说法”里，为 null 不渲染。
+ * betterVersion 默认展开（2026-10-03：更自然的说法直接可见），为 null 不渲染。
  */
 interface CorrectionDiffProps {
   segments: readonly CorrectionSegment[];
@@ -41,11 +41,11 @@ export function CorrectionDiff({
         </p>
       )}
       {betterVersion && (
-        <details className="text-sm">
+        <details className="text-sm" open>
           <summary className="cursor-pointer select-none text-xs text-muted-foreground">
             更自然的说法
           </summary>
-          <p className="mt-1 text-muted-foreground">{betterVersion}</p>
+          <p className="mt-1 text-foreground">{betterVersion}</p>
         </details>
       )}
     </div>

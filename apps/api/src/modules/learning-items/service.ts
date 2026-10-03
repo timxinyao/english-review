@@ -362,12 +362,14 @@ export function maybeSavePersonalExample(
   const insert = (): PersonalExampleSaveResult => {
     const id = randomUUID();
     const nowIso = now.toISOString();
+    // 2026-10-03：后续学习看更自然版本——主文本取 betterVersion 优先，缺省回退纠错版；
+    // 用户原句保留在 originalText
     tx.insert(learningExamples)
       .values({
         id,
         learningItemId: itemId,
         kind: 'personal',
-        text: input.correctedSentence,
+        text: input.betterVersion ?? input.correctedSentence,
         originalText: input.originalText,
         betterText: input.betterVersion,
         pinned: 0,

@@ -74,7 +74,7 @@ describe('maybeSavePersonalExample', () => {
     })();
   });
 
-  it('当前 <3 条 → 插入 corrected 版本（original/better/quality/pinned=0）', () => {
+  it('当前 <3 条 → 插入（text 取 betterVersion 优先，缺省 corrected；original/better/quality/pinned=0）', () => {
     return (async () => {
       const itemId = 'it-2';
       await seedItem(db, { id: itemId });
@@ -93,11 +93,19 @@ describe('maybeSavePersonalExample', () => {
       const rows = personal(itemId);
       expect(rows).toHaveLength(2);
       const saved = rows.find((e) => e.id === r.exampleId)!;
-      expect(saved.text).toBe('The constant stress is wearing me down.');
+      // 2026-10-03 契约：后续学习看更自然版本——text 取 betterVersion 优先，originalText 保留用户原句
+      expect(saved.text).toBe('A better one.');
       expect(saved.originalText).toBe('The constant stress wear me down.');
       expect(saved.betterText).toBe('A better one.');
       expect(saved.qualityScore).toBe(0.9);
       expect(saved.pinned).toBe(0);
+
+      // 无 betterVersion 时回退 corrected 版本
+      const fallbackId = 'it-2-fallback';
+      await seedItem(db, { id: fallbackId });
+      maybeSavePersonalExample(db, fallbackId, input({ betterVersion: null }), NOW);
+      const [fallback] = personal(fallbackId);
+      expect(fallback.text).toBe('The constant stress is wearing me down.');
     })();
   });
 

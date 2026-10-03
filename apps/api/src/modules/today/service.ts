@@ -47,6 +47,7 @@ import {
   type QuestionRow,
 } from '../questions/service.js';
 import { effectiveProductionEnabled, isMastered } from '../review/goals.js';
+import { INACTIVE_SNAPSHOT } from '../review/service.js';
 import {
   maybeSavePersonalExample,
   trimProductionHistory,
@@ -415,7 +416,10 @@ function restoreSnapshot(
       .run();
     const pre = snap.reviewStates[dim];
     if (pre) {
-      exec.insert(reviewStates).values(restoreDimValues(itemId, dim, pre, current, nowIso)).run();
+      exec
+        .insert(reviewStates)
+        .values(restoreDimValues(itemId, dim, pre, current, nowIso))
+        .run();
     }
   }
   exec
@@ -2330,31 +2334,13 @@ export function submitTaskFeedback(
       const u = states.find((s) => s.dimension === 'understanding');
       const p = states.find((s) => s.dimension === 'production');
       const item = tx.select().from(learningItems).where(eq(learningItems.id, itemId)).get();
+      // 与 reconcileItemStatus 同语义（Task 3 顺手修）：缺行按未激活兜底、目标关闭只看 U——
+      // 不得因 production 关闭且无 P 行而误降仍越过掌握线（S≥120）的 mastered
       const stillMastered =
-        !!u &&
-        !!p &&
         !!item &&
         isMastered(
-          {
-            difficulty: u.difficulty,
-            stability: u.stability,
-            reps: u.reps,
-            lapses: u.lapses,
-            nextReviewAt: u.nextReviewAt,
-            lastReviewAt: u.lastReviewAt,
-            correctStreak: u.correctStreak,
-            wrongStreak: u.wrongStreak,
-          },
-          {
-            difficulty: p.difficulty,
-            stability: p.stability,
-            reps: p.reps,
-            lapses: p.lapses,
-            nextReviewAt: p.nextReviewAt,
-            lastReviewAt: p.lastReviewAt,
-            correctStreak: p.correctStreak,
-            wrongStreak: p.wrongStreak,
-          },
+          u ? rowToDim(u) : INACTIVE_SNAPSHOT,
+          p ? rowToDim(p) : INACTIVE_SNAPSHOT,
           effectiveProductionEnabled(item),
         );
       if (!stillMastered && item?.status === 'mastered') {

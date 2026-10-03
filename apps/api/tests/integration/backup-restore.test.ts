@@ -237,7 +237,12 @@ describe('GET /api/export/backup', () => {
       (word.reviewStates as Array<Record<string, unknown>>).find(
         (s) => s.dimension === 'production',
       ),
-    ).toMatchObject({ difficulty: 5, stability: 5, reps: 2, nextReviewAt: '2026-09-25T00:00:00.000Z' });
+    ).toMatchObject({
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
+      nextReviewAt: '2026-09-25T00:00:00.000Z',
+    });
     expect(applyV2Cutover(db, new Date(NOW), 'Asia/Shanghai')).toEqual({ applied: true });
     const preview = await app.inject({
       method: 'POST',
@@ -264,7 +269,12 @@ describe('GET /api/export/backup', () => {
         .where(eq(reviewStates.learningItemId, wordId))
         .all()
         .find((s) => s.dimension === 'production'),
-    ).toMatchObject({ difficulty: 5, stability: 5, reps: 2, nextReviewAt: '2026-09-25T00:00:00.000Z' });
+    ).toMatchObject({
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
+      nextReviewAt: '2026-09-25T00:00:00.000Z',
+    });
   });
 
   it('V1.2 backup without goal field previews and restores with null override', async () => {
@@ -784,5 +794,233 @@ describe('备份文件可直接作为恢复输入（JSON 往返）', () => {
     });
     expect(preview.statusCode).toBe(200);
     expect(preview.json().itemCount).toBe(2);
+  });
+});
+
+describe('FSRS 换轨恢复（Task 3：旧格式折算 / 新格式 round-trip）', () => {
+  /** 旧 2.0 备份（FSRS 前）：reviewStates 只有 level/stable，无 difficulty/stability 键 */
+  function legacyState(
+    dimension: 'understanding' | 'production',
+    level: number,
+    stable: 0 | 1,
+    nextReviewAt: string | null,
+    lastReviewAt: string | null,
+    correctStreak: number,
+  ) {
+    return {
+      dimension,
+      level,
+      stable,
+      nextReviewAt,
+      lastReviewAt,
+      correctStreak,
+      wrongStreak: 0,
+    };
+  }
+
+  it('旧格式备份（level/stable-only）恢复后行被等级折算重建：stable→S=120、level 阶梯、next/last/streaks 原值', async () => {
+    const { app, db, cookie } = await newFileApp();
+    const backup = {
+      version: '2.0',
+      exportedAt: NOW,
+      settings: { maxNewItemsPerDay: 10, contentLevel: 'B1', preferredTtsVoice: null },
+      items: [
+        {
+          id: 'legacy-word',
+          type: 'word',
+          productionEnabledOverride: null,
+          target: 'legacy word',
+          meaning: '旧词',
+          ipa: null,
+          source: null,
+          sourceUrl: null,
+          tags: [],
+          notes: null,
+          status: 'active',
+          queueState: 'started',
+          needsReinforcement: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+          archivedAt: null,
+          examples: [{ kind: 'source', text: 'A legacy sentence.' }],
+          reviewStates: [
+            // U：stable=1 → S=120（掌握线）；level=5 → reps=5
+            legacyState(
+              'understanding',
+              5,
+              1,
+              '2026-10-01T00:00:00.000Z',
+              '2026-09-01T00:00:00.000Z',
+              5,
+            ),
+            // P：stable=0、level=2 → S=3（阶梯 [null,1,3,7,14,30,60,120][2]）
+            legacyState(
+              'production',
+              2,
+              0,
+              '2026-10-02T00:00:00.000Z',
+              '2026-09-02T00:00:00.000Z',
+              2,
+            ),
+          ],
+        },
+        {
+          id: 'legacy-inactive',
+          type: 'word',
+          productionEnabledOverride: null,
+          target: 'legacy fresh',
+          meaning: '旧未激活词',
+          ipa: null,
+          source: null,
+          sourceUrl: null,
+          tags: [],
+          notes: null,
+          status: 'active',
+          queueState: 'new',
+          needsReinforcement: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+          archivedAt: null,
+          examples: [{ kind: 'source', text: 'Another legacy sentence.' }],
+          reviewStates: [
+            // level=0 且 stable=0 → 未激活（D/S NULL）
+            legacyState('understanding', 0, 0, '2026-10-01T00:00:00.000Z', null, 0),
+          ],
+        },
+      ],
+      dailyStats: [],
+    };
+
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/restore/preview',
+      headers: { cookie },
+      payload: backup,
+    });
+    expect(preview.statusCode).toBe(200);
+    const commit = await app.inject({
+      method: 'POST',
+      url: '/api/restore/commit',
+      headers: { cookie },
+      payload: { previewToken: preview.json().previewToken },
+    });
+    expect(commit.statusCode).toBe(200);
+
+    const legacyU = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, 'legacy-word'))
+      .all()
+      .find((s) => s.dimension === 'understanding')!;
+    expect(legacyU).toMatchObject({
+      difficulty: 5,
+      stability: 120,
+      reps: 5,
+      lapses: 0,
+      nextReviewAt: '2026-10-01T00:00:00.000Z',
+      lastReviewAt: '2026-09-01T00:00:00.000Z',
+      correctStreak: 5,
+      wrongStreak: 0,
+    });
+    const legacyP = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, 'legacy-word'))
+      .all()
+      .find((s) => s.dimension === 'production')!;
+    expect(legacyP).toMatchObject({
+      difficulty: 5,
+      stability: 3,
+      reps: 2,
+      lapses: 0,
+      nextReviewAt: '2026-10-02T00:00:00.000Z',
+      lastReviewAt: '2026-09-02T00:00:00.000Z',
+    });
+    // level=0 → 未激活（D/S NULL），reps=0
+    const inactiveU = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, 'legacy-inactive'))
+      .all()
+      .find((s) => s.dimension === 'understanding')!;
+    expect(inactiveU).toMatchObject({
+      difficulty: null,
+      stability: null,
+      reps: 0,
+      lapses: 0,
+    });
+  });
+
+  it('2.0 含 FSRS 字段 round-trip：D/S/reps/lapses 精确保留，不走折算', async () => {
+    const { app, db, cookie } = await newFileApp();
+    const backup = {
+      version: '2.0',
+      exportedAt: NOW,
+      settings: { maxNewItemsPerDay: 10, contentLevel: 'B1', preferredTtsVoice: null },
+      items: [
+        {
+          id: 'fsrs-word',
+          type: 'word',
+          productionEnabledOverride: null,
+          target: 'fsrs word',
+          meaning: '新格式词',
+          ipa: null,
+          source: null,
+          sourceUrl: null,
+          tags: [],
+          notes: null,
+          status: 'active',
+          queueState: 'started',
+          needsReinforcement: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+          archivedAt: null,
+          examples: [{ kind: 'source', text: 'An FSRS sentence.' }],
+          reviewStates: [
+            {
+              dimension: 'understanding',
+              difficulty: 4.2,
+              stability: 33.5,
+              reps: 7,
+              lapses: 2,
+              nextReviewAt: '2026-10-05T00:00:00.000Z',
+              lastReviewAt: '2026-09-05T00:00:00.000Z',
+              correctStreak: 3,
+              wrongStreak: 0,
+            },
+          ],
+        },
+      ],
+      dailyStats: [],
+    };
+
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/restore/preview',
+      headers: { cookie },
+      payload: backup,
+    });
+    expect(preview.statusCode).toBe(200);
+    const commit = await app.inject({
+      method: 'POST',
+      url: '/api/restore/commit',
+      headers: { cookie },
+      payload: { previewToken: preview.json().previewToken },
+    });
+    expect(commit.statusCode).toBe(200);
+
+    const restored = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, 'fsrs-word'))
+      .all()
+      .find((s) => s.dimension === 'understanding')!;
+    expect(restored.difficulty).toBeCloseTo(4.2, 6);
+    expect(restored.stability).toBeCloseTo(33.5, 6);
+    expect(restored.reps).toBe(7);
+    expect(restored.lapses).toBe(2);
+    expect(restored.nextReviewAt).toBe('2026-10-05T00:00:00.000Z');
+    expect(restored.lastReviewAt).toBe('2026-09-05T00:00:00.000Z');
+    expect(restored.correctStreak).toBe(3);
   });
 });

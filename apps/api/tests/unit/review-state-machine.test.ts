@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
+import { stabilityStageLabel } from '@el/shared';
 import { createDatabase } from '../../src/db/client.js';
 import { learningItems, reviewStates } from '../../src/db/schema.js';
 import { runMigrations } from '../../src/db/migrate.js';
@@ -182,6 +183,36 @@ describe('初始状态与 mastered 判定', () => {
     );
     expect(effectiveProductionEnabled({ type: 'word', productionEnabledOverride: 1 })).toBe(true);
     expect(effectiveProductionEnabled({ type: 'chunk', productionEnabledOverride: 0 })).toBe(false);
+  });
+
+  it('边界断言：isMastered 恰 S=120 为 true、119.99 为 false（等号归属掌握侧）', () => {
+    const mk = (stability: number): ReviewStateSnapshot => ({
+      difficulty: 5,
+      stability,
+      reps: 5,
+      lapses: 0,
+      nextReviewAt: '2027-01-01T00:00:00.000Z',
+      lastReviewAt: '2026-10-01T00:00:00.000Z',
+      correctStreak: 5,
+      wrongStreak: 0,
+    });
+    expect(isMastered(mk(120), mk(120), true)).toBe(true);
+    expect(isMastered(mk(119.99), mk(120), true)).toBe(false);
+    expect(isMastered(mk(120), mk(119.99), true)).toBe(false);
+    // 目标关闭时只看 U：P 未过线不影响
+    expect(isMastered(mk(120), mk(119.99), false)).toBe(true);
+  });
+
+  it('边界断言：stabilityStageLabel 的 7/30/120 等号归属下一档', () => {
+    expect(stabilityStageLabel(null)).toBe('未开始');
+    expect(stabilityStageLabel(0.5)).toBe('新');
+    expect(stabilityStageLabel(6.99)).toBe('新');
+    expect(stabilityStageLabel(7)).toBe('巩固'); // 7 恰好归「巩固」
+    expect(stabilityStageLabel(29.99)).toBe('巩固');
+    expect(stabilityStageLabel(30)).toBe('熟练'); // 30 恰好归「熟练」
+    expect(stabilityStageLabel(119.99)).toBe('熟练');
+    expect(stabilityStageLabel(120)).toBe('掌握'); // 120 恰好归「掌握」（与 isMastered 同线）
+    expect(stabilityStageLabel(365)).toBe('掌握');
   });
 
   it('reconcileItemStatus：目标改变时重算 active/mastered，但不恢复 paused/archived', () => {

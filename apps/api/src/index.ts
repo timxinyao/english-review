@@ -6,6 +6,7 @@ import { runMigrations } from './db/migrate.js';
 import { buildApp } from './app.js';
 import { loadPromptRegistry, validateRegistry } from './ai/promptRegistry.js';
 import { applyV2Cutover } from './modules/review/v2-cutover.js';
+import { applyFsrsCutover } from './modules/review/fsrs-cutover.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -23,6 +24,9 @@ async function main(): Promise<void> {
   }
 
   applyV2Cutover(db, new Date(), config.appTimezone);
+  // FSRS 回放迁移（Task 3）：必须在 V2 cutover 之后——先清掉旧 cloze 混入的 P 证据，
+  // 再以 today 正式作答重建 D/S，避免作废证据污染回放结果。幂等（marker 'fsrs'）。
+  applyFsrsCutover(db, new Date());
 
   const app = buildApp({ config, db });
   await app.listen({ port: config.port, host: config.host });

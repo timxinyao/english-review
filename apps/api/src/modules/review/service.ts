@@ -203,7 +203,8 @@ export function ensureProductionDueAfterGoalEnabled(
 // ---------- 落库（必须由本模块执行，AGENTS.md §5）----------
 
 /**
- * 读行 → 纯函数计算 → 写回（含 correct/wrong streak）→ 两维均 stable 则 item.status='mastered'。
+ * 读行 → 纯函数计算 → 写回（含 correct/wrong streak）→ 目标内维度均越过掌握线（S≥120）则
+ * item.status='mastered'（reconcileItemStatus 判定）。
  * better-sqlite3 同步事务约束：只接受 tx（事务回调参数），体内全部同步执行。
  * pre=null 表示行原本不存在（按未激活快照计算，如 L0 输入按 L1 处理）。
  */

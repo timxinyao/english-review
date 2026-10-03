@@ -356,6 +356,62 @@ describe('feedback（答题反馈调整）', () => {
     expect(dim('item-a', 'understanding')!.correctStreak).toBe(0); // 结果上限 basic_pass：不记对
   });
 
+  it('guessed 降级语义与 reconcileItemStatus 一致：production 关闭且无 P 行的 mastered 不被误降', async () => {
+    // word（production 默认关闭）+ 仅 U 行（S 过掌握线）+ 到期理解题（start 只挑 active 项，mastered 事后置）
+    await seedItem(db, { id: 'item-m', target: 'item-m' });
+    await seedReviewState(db, 'item-m', 'understanding', {
+      difficulty: 5,
+      stability: 130,
+      reps: 9,
+      nextReviewAt: '2026-09-23T00:00:00.000Z',
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
+    });
+    await seedQuestion(db, 'item-m', {
+      type: 'understanding',
+      payloadJson: choicePayload(DEFAULT_OPTIONS, '解释'),
+      correctOptionId: 'o1',
+      contextText: 'A ____ sentence.',
+    });
+    await startSession();
+    const m = taskByItem('item-m')!;
+    await answerTodayTask(db, deps, TZ, NOW, m.id, { selectedOptionId: 'o1' }); // pass
+    // 模拟真实 advanceReviewState 会发生的晋升（fake 无 P 行不晋升）：pass 后仍在掌握线上 → mastered
+    db.update(learningItems)
+      .set({ status: 'mastered', updatedAt: NOW.toISOString() })
+      .where(eq(learningItems.id, 'item-m'))
+      .run();
+
+    // 钉住补偿块语义本身：构造「fail 重算后 U 仍越过掌握线」的调度器行为
+    // （真实 FSRS 下 Again 必然跌破 120，此桩面向未来参数/clamp 变化时的回归保护——
+    //  缺 P 行按未激活兜底、production 关闭只看 U，不得仅因缺 P 行降级）
+    const pinned: TodayDeps = {
+      ...deps,
+      advance(tx, itemId, dimension, outcome, now) {
+        const res = deps.advance(tx, itemId, dimension, outcome, now);
+        if (outcome.kind === 'fail') {
+          tx.update(reviewStates)
+            .set({ difficulty: 5, stability: 130, updatedAt: now.toISOString() })
+            .where(
+              and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, dimension)),
+            )
+            .run();
+          return { ...res, post: { ...res.post, difficulty: 5, stability: 130 } };
+        }
+        return res;
+      },
+    };
+
+    const res = submitTaskFeedback(db, pinned, TZ, m.id, 'guessed', T1);
+    expect(res.ok).toBe(true);
+    expect(res.adjustedResult).toBe('fail');
+    // U 仍在掌握线上（构造）→ mastered 保留：缺 P 行不是降级理由
+    expect(
+      db.select().from(learningItems).where(eq(learningItems.id, 'item-m')).get()!.status,
+    ).toBe('mastered');
+    expect(dim('item-m', 'production')).toBeNull(); // 无 P 行的种子前提
+    expect(dim('item-m', 'understanding')!.stability).toBe(130);
+  });
+
   it('重复反馈 → 409；learn 任务 → 409；未作答 → 409', async () => {
     await seedDueChoiceItem('item-a');
     await seedDueChoiceItem('item-c');

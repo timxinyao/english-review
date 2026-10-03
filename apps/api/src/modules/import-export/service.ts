@@ -45,6 +45,7 @@ import { getAiRuntime, type DuplicateJudgeItem } from '../../ai/runtime.js';
 import type { DbTx } from '../questions/service.js';
 import { reconcileProductionGoalChange } from '../learning-items/service.js';
 import { normalizeRestoredV1_2BackupForV2 } from '../review/v2-cutover.js';
+import { estimateFsrsFromLegacy } from '../review/fsrs-cutover.js';
 
 // ---------- 归一化 ----------
 
@@ -843,22 +844,28 @@ export async function commitRestore(
       updatedAt: nowIso,
     })),
   );
-  // 旧备份（FSRS 前）的 level/stable 字段忽略：恢复为未激活 FSRS 状态，进度回放见 Task 3
+  // 旧备份（V1.2 / FSRS 前 2.0）的 reviewStates 行缺 difficulty/stability 键（只有 level/stable）：
+  // 恢复时按等级折算重建 FSRS 字段（Task 3 裁定——恢复不回放，备份不含 attempts）；
+  // next/last_review_at 与 streaks 用备份原值还原；含 FSRS 字段的新格式行直接还原。
   const stateRows: (typeof reviewStates.$inferInsert)[] = backup.items.flatMap((item) =>
-    item.reviewStates.map((rs) => ({
-      id: randomUUID(),
-      learningItemId: item.id,
-      dimension: rs.dimension,
-      difficulty: rs.difficulty ?? null,
-      stability: rs.stability ?? null,
-      reps: rs.reps ?? 0,
-      lapses: rs.lapses ?? 0,
-      nextReviewAt: rs.nextReviewAt,
-      lastReviewAt: rs.lastReviewAt,
-      correctStreak: rs.correctStreak,
-      wrongStreak: rs.wrongStreak,
-      updatedAt: nowIso,
-    })),
+    item.reviewStates.map((rs) => {
+      const legacy = rs.difficulty === undefined || rs.stability === undefined;
+      const estimated = legacy ? estimateFsrsFromLegacy(rs.level ?? null, rs.stable === 1) : null;
+      return {
+        id: randomUUID(),
+        learningItemId: item.id,
+        dimension: rs.dimension,
+        difficulty: legacy ? estimated!.difficulty : (rs.difficulty ?? null),
+        stability: legacy ? estimated!.stability : (rs.stability ?? null),
+        reps: legacy ? estimated!.reps : (rs.reps ?? 0),
+        lapses: legacy ? estimated!.lapses : (rs.lapses ?? 0),
+        nextReviewAt: rs.nextReviewAt,
+        lastReviewAt: rs.lastReviewAt,
+        correctStreak: rs.correctStreak,
+        wrongStreak: rs.wrongStreak,
+        updatedAt: nowIso,
+      };
+    }),
   );
   const dailyRows: (typeof dailyStats.$inferInsert)[] = backup.dailyStats.map((d) => ({
     date: d.date,

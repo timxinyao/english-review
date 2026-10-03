@@ -236,7 +236,7 @@ describe('LibraryDetail 详情', () => {
 
     const archiveBtn = screen.getByRole('button', { name: '归档' });
     // destructive 变体已改实心（Task 1 语义变体），标记类随之更新
-    expect(archiveBtn.className).toContain('bg-destructive text-white');
+    expect(archiveBtn.className).toContain('bg-destructive text-accent-foreground');
     fireEvent.click(archiveBtn);
     await waitFor(() => {
       expect(archive).toHaveBeenCalledWith('item-1');

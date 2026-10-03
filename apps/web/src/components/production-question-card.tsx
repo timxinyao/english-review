@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { Textarea } from './ui/textarea';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { CorrectionDiff } from './correction-diff';
@@ -25,9 +26,6 @@ interface ProductionQuestionCardProps {
   /** Today 沉浸式布局：提示/反馈滚动 + 输入/按钮停靠底部 dock（§5.1 键盘弹出仍可达） */
   variant?: 'today';
 }
-
-const textareaClass =
-  'flex w-full rounded-lg border border-input bg-card px-3 py-2 text-base text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
 
 /** 表达题：受控中文提示 + 批改结果（PRODUCT §7.3/§7.4/§7.6）；Today 与练一下共用。
  *  主动不会（gaveUp）揭示参考句/用法说明且无批改，不渲染最小纠错 diff。 */
@@ -58,12 +56,12 @@ export function ProductionQuestionCard({
   }
 
   const prompt = (
-    <div className="space-y-1.5">
+    <div className="space-y-4 break-words pr-8">
       <p className="text-xs text-muted-foreground">用英语表达</p>
-      <p className="text-lg leading-relaxed text-foreground">{question.zhPrompt}</p>
+      <p className="text-xl leading-relaxed text-foreground">{question.zhPrompt}</p>
       <p className="text-sm text-muted-foreground">
         必须使用：
-        <span className="font-medium text-accent">{question.mustUse}</span>
+        <span className="font-literary text-2xl text-accent">{question.mustUse}</span>
         <button
           type="button"
           aria-label={copied ? '已复制' : '复制目标词'}
@@ -101,8 +99,8 @@ export function ProductionQuestionCard({
       {result.gaveUp ? (
         <>
           {result.referenceAnswer && (
-            <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
-              <span className="mr-1 text-xs text-muted-foreground">参考句</span>
+            <p className="study-example">
+              <span className="mb-1 block text-xs text-muted-foreground">参考句</span>
               {result.referenceAnswer}
             </p>
           )}
@@ -139,17 +137,17 @@ export function ProductionQuestionCard({
   if (variant === 'today') {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto" data-slot="body">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1" data-slot="body">
           {prompt}
           {errorBlock}
           {feedback}
         </div>
         {!result ? (
-          <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
-            <textarea
+          <div className="study-dock space-y-3" data-slot="dock">
+            <Textarea
               aria-label="表达答案"
               rows={3}
-              className={textareaClass}
+              className="resize-none"
               placeholder="Write your sentence in English…"
               value={text}
               disabled={pending}
@@ -159,13 +157,7 @@ export function ProductionQuestionCard({
             />
             <div className="flex items-center justify-between gap-2">
               {onGiveUp ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground"
-                  disabled={pending}
-                  onClick={onGiveUp}
-                >
+                <Button variant="ghost" size="sm" disabled={pending} onClick={onGiveUp}>
                   不会表达
                 </Button>
               ) : (
@@ -177,10 +169,7 @@ export function ProductionQuestionCard({
             </div>
           </div>
         ) : (
-          <div
-            className="mt-3 flex shrink-0 justify-end border-t border-border pt-3"
-            data-slot="dock"
-          >
+          <div className="study-dock flex justify-end" data-slot="dock">
             <Button onClick={onAdvance}>下一题</Button>
           </div>
         )}
@@ -194,10 +183,10 @@ export function ProductionQuestionCard({
 
       {!result && (
         <div className="space-y-2">
-          <textarea
+          <Textarea
             aria-label="表达答案"
             rows={5}
-            className={textareaClass}
+            className="resize-none"
             placeholder="Write your sentence in English…"
             value={text}
             disabled={pending}
@@ -205,13 +194,7 @@ export function ProductionQuestionCard({
           />
           {errorBlock}
           {onGiveUp && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-              disabled={pending}
-              onClick={onGiveUp}
-            >
+            <Button variant="ghost" size="sm" disabled={pending} onClick={onGiveUp}>
               不会表达
             </Button>
           )}

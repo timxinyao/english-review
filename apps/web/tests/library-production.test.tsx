@@ -227,7 +227,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
     // 三键一排：重来 / 良好 / 简单（Library 无「显示答案」前置）
     const easyBtn = await screen.findByRole('button', { name: '简单' });
-    expect(easyBtn.className).toContain('border-input'); // neutral 中性档
+    expect(easyBtn.className).toContain('border-border bg-muted'); // neutral 暖灰中性档
     fireEvent.click(easyBtn);
 
     await waitFor(() => {

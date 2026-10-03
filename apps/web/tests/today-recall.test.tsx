@@ -116,7 +116,7 @@ describe('Recall Card（understanding）', () => {
     expect(screen.getByRole('button', { name: '良好' }).className).toContain('bg-accent'); // primary
     const easyBtn = screen.getByRole('button', { name: '简单' });
     expect(easyBtn).toBeVisible();
-    expect(easyBtn.className).toContain('border-input'); // neutral 中性档
+    expect(easyBtn.className).toContain('border-border bg-muted'); // neutral 暖灰中性档
     const notesDetails = screen.getByText('笔记').closest('details');
     expect(notesDetails).toHaveAttribute('open');
     expect(notesDetails).toHaveTextContent('也作名词：马厩');

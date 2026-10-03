@@ -26,21 +26,21 @@ describe('Button 基础组件', () => {
       </Button>,
     );
     const btn = screen.getByRole('button', { name: '继续' });
-    expect(btn.className).toContain('border border-input bg-accent-soft');
+    expect(btn.className).toContain('border border-border bg-muted');
     expect(btn.className).toContain('w-full');
   });
 });
 
-/** 变体类串是全局按钮颜色唯一出处（spec 2026-10-02），锁死防漂移。
+/** 变体类串是全局按钮颜色唯一出处（2026-10-03 暖纸/陶土更新）。
  *  2026-10-02 用户反馈修订：negative/ghost 静止态必须有别于背景的填充，不得透明融入。 */
 describe('Button 语义变体类名', () => {
   it.each([
     ['primary', 'bg-accent text-accent-foreground'],
     ['default', 'bg-accent text-accent-foreground'],
-    ['neutral', 'border-input bg-accent-soft text-foreground'],
-    ['negative', 'border-destructive/50 bg-destructive/10 text-destructive'],
-    ['destructive', 'bg-destructive text-white'],
-    ['ghost', 'bg-muted text-foreground hover:brightness-95'],
+    ['neutral', 'border-border bg-muted text-foreground'],
+    ['negative', 'border-destructive/15 bg-destructive-soft text-destructive'],
+    ['destructive', 'bg-destructive text-accent-foreground'],
+    ['ghost', 'bg-muted/60 text-muted-foreground hover:bg-muted'],
   ] as const)('%s → %s', (variant, expected) => {
     render(<Button variant={variant}>按钮</Button>);
     expect(screen.getByRole('button', { name: '按钮' }).className).toContain(expected);

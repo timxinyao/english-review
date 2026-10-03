@@ -83,13 +83,7 @@ export function UndoAnswerControl({
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 text-muted-foreground"
-        aria-label="撤销最近一次作答"
-        onClick={openConfirm}
-      >
+      <Button variant="ghost" size="icon" aria-label="撤销最近一次作答" onClick={openConfirm}>
         <Undo2 className="h-4 w-4" aria-hidden />
       </Button>
 

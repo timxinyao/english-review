@@ -36,7 +36,7 @@ function PendingQuestion({ taskId }: { taskId: string }) {
           {later.error.message}
         </p>
       )}
-      <div className="flex shrink-0 gap-2" data-slot="dock">
+      <div className="flex shrink-0 flex-wrap gap-2" data-slot="dock">
         {prepare.isError && <Button onClick={() => mutate(taskId)}>重试</Button>}
         <Button variant="neutral" disabled={later.isPending} onClick={() => later.mutate(taskId)}>
           稍后再做
@@ -73,13 +73,13 @@ export function TaskCard({ task, result, undoControl, onAnswered, onAdvance }: P
   const question = task.question;
 
   return (
-    <article className="relative flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-5 pt-4">
+    <article className="study-card relative flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-5 pt-8 sm:p-8 sm:pt-10">
       {/* 右上角撤销图标：悬浮于卡角（答错冻结头行已留 pr-12 避让） */}
-      {undoControl && <div className="absolute right-2 top-2 z-10">{undoControl}</div>}
+      {undoControl && <div className="absolute right-3 top-3">{undoControl}</div>}
       {/* 已答冻结：顶部显示考的单词（learn/understanding 由 RecallCard 自带词行，不重复） */}
       {result !== null && task.taskType !== 'learn' && task.taskType !== 'understanding' && (
         <div className="mb-3 flex shrink-0 items-baseline gap-2 pr-12">
-          <h3 className="text-lg font-semibold text-foreground">{task.item.target}</h3>
+          <h3 className="study-title min-w-0">{task.item.target}</h3>
           {task.item.type === 'word' && task.item.ipa !== null && (
             <span className="text-sm text-muted-foreground">{task.item.ipa}</span>
           )}

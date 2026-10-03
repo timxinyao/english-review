@@ -48,8 +48,8 @@ function RecallFeedback({
         {forgot ? <span className="text-success">{task.item.meaning}</span> : task.item.meaning}
       </p>
       {task.sourceExample !== null && (
-        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
-          <span className="mr-1 text-xs text-muted-foreground">原句</span>
+        <p className="study-example">
+          <span className="mb-1 block text-xs text-muted-foreground">原句</span>
           {task.sourceExample}
         </p>
       )}
@@ -92,15 +92,14 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
 
   /** 词行（含手动发音） */
   const wordRow = (
-    <div className="flex items-center gap-2">
-      <h3 className="text-lg font-semibold text-foreground">{word.target}</h3>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pr-9">
+      <h3 className="study-title min-w-0">{word.target}</h3>
       {word.type === 'word' && word.ipa !== null && (
         <span className="text-sm text-muted-foreground">{word.ipa}</span>
       )}
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 text-muted-foreground"
         aria-label="发音"
         onClick={() => void speak(word.target, { userGesture: true })}
       >
@@ -113,25 +112,27 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
     <div className="flex min-h-0 flex-1 flex-col">
       {answerError}
       {/* 滚动区：词行 + 学习内容/揭示/反馈 */}
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto" data-slot="body">
+      <div className="min-h-0 flex-1 space-y-7 overflow-y-auto pr-1" data-slot="body">
         {wordRow}
 
         {/* 原句默认展示（understanding 不再有"查看原句"，API 侧也不再因 viewedSource 降档） */}
         {task.sourceExample !== null && !frozen && (
-          <p className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
-            <span className="mr-1 text-xs text-muted-foreground">原句</span>
+          <p className="study-example">
+            <span className="mb-1 block text-xs text-muted-foreground">原句</span>
             {task.sourceExample}
           </p>
         )}
 
         {/* 显示答案后自评（recall 直判）：meaning/notes 留在滚动区 */}
         {!frozen && revealed && (
-          <div className="space-y-3">
-            <p className="text-base text-foreground">{word.meaning}</p>
+          <div className="space-y-6 border-t border-border/70 pt-6">
+            <p className="text-lg leading-relaxed text-foreground">{word.meaning}</p>
             {word.notes ? (
               <details className="text-sm" open>
-                <summary className="text-xs text-muted-foreground cursor-pointer">笔记</summary>
-                <p className="mt-1 text-muted-foreground">{word.notes}</p>
+                <summary className="cursor-pointer text-xs text-muted-foreground">笔记</summary>
+                <p className="mt-2 whitespace-pre-line leading-7 text-muted-foreground">
+                  {word.notes}
+                </p>
               </details>
             ) : null}
           </div>
@@ -143,7 +144,7 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
 
       {/* 底部 dock：作答按钮。揭示前仅一个全宽主按钮（无直判）；揭示后三档等宽一排 */}
       {!frozen && !revealed && (
-        <div className="mt-3 shrink-0 border-t border-border pt-3" data-slot="dock">
+        <div className="study-dock" data-slot="dock">
           <Button className="w-full" onClick={() => setRevealed(true)}>
             显示答案
           </Button>
@@ -151,8 +152,8 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
       )}
 
       {!frozen && revealed && (
-        <div className="mt-3 shrink-0 border-t border-border pt-3" data-slot="dock">
-          <div className="flex gap-2">
+        <div className="study-dock" data-slot="dock">
+          <div className="grid grid-cols-3 gap-2">
             <Button
               variant="negative"
               className="flex-1"
@@ -181,10 +182,7 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
       )}
 
       {frozen && (
-        <div
-          className="mt-3 flex shrink-0 justify-end border-t border-border pt-3"
-          data-slot="dock"
-        >
+        <div className="study-dock flex justify-end" data-slot="dock">
           <Button onClick={onAdvance}>下一题</Button>
         </div>
       )}

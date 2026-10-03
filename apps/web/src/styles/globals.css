@@ -16,15 +16,20 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-hover: var(--accent-hover);
+  --color-muted-hover: var(--muted-hover);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-destructive: var(--destructive);
+  --color-destructive-soft: var(--destructive-soft);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-diff-delete: var(--diff-delete);
   --color-diff-insert: var(--diff-insert);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 0.25rem);
+  --font-sans: var(--font-ui);
+  --font-literary: var(--font-reading);
   /* 层叠令牌：nav < header < overlay < toast；弹层一律 portal 到 body 后使用 */
   --z-index-nav: 10;
   --z-index-header: 20;
@@ -33,23 +38,30 @@
 }
 
 :root {
-  --background: #faf9f6; /* 暖白 */
-  --foreground: #3d3a34; /* 深暖灰 */
-  --card: #ffffff;
-  --card-foreground: #3d3a34;
-  --muted: #efece5;
-  --muted-foreground: #6b6558; /* 2026-10-02 加深达 AA：暖白底 ~5.5:1（原 #8a8378 为 3.6:1） */
-  --accent: #a8541f; /* 低饱和暖橙 */
+  --background: #f4f3ee; /* 暖纸：PWA theme-color / manifest 同步 */
+  --foreground: #30302e;
+  --card: #fbfaf7;
+  --card-foreground: #30302e;
+  --muted: #eeece5;
+  --muted-hover: #e5e2d9;
+  --muted-foreground: #696861;
+  --accent: #ae563d; /* 陶土：兼顾暖色气质与白字可读性 */
   --accent-foreground: #ffffff;
-  --accent-soft: #f5e7dc;
-  --border: #e5e0d6;
-  --input: #d9d3c7;
-  --destructive: #b3402a;
-  --success: #4a7c59;
-  --warning: #8f7514; /* 低饱和暗金黄：basic_pass 语义色（PRODUCT §5.1 进度黄） */
-  --diff-delete: #b3402a;
-  --diff-insert: #3e7d52;
-  --radius: 0.5rem;
+  --accent-hover: #974831;
+  --accent-soft: #faf4f0;
+  --border: #e2dfd6;
+  --input: #cbc7bc;
+  --destructive: #a0473c;
+  --destructive-soft: #f6e9e5;
+  --success: #497054;
+  --warning: #846b26;
+  --diff-delete: var(--destructive);
+  --diff-insert: var(--success);
+  --radius: 0.625rem;
+  --font-ui:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Noto Sans SC', sans-serif;
+  --font-reading:
+    'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, 'Times New Roman', serif;
   /*
    * Today 沉浸式卡基准（Phase 8）：与 shell 的顶栏/导航间距同源。
    * 顶栏总高 = 安全区 + 顶栏内容；导航总高 = 导航内容(py-2.5+图标+文字=3.75rem) + 收紧避让。
@@ -61,15 +73,34 @@
 
 body {
   @apply bg-background text-foreground antialiased;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    'PingFang SC',
-    'Noto Sans SC',
-    sans-serif;
+  font-family: var(--font-ui);
   -webkit-tap-highlight-color: transparent; /* iOS 去除点击灰块 */
+}
+
+/* 共用输入基元：Input / Select / Textarea 同一套交互与边界。 */
+@utility field-control {
+  @apply rounded-lg border border-input bg-card text-base text-foreground transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/60 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+/* 阅读式学习排版；功能组件仍负责内容与状态。 */
+@utility study-title {
+  @apply font-literary font-normal leading-tight tracking-tight text-foreground break-words;
+  font-size: clamp(1.875rem, 8.5vw, 2.25rem);
+}
+
+@utility study-example {
+  @apply border-l-2 border-input pl-4 text-base leading-7 text-foreground break-words;
+}
+
+@utility study-dock {
+  @apply mt-5 shrink-0 border-t border-border pt-4;
+}
+
+/* 桌面卡片留白不参与手机键盘视口计算。 */
+@media (min-width: 768px) {
+  .study-card {
+    min-height: 30rem;
+  }
 }
 
 /* 仅 ?kbdebug=1 创建：主屏 PWA 真机键盘视口诊断，不参与正常交互。 */

@@ -44,7 +44,7 @@ export function TodayPage() {
   }, []);
 
   return (
-    <section className={cn('space-y-4', !showSession && 'pb-40 md:pb-0')}>
+    <section className={cn('mx-auto max-w-[680px] space-y-5', !showSession && 'pb-40 md:pb-0')}>
       <h1 className="hidden text-lg font-semibold md:block">Today</h1>
       {isLoading && <p className="py-8 text-center text-sm text-muted-foreground">加载中…</p>}
       {isError && (

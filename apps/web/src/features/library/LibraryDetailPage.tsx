@@ -7,6 +7,7 @@ import {
   type UpdateLearningItemRequest,
 } from '@el/shared';
 import { Star } from 'lucide-react';
+import { Textarea } from '../../components/ui/textarea';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -29,9 +30,6 @@ import { PracticeView } from './PracticeView';
 import { ProductionHistoryList } from './ProductionHistoryList';
 
 const DIMENSION_LABELS = { understanding: '理解', production: '输出' } as const;
-
-const textareaClass =
-  'flex w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
 
 interface ConfirmState {
   title: string;
@@ -235,10 +233,9 @@ function EditItemForm({
 
       <div className="space-y-2">
         <Label htmlFor="edit-notes">备注</Label>
-        <textarea
+        <Textarea
           id="edit-notes"
           rows={3}
-          className={textareaClass}
           value={form.notes}
           onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
         />
@@ -246,10 +243,9 @@ function EditItemForm({
 
       <div className="space-y-2">
         <Label htmlFor="edit-source-example">原句（source example）</Label>
-        <textarea
+        <Textarea
           id="edit-source-example"
           rows={2}
-          className={textareaClass}
           value={form.sourceExample}
           onChange={(e) => setForm((f) => ({ ...f, sourceExample: e.target.value }))}
         />
@@ -558,9 +554,7 @@ export function LibraryDetailPage() {
                     <span className="w-10 text-muted-foreground">
                       {DIMENSION_LABELS[rs.dimension]}
                     </span>
-                    <span>
-                      {rs.stability === null ? '—' : `S${Math.round(rs.stability)}天`}
-                    </span>
+                    <span>{rs.stability === null ? '—' : `S${Math.round(rs.stability)}天`}</span>
                     <span className="text-muted-foreground">
                       {stabilityStageLabel(rs.stability)}
                     </span>

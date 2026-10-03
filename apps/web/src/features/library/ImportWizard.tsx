@@ -7,6 +7,7 @@ import {
   type ImportPreviewResponse,
 } from '@el/shared';
 import type { ZodError } from 'zod';
+import { Textarea } from '../../components/ui/textarea';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
 import { ApiError } from '../../lib/api';
@@ -18,9 +19,6 @@ import {
   libraryKeys,
   previewLibraryImport,
 } from './api';
-
-const textareaClass =
-  'flex min-h-[220px] w-full rounded-lg border border-input bg-card px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
 
 function goalLabel(value: boolean | null): string {
   return value === null ? '按类型默认' : value ? '需要造句' : '不需要造句';
@@ -140,10 +138,10 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
 
           <div className="space-y-2">
             <Label htmlFor="import-json">粘贴学习库 JSON</Label>
-            <textarea
+            <Textarea
               id="import-json"
               rows={12}
-              className={textareaClass}
+              className="min-h-[220px] font-mono text-sm"
               placeholder='{"version":"2.0","items":[…]}'
               value={text}
               onChange={(e) => setText(e.target.value)}

@@ -198,6 +198,14 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByLabel('填空答案')).toHaveCount(0);
     await expect(page.getByText('0 / 5', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '稍后再做' })).toBeVisible();
+    // 准备失败的三个操作在窄屏上也必须完整位于卡片内。
+    await page.setViewportSize({ width: 320, height: 480 });
+    const pendingCard = (await page.locator('article').boundingBox())!;
+    for (const name of ['重试', '稍后再做', '刷新今日学习']) {
+      const box = (await page.getByRole('button', { name, exact: true }).boundingBox())!;
+      expect(box.x + box.width).toBeLessThanOrEqual(pendingCard.x + pendingCard.width);
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.getByRole('button', { name: '重试' }).click();
     await expect(page.getByLabel('表达答案')).toBeVisible();
     await expect(page.getByText('give up', { exact: true })).toBeVisible();
@@ -569,6 +577,30 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
 test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', () => {
   // 375x480 模拟短屏 + 键盘弹出后的可视高度：输入与主操作必须仍可达
   test.use({ viewport: { width: 375, height: 480 } });
+
+  test('窄屏长目标词换行，正文不产生横向滚动', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 480 });
+    await login(page);
+    await resetSeedData(page);
+    const longTarget = 'pneumonoultramicroscopicsilicovolcanoconiosis';
+    await page.route('**/api/today', async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      if (data.currentTask?.question?.mustUse) {
+        data.currentTask.item.target = longTarget;
+        data.currentTask.question.mustUse = longTarget;
+      }
+      await route.fulfill({ response, json: data });
+    });
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+    await expect(page.getByText(longTarget, { exact: true })).toBeVisible();
+    const body = page.locator('[data-slot="body"]');
+    expect(await body.evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
+      await body.evaluate((element) => element.clientWidth),
+    );
+    await expect(page.getByLabel('表达答案')).toBeVisible();
+  });
 
   test('短屏：卡填满顶栏/导航之间，输入与主操作停靠其上；主动不会揭示参考句', async ({ page }) => {
     test.setTimeout(90_000);

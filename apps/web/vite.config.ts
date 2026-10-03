@@ -17,8 +17,8 @@ export default defineConfig({
         short_name: 'Foxi',
         start_url: '/',
         display: 'standalone',
-        background_color: '#faf9f6',
-        theme_color: '#faf9f6',
+        background_color: '#f4f3ee',
+        theme_color: '#f4f3ee',
         icons: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },

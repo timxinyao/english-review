@@ -3,20 +3,20 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { cn } from '../../lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:pointer-events-none disabled:opacity-50 select-none',
+  'inline-flex shrink-0 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50 select-none',
   {
     variants: {
       variant: {
-        default: 'bg-accent text-accent-foreground hover:opacity-90',
-        primary: 'bg-accent text-accent-foreground hover:opacity-90',
-        neutral: 'border border-input bg-accent-soft text-foreground hover:brightness-95',
+        default: 'bg-accent text-accent-foreground hover:bg-accent-hover active:bg-accent-hover',
+        primary: 'bg-accent text-accent-foreground hover:bg-accent-hover active:bg-accent-hover',
+        neutral: 'border border-border bg-muted text-foreground hover:bg-muted-hover',
         negative:
-          'border border-destructive/50 bg-destructive/10 text-destructive hover:border-destructive hover:bg-destructive/20 hover:text-destructive',
-        ghost: 'bg-muted text-foreground hover:brightness-95',
-        destructive: 'bg-destructive text-white hover:opacity-90',
+          'border border-destructive/15 bg-destructive-soft text-destructive hover:border-destructive/40 hover:bg-destructive/15',
+        ghost: 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground',
+        destructive: 'bg-destructive text-accent-foreground hover:brightness-90',
       },
       size: {
-        default: 'h-10 px-4',
+        default: 'h-11 px-4',
         sm: 'h-8 px-3 text-xs',
         lg: 'h-12 px-6 text-base',
         icon: 'h-9 w-9',

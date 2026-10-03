@@ -172,27 +172,76 @@ describe('GET /api/today 契约（三态）', () => {
     expect(second.json().session.id).toBe(first.json().session.id);
   });
 
-  it('repeated start only warms the same two lookahead tasks, not later pending tasks', async () => {
+  it('start warms every pending production task in one pass; U tasks stay unbound; repeated start is idempotent', async () => {
     const ctx = await newCtx(async (db) => {
       for (let index = 0; index < 7; index += 1) {
-        await seedDueChoice(db, `lookahead-${index}`, `target-${index}`);
+        await seedDueChoice(db, `warm-u-${index}`, `u-target-${index}`);
+      }
+      for (let index = 0; index < 3; index += 1) {
+        await seedDueProduction(db, `warm-p-${index}`, `p-target-${index}`);
       }
     });
-    const boundCount = () =>
-      ctx.db
-        .select()
-        .from(reviewTasks)
-        .all()
-        .filter((task) => task.questionId !== null).length;
+    const tasks = () => ctx.db.select().from(reviewTasks).all();
+    const boundIds = () =>
+      tasks()
+        .filter((task) => task.questionId !== null)
+        .map((task) => task.learningItemId)
+        .sort();
     expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
-    await vi.waitFor(() => expect(boundCount()).toBe(2));
+    // 后台一次性备好全部 3 个未绑定造句题（fake deps 即时生成/取库存）
+    await vi.waitFor(() => expect(boundIds()).toEqual(['warm-p-0', 'warm-p-1', 'warm-p-2']));
+    // U 任务一律不预热绑定：理解题卡不依赖绑定题即时渲染
+    expect(
+      tasks()
+        .filter((task) => task.taskType !== 'production')
+        .every((task) => task.questionId === null),
+    ).toBe(true);
+    // 重复 start 幂等：已绑定自然跳过，绑定数与任务总数不变
     expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(boundCount()).toBe(2);
+    expect(boundIds()).toEqual(['warm-p-0', 'warm-p-1', 'warm-p-2']);
     expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(boundCount()).toBe(2);
-    expect(ctx.db.select().from(reviewTasks).all()).toHaveLength(7);
+    expect(tasks()).toHaveLength(10);
+  });
+
+  it('warm continues past a failing production generation: failed task stays pending for retry', async () => {
+    const ctx = await newCtx(async (db) => {
+      await seedDueChoice(db, 'warm-fail-u', 'u-target');
+      for (const id of ['warm-fail-p0', 'warm-fail-p1', 'warm-fail-p2']) {
+        // 不预置题目库存：warm 必须走 fake generate，才能注入首个 P 生成失败
+        await seedItem(db, { id, type: 'chunk', target: id, queueState: 'started' });
+        await seedReviewState(db, id, 'production', {
+          difficulty: 5,
+          stability: 25,
+          reps: 4,
+          nextReviewAt: dayAgo(),
+          lastReviewAt: '2026-09-20T00:00:00.000Z',
+        });
+      }
+    });
+    setTodayDepsForTests(createFakeDeps({ generateFailFor: new Set(['warm-fail-p0:production']) }));
+    expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
+    // 逐题 best-effort：失败不阻断其余造句题备题
+    await vi.waitFor(() =>
+      expect(
+        ctx.db
+          .select()
+          .from(reviewTasks)
+          .all()
+          .filter((task) => task.questionId !== null)
+          .map((task) => task.learningItemId)
+          .sort(),
+      ).toEqual(['warm-fail-p1', 'warm-fail-p2']),
+    );
+    const failed = ctx.db
+      .select()
+      .from(reviewTasks)
+      .all()
+      .find((task) => task.learningItemId === 'warm-fail-p0')!;
+    expect(failed.questionId).toBeNull(); // 保留 pending，客户端可重试/稍后
+    expect(failed.completedAt).toBeNull();
+    expect(ctx.db.select().from(reviewTasks).all()).toHaveLength(4);
   });
 
   it('active 的 currentTask：选择题视图不泄漏正确答案；理解题携带 sourceExample（前端按需展示）', async () => {

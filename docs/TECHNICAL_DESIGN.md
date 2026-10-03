@@ -10,7 +10,7 @@ Review service 集中计算 `effectiveProductionEnabled = override ?? (type === 
 
 V2 正式 U 只出 Recall（四选一仅 Hint），正式 P 只出 target 可见的完整造句，不再生成、预取或分配 cloze。新项 P 首次不早于 Learn 后下一本地日；旧 P 在本地日切换的一次性事务迁移中重置 L0，已 Learn、active 且需 P 的项切换日到期。旧 U、历史及统计保留。旧 Session 跨切换日后写操作拒绝；Read 不再生成检查或 reinforcement，旧记录只读并清理旧标记。旧 cloze/Read 检查实现与 Prompt 仅服务切换前 Session 和历史，后续阶段移除时需同步 Schema/Prompt Eval。
 
-Today Session 先返回所有到期任务，再对当前和少量前瞻任务懒绑定题目；AI 调用必须在 SQLite 写事务之外。生成失败只留可重试 pending 任务，绑定须并发保护。Library practice 为一道 Recall 加可选一道完整造句，不改变正式进度。Phase 9 按子任务逐步实现；本文件的 V2 规则描述目标架构，不代表尚未实施的路由已上线。
+Today Session 先返回所有到期任务；理解题卡即时渲染不依赖绑定题，造句题在会话创建/追加响应后由后台一次性备好（逐题 best-effort，失败留可重试 pending 任务），AI 调用必须在 SQLite 写事务之外。生成失败只留可重试 pending 任务，绑定须并发保护。Library practice 为一道 Recall 加可选一道完整造句，不改变正式进度。Phase 9 按子任务逐步实现；本文件的 V2 规则描述目标架构，不代表尚未实施的路由已上线。
 
 # 1. 文档目的与实现原则
 

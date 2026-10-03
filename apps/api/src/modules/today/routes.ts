@@ -24,23 +24,22 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
 
   app.get('/api/today/tasks', async () => getSessionTasks(db, tz, new Date()));
 
-  const lookahead = (taskId: string | undefined): void => {
-    if (!taskId) return;
-    // 响应先返回；仅当前 pending 任务由客户端主动 prepare，后台最多备好后续两题。
+  // 后台一次性备好会话内全部未绑定造句题：理解/学词卡即时渲染不依赖绑定题，
+  // 只有造句题需要 prepare（V2 前端 876b288/94d7d37 起不再消费前瞻绑定题）。
+  const warmPendingProduction = (): void => {
     setImmediate(() => {
       try {
         const today = getTodayStatus(db, tz, new Date());
         if (today.status !== 'active') return;
         void getSessionTasks(db, tz, new Date())
           .then((entries) => {
-            const unfinished = entries.tasks.filter(
-              (entry) => !entry.canceled && entry.result === null,
+            const pending = entries.tasks.filter(
+              (entry) =>
+                !entry.canceled &&
+                entry.result === null &&
+                entry.task.question === null &&
+                entry.task.taskType === 'production',
             );
-            const currentIndex = unfinished.findIndex((entry) => entry.task.taskId === taskId);
-            if (currentIndex < 0) return;
-            const pending = unfinished
-              .slice(currentIndex + 1, currentIndex + 3)
-              .filter((entry) => entry.task.question === null);
             void (async () => {
               const deps = await resolveTodayDeps();
               for (const entry of pending) {
@@ -61,14 +60,14 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
 
   app.post('/api/today/start', async () => {
     const result = await startTodaySession(db, await resolveTodayDeps(), tz, new Date());
-    if (result.status === 'active') lookahead(result.currentTask?.taskId);
+    if (result.status === 'active') warmPendingProduction();
     return result;
   });
 
   // 同日追加学习：向已完成会话追加一批 Learn 任务并重新激活
   app.post('/api/today/extend', async () => {
     const result = await extendTodaySession(db, await resolveTodayDeps(), tz, new Date());
-    lookahead(result.currentTask?.taskId);
+    warmPendingProduction();
     return result;
   });
 

@@ -37,6 +37,33 @@ async function continueAfterCorrect(page: Page) {
   await page.getByRole('button', { name: '下一题' }).click();
 }
 
+/**
+ * 新契约（2026-10-03 起）：start/extend 响应后后台一次性备好会话内全部造句题，
+ * 到达客户端时多已绑定，不再触发客户端 prepare。模拟「预热未落地/失败」的 pending
+ * 状态：剥离响应里 production 任务的绑定题，让客户端走占位卡 + prepare 失败路径。
+ * 返回的 stop 在首个客户端 prepare 被拦截后调用，放行后续真实绑定（防重试后回弹占位卡）。
+ */
+async function stripBoundProduction(page: Page): Promise<() => void> {
+  let stripping = true;
+  const handler = async (route: Parameters<Parameters<Page['route']>[1]>[0]) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    if (stripping) {
+      const strip = (task: { taskType?: string; question?: unknown } | null | undefined) => {
+        if (task && task.taskType === 'production') task.question = null;
+      };
+      strip(data.currentTask ?? null);
+      for (const entry of data.tasks ?? []) strip(entry.task);
+    }
+    await route.fulfill({ response, json: data });
+  };
+  await page.route('**/api/today', handler);
+  await page.route('**/api/today/tasks', handler);
+  return () => {
+    stripping = false;
+  };
+}
+
 /** understanding Recall：recalled 路径——显示答案 → 自评"良好" → 评分即前进 */
 async function recallPass(page: Page, meaning: string) {
   await page.getByRole('button', { name: '显示答案' }).click();
@@ -147,9 +174,11 @@ test.describe('Today 复习全流程', () => {
       release = resolve;
     });
     let first = true;
+    const stopStripping = await stripBoundProduction(page);
     await page.route('**/api/today/tasks/*/prepare', async (route) => {
       if (!first) return route.continue();
       first = false;
+      stopStripping();
       await held;
       await route.fulfill({
         status: 503,
@@ -179,9 +208,11 @@ test.describe('Today 复习全流程', () => {
     await login(page);
     await resetSeedData(page);
     let prepareCount = 0;
+    const stopStripping = await stripBoundProduction(page);
     await page.route('**/api/today/tasks/*/prepare', async (route) => {
       prepareCount += 1;
       if (prepareCount === 1) {
+        stopStripping();
         await route.fulfill({
           status: 503,
           contentType: 'application/json',
@@ -242,18 +273,21 @@ test.describe('Today 复习全流程', () => {
     const passCount = Number(summaryText.match(/通过 (\d+)/)?.[1] ?? 0);
     expect(passCount).toBeGreaterThanOrEqual(1);
 
-    // 今日学习：按学习项去重分组，stable 组含错题轨迹；展开可只读查看作答/正确答案
+    // 今日学习：按学习项去重分组，stable 组含错题轨迹；展开可只读查看作答记录
     const learning = page.getByRole('list', { name: '今日学习' });
     await expect(learning).toBeVisible();
     const stableGroup = learning.getByRole('button', { name: /stable/ });
     await expect(stableGroup).toContainText('错');
     await stableGroup.click();
-    // 分组 li（按钮的父节点）内展开作答记录（fail 可能另插补强题，同组多行）：首行即重来自评
+    // 分组 li（按钮的父节点）内展开作答记录（fail 可能另插补强题，同组多行）：首行即重来自评。
+    // 新契约：U 任务不再后台绑定题目，未通过 recall 的回放只有自评作答（重来），无选择题
+    // 正确答案揭示（bound 选择题的揭示路径由 today-navigation/completed-today 组件测试覆盖）
     const stableRecords = stableGroup.locator('..').locator('ul li');
     const recordCount = await stableRecords.count();
     expect(recordCount).toBeGreaterThanOrEqual(1);
     await expect(stableRecords.first()).toContainText('未通过');
-    await expect(stableRecords.first()).toContainText('正确答案');
+    await expect(stableRecords.first()).toContainText('重来');
+    await expect(stableRecords.first()).not.toContainText('正确答案');
     // 只读：列表无任何跳转链接
     await expect(learning.getByRole('link')).toHaveCount(0);
   });

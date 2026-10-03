@@ -19,6 +19,8 @@ afterEach(cleanup);
 
 // ActiveSession 切卡会自动 speak：mock 掉真实 tts（jsdom 无 AudioContext，真实调用会产生未处理 rejection）
 vi.mock('../src/lib/tts', () => ({ speak: vi.fn(), stopSpeaking: vi.fn() }));
+import { speak } from '../src/lib/tts';
+const speakMock = vi.mocked(speak);
 vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
 
 const apiMock = vi.mocked(api);
@@ -67,7 +69,10 @@ function expectTargetHighlighted(block: HTMLElement, target: string) {
 }
 
 describe('Recall Card（understanding）', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.removeItem('el:auto-pronounce');
+  });
 
   it('过期作答显示刷新提示，不揭示答案或虚构成功', async () => {
     stubApi({
@@ -106,6 +111,29 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('button', { name: '简单' })).not.toBeInTheDocument();
     expect(screen.queryByText('"stable" 的意思是？')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
+  });
+
+  it('点显示答案触发发音（默认开；沿用切卡自动读词偏好）', async () => {
+    stubApi({ '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }) });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'stable' });
+    speakMock.mockClear(); // 排除挂载切卡的自动读词
+
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    expect(speakMock).toHaveBeenCalledTimes(1);
+    expect(speakMock).toHaveBeenCalledWith('stable', { userGesture: true });
+  });
+
+  it('自动读词偏好关闭（el:auto-pronounce=0）：显示答案不发音', async () => {
+    localStorage.setItem('el:auto-pronounce', '0');
+    stubApi({ '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }) });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'stable' });
+    speakMock.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    expect(speakMock).not.toHaveBeenCalled();
+    expect(await screen.findByText('稳定的')).toBeVisible();
   });
 
   it('显示答案：meaning 展示、[重来][良好][简单] 三键等宽；点良好 → POST {recall:"recalled"} → 自动进入下一题', async () => {

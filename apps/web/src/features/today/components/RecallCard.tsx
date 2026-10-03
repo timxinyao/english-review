@@ -143,10 +143,19 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
         {frozen && <RecallFeedback task={task} result={result} outcomeSource={outcomeSource} />}
       </div>
 
-      {/* 底部 dock：作答按钮。揭示前仅一个全宽主按钮（无直判）；揭示后三档等宽一排 */}
+      {/* 底部 dock：作答按钮。揭示前仅一个全宽主按钮（无直判）；揭示后三档等宽一排。
+          揭示即朗读目标词（沿用 el:auto-pronounce 偏好，与切卡自动读词同开关） */}
       {!frozen && !revealed && (
         <div className="study-dock" data-slot="dock">
-          <Button className="w-full" onClick={() => setRevealed(true)}>
+          <Button
+            className="w-full"
+            onClick={() => {
+              setRevealed(true);
+              if (localStorage.getItem('el:auto-pronounce') !== '0') {
+                void speak(word.target, { userGesture: true });
+              }
+            }}
+          >
             显示答案
           </Button>
         </div>

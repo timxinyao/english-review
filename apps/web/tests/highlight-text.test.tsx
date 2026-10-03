@@ -62,12 +62,62 @@ describe('HighlightText 词形变体高亮', () => {
     expect(highlightedTexts('Makes sense to me.', 'make sense')).toEqual(['Makes sense']);
   });
 
-  it('不规则过去式不覆盖（已知边界）：wore 不点亮 wear down', () => {
-    expect(highlightedTexts('The long hike wore me down.', 'wear down')).toEqual([]);
+  it('首词不规则表（原"已知边界"已关闭）：wore/worn 形态点亮 wear down', () => {
+    expect(highlightedTexts('The long hike wore down my resolve.', 'wear down')).toEqual([
+      'wore down',
+    ]);
+    expect(highlightedTexts('Water had worn down the rock.', 'wear down')).toEqual(['worn down']);
   });
 
   it('无命中/空 target：整段按普通文本渲染（无 mark）', () => {
     expect(highlightedTexts('plain text', 'zzz')).toEqual([]);
     expect(highlightedTexts('plain text', '')).toEqual([]);
+  });
+});
+
+describe('HighlightText 占位代词与首词不规则动词表', () => {
+  it("用户实例：get one's butt kicked 命中 gets his butt kicked（高亮为原文形态）", () => {
+    expect(
+      highlightedTexts(
+        'I will decide when he trains and when he gets his butt kicked at Pai Sho.',
+        "get one's butt kicked",
+      ),
+    ).toEqual(['gets his butt kicked']);
+  });
+
+  it('反身占位：enjoy oneself 命中 enjoyed himself', () => {
+    expect(highlightedTexts('He enjoyed himself at the party.', 'enjoy oneself')).toEqual([
+      'enjoyed himself',
+    ]);
+  });
+
+  it('首词不规则表：wear down 命中 wore down；make sense 命中 made sense', () => {
+    expect(highlightedTexts('The long hike wore down my resolve.', 'wear down')).toEqual([
+      'wore down',
+    ]);
+    expect(highlightedTexts('It made sense at the time.', 'make sense')).toEqual(['made sense']);
+  });
+
+  it('be 动词表：be supposed to 命中 is supposed to', () => {
+    expect(highlightedTexts('He is supposed to arrive at noon.', 'be supposed to')).toEqual([
+      'is supposed to',
+    ]);
+  });
+
+  it("弯引号归一：one's cup of tea 命中弯撇原句 one’s cup of tea（双向）", () => {
+    // 原句弯撇（’），target 直撇（'）
+    expect(highlightedTexts('It may not be one’s cup of tea.', "one's cup of tea")).toEqual([
+      'one’s cup of tea',
+    ]);
+    // target 弯撇，原句直撇——归一化双向成立
+    expect(highlightedTexts("It may not be one's cup of tea.", 'one’s cup of tea')).toEqual([
+      "one's cup of tea",
+    ]);
+  });
+
+  it("占位符不越词位：独立 his 不因某 target 含 one's 而乱命中", () => {
+    expect(
+      highlightedTexts('His brother fixed his bike yesterday.', "get one's butt kicked"),
+    ).toEqual([]);
   });
 });

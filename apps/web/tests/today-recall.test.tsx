@@ -54,7 +54,10 @@ function exampleBlock(sentence: string): HTMLElement {
   return screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === `原句${sentence}`);
 }
 
-/** 原句块内目标词高亮（HighlightText：词边界命中处 mark 带 text-accent，恰好一次） */
+/** 原句块内目标词高亮（HighlightText：词边界命中处 mark 带 text-accent，恰好一次）。
+ *  HighlightText 另具备占位代词（one's/oneself → 任意人称，get one's butt kicked 命中
+ *  gets his butt kicked）与首词不规则动词表（wear down → wore down）能力；本文件仅
+ *  断言稳定单词 target，占位符/不规则形态由 highlight-text.test.tsx 直测覆盖。 */
 function expectTargetHighlighted(block: HTMLElement, target: string) {
   const marks = within(block).getAllByText(
     (_, el) => el?.classList.contains('text-accent') === true,

@@ -38,9 +38,46 @@ function inflectedWordPattern(word: string): string {
 }
 
 /**
+ * 占位代词表：词库 target 里的占位符在原句中对应任意人称（chunk 内任意词位替换，
+ * 不越词边界——alternation 位于固定词位，独立的 his/my 不会单独触发命中）。
+ * 键为归一化形（小写 + 去撇号：one's/one’s/ones → ones）；引号字符类覆盖
+ * 直撇 '、弯撇 ‘ ’ 与撇号 ′。
+ */
+const PRONOUN_PLACEHOLDERS: Record<string, string> = {
+  ones: "one['‘’′]s|ones|my|his|her|their|your|its|our",
+  oneself: 'oneself|myself|himself|herself|themselves|yourself|itself|ourselves',
+};
+
+/** 占位符查表用的归一化：小写 + 去各类撇号 */
+function placeholderKey(word: string): string {
+  return word.toLowerCase().replace(/['‘’′]/g, '');
+}
+
+/**
+ * 首词不规则动词表（小写键，匹配大小写不敏感）：叠加在规则屈折之上，
+ * 补齐规则变形覆盖不到的不规则形态（wear down → wore down）。命中显示原文形态。
+ */
+const IRREGULAR_FIRST_VERBS: Record<string, string> = {
+  be: 'is|am|are|was|were|being|been',
+  have: 'has|had',
+  get: 'got|gotten',
+  do: 'does|did',
+  go: 'went|gone',
+  make: 'made',
+  take: 'took|taken',
+  give: 'gave|given',
+  wear: 'wore|worn',
+  say: 'said',
+  tell: 'told',
+  come: 'came',
+};
+
+/**
  * 在文本中高亮目标词/词组（大小写不敏感，词边界匹配）。
- * 单词目标按词形变体集命中（makes/making 也点亮 make）；词组目标对首词变形、
- * 其余词保持原形（make sense → makes/making sense）。高亮显示原文里的实际形态。
+ * 单词目标按词形变体集命中（makes/making 也点亮 make）；词组目标对首词变形
+ * （规则屈折 ∪ 不规则动词表，make sense → makes/making/made sense）、其余词保持
+ * 原形，但占位代词（one's/oneself）在任意词位按人称替换命中
+ * （get one's butt kicked → gets his butt kicked）。高亮显示原文里的实际形态。
  * 样式（2026-10-03 四候选视觉评审胜选 C）：accent 文字 + 半粗 + 大偏移下划线——
  * 颜色/字重/下划线三重信号，Quiet 且一眼锁定；不用底色（mark 的 bg-transparent
  * 前缀在 Tailwind CSS 顺序上会压掉任何 bg-* 类）。
@@ -56,12 +93,23 @@ export function HighlightText({
 }): ReactNode {
   if (!target) return <>{text}</>;
 
-  // 词边界匹配；空白允许灵活空白（换行/多空格）；首词按屈折变形匹配
-  // （首词 alternation 必须包成组：否则词组的后续词会被并进最后一个分支）
+  // 词边界匹配；空白允许灵活空白（换行/多空格）；首词按 屈折变形 ∪ 不规则表 匹配，
+  // 其余词原形（占位代词任意词位替换）。每个词位的 alternation 都包 (?:...)：
+  // 防词组后续词被并进分支尾部，也防灾难回溯（分支均为有界字面量序列）。
   const pattern = target
     .trim()
     .split(/\s+/)
-    .map((word, index) => (index === 0 ? `(?:${inflectedWordPattern(word)})` : escapeRegExp(word)))
+    .map((word, index) => {
+      const placeholder = PRONOUN_PLACEHOLDERS[placeholderKey(word)];
+      if (placeholder) return `(?:${placeholder})`;
+      if (index === 0) {
+        const irregular = IRREGULAR_FIRST_VERBS[word.toLowerCase()];
+        return irregular
+          ? `(?:${inflectedWordPattern(word)}|${irregular})`
+          : `(?:${inflectedWordPattern(word)})`;
+      }
+      return escapeRegExp(word);
+    })
     .join('\\s+');
   const regex = new RegExp(`\\b(${pattern})\\b`, 'gi');
 

@@ -44,6 +44,9 @@ pnpm --dir "$REPO_DIR" install --frozen-lockfile
 
 # ---------- 2. 构建前端 ----------
 log "2/5 构建 web（apps/web/dist）"
+# 自愈：历史 sudo 部署可能把 dist 写成 root 属主，普通用户构建覆写 sw.js 即 EACCES；
+# 构建前统一归位当前用户（幂等）。
+$SUDO chown -R "$(id -un):$(id -gn)" "$WEB_DIST" 2>/dev/null || true
 pnpm --dir "$REPO_DIR" --filter @el/web run build
 if [[ ! -f "$WEB_DIST/index.html" ]]; then
   echo "错误：web 构建产物缺失（$WEB_DIST/index.html）" >&2

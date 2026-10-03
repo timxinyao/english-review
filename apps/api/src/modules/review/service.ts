@@ -15,16 +15,14 @@ import {
 import { learningItems, reviewStates } from '../../db/schema.js';
 import { effectiveProductionEnabled, isMastered } from './goals.js';
 import type { DbExecutor, DbTx } from '../questions/service.js';
+import type { ReviewOutcome } from './fsrs-engine.js';
 
 export { isMastered } from './goals.js';
 
 // ---------- 类型（today 模块依赖的公开契约）----------
 
-/** 一次作答的业务判定结果；tooEasy 仅在 kind='pass' 时有意义（调用方负责折算 guessed/viewedSource） */
-export interface ReviewOutcome {
-  kind: 'pass' | 'basic_pass' | 'fail';
-  tooEasy?: boolean;
-}
+/** ReviewOutcome 定义已移至 fsrs-engine.ts（避免循环引用）；re-export 保持消费方 import 路径不变 */
+export type { ReviewOutcome } from './fsrs-engine.js';
 
 /** 维度复习状态快照（纯函数进出；时间一律 ISO UTC 字符串） */
 export interface ReviewStateSnapshot {

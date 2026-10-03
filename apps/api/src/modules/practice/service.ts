@@ -267,8 +267,9 @@ function insertAttempt(db: AppDatabase, values: typeof attempts.$inferInsert): v
 /**
  * 练习作答（PRODUCT §4.4）：不改 review_states / next_review_at / status、
  * 不造补强、不写 daily_stats；写 attempt（mode='library_practice'，review_task_id=null）。
- * Recall 判定与 Today 完全一致：recall→pass/fail；Hint 选择→对=basic_pass（assisted
- * 语义）/错=fail。作答响应揭示释义（reveal）。表达题优质句仍可入 Personal Example。
+ * Recall 判定与 Today 完全一致（三档自评 2026-10-03）：recalled/easy→pass、forgot→fail；
+ * Hint 选择→对=basic_pass（assisted 语义）/错=fail。作答响应揭示释义（reveal）。
+ * 表达题优质句仍可入 Personal Example。
  */
 export async function answerLibraryPractice(
   db: AppDatabase,
@@ -301,7 +302,10 @@ export async function answerLibraryPractice(
     let correct: boolean;
     let result: PracticeAnswerResponse['result'];
     if (body.recall) {
-      correct = body.recall === 'recalled';
+      // 三档自评（2026-10-03）：recalled=良好 / easy=简单 均按 pass；
+      // forgot=重来 fail。练习不改正式进度，easy 与 recalled 的区别只由
+      // 前端按所按判语呈现（简单/良好），响应同为 pass。
+      correct = body.recall !== 'forgot';
       result = correct ? 'pass' : 'fail';
     } else {
       correct = deps.evaluateChoice(question, body.selectedOptionId!).correct === true;

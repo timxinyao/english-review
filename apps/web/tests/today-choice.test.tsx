@@ -36,11 +36,11 @@ function secondTask() {
 }
 
 /**
- * learn 首题走 Recall Card：recall 直判（2026-10-03 起无「给我提示」入口，学习流只剩
- * 直判/显示答案两条路）。注意：fake timers 下 RTL findBy* 永不 settle，fake-timers
- * 用例必须用同步 query（与既有 fake-timers 用例手法一致）。
+ * learn 首题走 Recall Card（2026-10-03 起三档自评：揭示前仅「显示答案」，揭示后
+ * 重来/良好/简单三键；无「给我提示」入口）。注意：fake timers 下 RTL findBy* 永不 settle，
+ * fake-timers 用例必须用同步 query（与既有 fake-timers 用例手法一致）。
  */
-describe('Today learn 首题（Recall Card：recall 直判）', () => {
+describe('Today learn 首题（Recall Card：三档自评）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stubApi({
@@ -53,11 +53,14 @@ describe('Today learn 首题（Recall Card：recall 直判）', () => {
     renderTodayApp();
 
     expect(await screen.findByText('1 / 4')).toBeVisible();
-    // learn 渲染 RecallCard：不剧透 meaning，也无选项与提示入口（学习流仅直判/显示答案）
+    // learn 渲染 RecallCard：不剧透 meaning，也无选项与提示入口（揭示前仅「显示答案」）
     expect(screen.queryByText('重力')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '显示答案' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '没想起来' })).toBeVisible();
+    // 揭示前无任何三档自评键（2026-10-03 起唯一入口是「显示答案」）
+    expect(screen.queryByRole('button', { name: '重来' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '良好' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '简单' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '给我提示' })).not.toBeInTheDocument();
   });
 
@@ -76,7 +79,7 @@ describe('Today learn 首题（Recall Card：recall 直判）', () => {
       });
 
       fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
-      fireEvent.click(screen.getByRole('button', { name: '想起来了' }));
+      fireEvent.click(screen.getByRole('button', { name: '良好' }));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });

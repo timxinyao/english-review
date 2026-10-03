@@ -66,9 +66,9 @@ export function TokensPage(): ReactNode {
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">判语语义色</h2>
-        <p className="text-sm text-success">通过 · 想起来了</p>
+        <p className="text-sm text-success">通过 · 良好 / 简单</p>
         <p className="text-sm text-warning">基础通过 · 提示后想起</p>
-        <p className="text-sm text-destructive">未通过 · 没想起来 / 想错了</p>
+        <p className="text-sm text-destructive">未通过 · 重来</p>
       </section>
 
       <section className="space-y-2">

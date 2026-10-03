@@ -14,9 +14,9 @@ interface Props {
   onAdvance: () => void;
 }
 
-/** 冻结反馈：按 outcomeSource 三态——recalled=想起来了 / assisted=提示后想起（基础通过）/
- *  forgot=没想起来 + 正确释义与原句揭示；历史数据 outcomeSource 为空时按 result 回退：
- *  对=想起来了 / 错=没想起来 */
+/** 冻结反馈：按 outcomeSource 四态（2026-10-03 三档自评）——recalled=良好 / easy=简单
+ *  （均为通过色）/ assisted=提示后想起（基础通过，历史数据）/ forgot=重来 + 正确释义与
+ *  原句揭示；历史数据 outcomeSource 为空时按 result 回退：对=良好 / 错=重来 */
 function RecallFeedback({
   task,
   result,
@@ -27,16 +27,21 @@ function RecallFeedback({
   outcomeSource: AnswerResponse['outcomeSource'];
 }) {
   const unknown =
-    outcomeSource !== 'recalled' && outcomeSource !== 'assisted' && outcomeSource !== 'forgot';
+    outcomeSource !== 'recalled' &&
+    outcomeSource !== 'assisted' &&
+    outcomeSource !== 'forgot' &&
+    outcomeSource !== 'easy';
+  const easy = outcomeSource === 'easy';
   const recalled = outcomeSource === 'recalled' || (unknown && result?.correct === true);
   const assisted = outcomeSource === 'assisted';
   const forgot = outcomeSource === 'forgot' || (unknown && result !== null && !result.correct);
 
   return (
     <div className="space-y-3">
-      {recalled && <p className="text-sm text-success">想起来了</p>}
+      {recalled && <p className="text-sm text-success">良好</p>}
+      {easy && <p className="text-sm text-success">简单</p>}
       {assisted && <p className="text-sm text-warning">提示后想起（基础通过）</p>}
-      {forgot && <p className="text-sm text-destructive">没想起来</p>}
+      {forgot && <p className="text-sm text-destructive">重来</p>}
       {/* 冻结态统一保留学习内容：释义 + 原句（verdict 只作一行判语，2026-09-28 用户改版） */}
       <p className="text-sm">
         <span className="text-muted-foreground">{forgot ? '正确释义：' : '释义：'}</span>
@@ -54,8 +59,9 @@ function RecallFeedback({
 
 /** Understanding Recall Card：主动回忆优先（PRODUCT §7.1）。
  *  沉浸式布局：词行/学习内容滚动，作答按钮停靠底部 dock；
- *  揭示前「没想起来」留在当前卡看答案（§7.6）；「显示答案」后自评两键
- *  （想起来了/想错了）评分即前进——答案已在屏不冻结重放；两路均算未通过（同权）。 */
+ *  路径统一为 看词 → 显示答案 → 三选一（2026-10-03 Anki 式三档）：揭示前仅一个全宽
+ *  主按钮「显示答案」（无直判留卡分支）；揭示后 [重来][良好][简单] 三键等宽一排，
+ *  均评分即前进——答案已在屏不冻结重放。frozen 分支仅刷新失败兜底与旧日/回放渲染。 */
 export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance }: Props) {
   const answer = useAnswer();
   const queryClient = useQueryClient();
@@ -76,10 +82,11 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
       </div>
     ) : null;
 
-  function submit(body: AnswerRequest, opts?: { autoAdvance?: boolean }) {
+  function submit(body: AnswerRequest) {
+    // 三档评分即前进：正常流不进入 frozen（§7.1）；仅刷新失败时回落冻结反馈兜底
     answer.mutate(
       { taskId: task.taskId, body },
-      { onSuccess: (result) => onAnswered(result, opts) },
+      { onSuccess: (result) => onAnswered(result, { autoAdvance: true }) },
     );
   }
 
@@ -134,42 +141,40 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
         {frozen && <RecallFeedback task={task} result={result} outcomeSource={outcomeSource} />}
       </div>
 
-      {/* 底部 dock：作答按钮 */}
+      {/* 底部 dock：作答按钮。揭示前仅一个全宽主按钮（无直判）；揭示后三档等宽一排 */}
       {!frozen && !revealed && (
-        <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
+        <div className="mt-3 shrink-0 border-t border-border pt-3" data-slot="dock">
+          <Button className="w-full" onClick={() => setRevealed(true)}>
+            显示答案
+          </Button>
+        </div>
+      )}
+
+      {!frozen && revealed && (
+        <div className="mt-3 shrink-0 border-t border-border pt-3" data-slot="dock">
           <div className="flex gap-2">
-            <Button variant="neutral" className="flex-1" onClick={() => setRevealed(true)}>
-              显示答案
-            </Button>
             <Button
               variant="negative"
               className="flex-1"
               disabled={answer.isPending}
               onClick={() => submit({ recall: 'forgot' })}
             >
-              没想起来
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {!frozen && revealed && (
-        <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3" data-slot="dock">
-          <div className="flex gap-2">
-            <Button
-              variant="negative"
-              className="flex-1"
-              disabled={answer.isPending}
-              onClick={() => submit({ recall: 'forgot' }, { autoAdvance: true })}
-            >
-              想错了
+              重来
             </Button>
             <Button
               className="flex-1"
               disabled={answer.isPending}
-              onClick={() => submit({ recall: 'recalled' }, { autoAdvance: true })}
+              onClick={() => submit({ recall: 'recalled' })}
             >
-              想起来了
+              良好
+            </Button>
+            <Button
+              variant="neutral"
+              className="flex-1"
+              disabled={answer.isPending}
+              onClick={() => submit({ recall: 'easy' })}
+            >
+              简单
             </Button>
           </div>
         </div>

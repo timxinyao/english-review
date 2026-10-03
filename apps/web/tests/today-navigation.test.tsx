@@ -146,9 +146,10 @@ describe('Today 进度：结果分布（PRODUCT §5.1）', () => {
     renderTodayApp();
     expect(await screen.findByText('2 / 4')).toBeVisible();
 
-    // 答错 → 留在当前卡看揭示 → 手动下一题；补强使总数变 5
-    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
-    fireEvent.click(await screen.findByRole('button', { name: '下一题' }));
+    // 答错评分即前进（显示答案 → 重来）：自动切到 delta，补强使总数变 5
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(screen.getByRole('button', { name: '重来' }));
+    expect(await screen.findByRole('heading', { name: 'delta' })).toBeVisible();
     expect(await screen.findByText('3 / 5')).toBeVisible();
     expect(screen.getByText('通过 1 · 基础通过 1 · 未通过 1')).toBeVisible();
     await waitFor(() => expect(document.querySelectorAll('[data-seg]')).toHaveLength(5));
@@ -195,7 +196,7 @@ describe('Today 进度：结果分布（PRODUCT §5.1）', () => {
     renderTodayApp();
     await screen.findByText('2 / 4');
     fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
-    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+    fireEvent.click(await screen.findByRole('button', { name: '良好' }));
     // 无需点"下一题"：refetch 落地即到下一题
     expect(await screen.findByRole('heading', { name: 'delta' })).toBeVisible();
     expect(await screen.findByText('3 / 4')).toBeVisible();
@@ -267,7 +268,7 @@ describe('Today「今日学习」只读列表（PRODUCT §5.1/§6.5）', () => {
     // 展开 alpha：两条记录（题面重复两次），各自作答 + 正确答案 + 解释
     fireEvent.click(alphaGroup);
     expect(within(dialog).getAllByText('"stable" 的意思是？')).toHaveLength(2);
-    expect(within(dialog).getByText('想起来了')).toBeVisible(); // recall 直判作答
+    expect(within(dialog).getByText('良好')).toBeVisible(); // recall 直判作答（recalled→良好）
     expect(within(dialog).getByText('摇晃的')).toBeVisible(); // 提示后选择的选项文本
     expect(within(dialog).getAllByText('稳定的').length).toBeGreaterThanOrEqual(1); // 正确答案（正确选项文本）
     expect(within(dialog).getByText('结合上下文选择释义。')).toBeVisible(); // 解释

@@ -782,6 +782,50 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(dim('item-a', 'understanding')!.level).toBe(2);
   });
 
+  it('easy（2026-10-03 三档自评「简单」）：result=pass、correct=true、outcomeSource=easy，U 跳两步且 streak/统计按 pass', async () => {
+    await seedDueChoiceItem('item-a'); // L3
+    await startSession();
+    const task = taskByItem('item-a')!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'easy' });
+    expect(res.result).toBe('pass');
+    expect(res.outcomeSource).toBe('easy');
+    expect(res.correct).toBe(true);
+    expect(res.explanation).toBeNull(); // 答对不揭示解释
+    // 计入通过统计（result=pass → 摘要 pass、daily_stats formal）
+    expect(res.completed).toMatchObject({ pass: 1, fail: 0 });
+    expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 0 });
+
+    // U 跳两步：L3 → L5（recalled 对照只到 L4），next = L5 间隔 30 天
+    const u = dim('item-a', 'understanding')!;
+    expect(u.level).toBe(5);
+    expect(u.stable).toBe(0);
+    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 30 * DAY_MS)));
+    // streak 按 pass：记对、清错
+    expect(u.correctStreak).toBe(1);
+    expect(u.wrongStreak).toBe(0);
+
+    // attempt 落库 outcome_source=easy（沿用 attempt 元数据机制）
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(attempt.result).toBe('pass');
+    expect(attempt.outcomeSource).toBe('easy');
+    expect(attempt.selectedOptionId).toBeNull();
+  });
+
+  it('easy 在 ladder 顶端封顶：L6（60 天档）easy → L7/120 天，不越界、不提前 stable', async () => {
+    await seedDueChoiceItem('item-a', 6);
+    await startSession();
+    const task = taskByItem('item-a')!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { recall: 'easy' });
+    expect(res.result).toBe('pass');
+
+    const u = dim('item-a', 'understanding')!;
+    expect(u.level).toBe(7); // min(6+2, 7)
+    expect(u.stable).toBe(0); // 与 pass 相同：L7 到期再答才 stable
+    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 120 * DAY_MS)));
+  });
+
   it('幂等回放：重复提交返回首次 outcomeSource', async () => {
     await seedDueChoiceItem('item-a');
     await startSession();
@@ -838,6 +882,20 @@ describe('learn Recall（初见即回忆，方案 A）', () => {
     expect(res.correctOptionId).toBe('o1'); // 揭示正确项 = 揭示即教学
 
     expectInitializedDims('new-1');
+    expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 1 });
+  });
+
+  it('easy：等同 pass——初始 U 状态与 recalled 相同（首学不跳两步）、outcomeSource=easy、额度+1', async () => {
+    await seedLearnItem('new-1');
+    await startSession();
+    const learn = taskByItem('new-1', { type: 'learn' })!;
+
+    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { recall: 'easy' });
+    expect(res.result).toBe('pass');
+    expect(res.outcomeSource).toBe('easy');
+    expect(res.correct).toBe(true);
+
+    expectInitializedDims('new-1'); // U=L1、next=+1d，与 recalled/pass 完全一致
     expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 1 });
   });
 

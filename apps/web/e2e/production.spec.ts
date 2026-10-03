@@ -69,14 +69,14 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
         continue;
       }
 
-      // 2) Learn 卡（gravity，Recall Card）：显示答案 → 想起来了 → 评分即前进
+      // 2) Learn 卡（gravity，Recall Card）：显示答案 → 良好 → 评分即前进
       if (await page.getByText('I laugh at gravity all the time.').isVisible()) {
         await expect(page.getByRole('heading', { name: 'gravity' })).toBeVisible();
         await page.getByRole('button', { name: '显示答案' }).click();
         await expect(page.getByText('重力', { exact: true })).toBeVisible();
-        await page.getByRole('button', { name: '想起来了' }).click();
+        await page.getByRole('button', { name: '良好' }).click();
         // 评分即前进：等自评按钮消失即已切卡
-        await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: '良好' })).toHaveCount(0);
         continue;
       }
 
@@ -91,13 +91,13 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
       }
 
       // 4) understanding Recall 卡（stable / wear down / make sense 及理解补强）：
-      //    显示答案 → 想起来了 → 评分即前进（RecallCard 无默认选项组）
+      //    显示答案 → 良好 → 评分即前进（RecallCard 无默认选项组）
       const reveal = page.getByRole('button', { name: '显示答案' });
       if (await reveal.isVisible()) {
         await reveal.click();
-        await page.getByRole('button', { name: '想起来了' }).click();
+        await page.getByRole('button', { name: '良好' }).click();
         // 评分即前进：等自评按钮消失即已切卡
-        await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: '良好' })).toHaveCount(0);
         continue;
       }
 
@@ -171,8 +171,8 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
     await expect(page.getByText('After months of failure, he refused to give up.')).toBeVisible();
     await expect(page.getByText('放弃', { exact: true })).toHaveCount(0);
 
-    await page.getByRole('button', { name: '想起来了' }).click();
-    await expect(page.getByText('想起来了', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '良好' }).click();
+    await expect(page.getByText('良好', { exact: true })).toBeVisible();
     await expect(page.getByText('放弃', { exact: true })).toBeVisible(); // 释义揭示
     await page.getByRole('button', { name: '下一题' }).click();
 
@@ -214,7 +214,7 @@ test.describe('Phase 9（Task 10）：练一下按有效造句目标选择性出
     await expect(page.getByLabel('表达答案')).toHaveCount(0); // 默认关：无表达题
     await expect(page.getByLabel('填空答案')).toHaveCount(0); // V2：练习不再出旧填空
 
-    await page.getByRole('button', { name: '想起来了' }).click();
+    await page.getByRole('button', { name: '良好' }).click();
     await expect(page.getByText('稳定的', { exact: true })).toBeVisible(); // 作答后揭示
     await page.getByRole('button', { name: '下一题' }).click();
     await expect(page.getByText('练习完成')).toBeVisible();
@@ -232,7 +232,7 @@ test.describe('Phase 9（Task 10）：练一下按有效造句目标选择性出
     await expect(page.getByText('1 / 2', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
     await expect(page.getByText('讲得通', { exact: true })).toHaveCount(0);
-    await page.getByRole('button', { name: '想起来了' }).click();
+    await page.getByRole('button', { name: '良好' }).click();
     await expect(page.getByText('讲得通', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '下一题' }).click();
 

@@ -155,11 +155,11 @@ describe('Today 任务卡：learn Recall 卡 / 稍后再做 / 坏题', () => {
     await screen.findByRole('heading', { name: 'stable' });
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
 
-    // 揭示前直接没想起来 → 留在当前卡看揭示 → 手动下一题进 make sense
-    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
-    expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    // 显示答案 → 重来 → 评分即前进（2026-10-03 三档：答错也自动切卡，无留卡分支）
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(screen.getByRole('button', { name: '重来' }));
     expect(await screen.findByRole('heading', { name: 'make sense' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();
 
     // 打开今日学习 → 展开 stable 分组 → 记录上标记坏题 → confirm POST task-1
     fireEvent.click(screen.getByRole('button', { name: '查看今日学习' }));
@@ -269,10 +269,11 @@ describe('Today 撤销最近一次作答（卡片右上单图标，PRODUCT §5.1
     renderTodayApp();
     await screen.findByRole('heading', { name: 'stable' });
 
-    // 答错留在当前卡：反馈态出现撤销图标
-    fireEvent.click(await screen.findByRole('button', { name: '没想起来' }));
-    expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();
-    const undoIcon = screen.getByRole('button', { name: '撤销最近一次作答' });
+    // 答错评分即前进：自动切到 beta，撤销图标随批量视图出现在当前卡（指向最近一次作答 task-1）
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    fireEvent.click(screen.getByRole('button', { name: '重来' }));
+    expect(await screen.findByRole('heading', { name: 'beta' })).toBeVisible();
+    const undoIcon = await screen.findByRole('button', { name: '撤销最近一次作答' });
     expect(undoIcon).toBeVisible();
 
     // 确认层写明将撤销的词/题型/结果（PRODUCT §5.1）

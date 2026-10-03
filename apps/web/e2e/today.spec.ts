@@ -6,9 +6,10 @@ import { expect, test, type Page } from '@playwright/test';
  * start 后会话为固定序（到期按 next_review_at+item.id，New Queue learn 殿后，混排不改变）：
  * give up 表达 → make sense 理解 → stable 理解 → wear down 理解 → gravity learn
  * understanding 与 learn 卡均为 Recall Card（PRODUCT §7.1"新词初见即回忆"）：主流程覆盖——
- * gravity（learn）与 make sense/wear down 走 recalled（显示答案→想起来了）、stable 走揭示前
- * 「没想起来」直判（冻结"没想起来"+正确释义/原句揭示，手动下一题）；assisted（提示后想起）
- * 仅历史数据回放——2026-10-03 起 Recall 无「给我提示」入口，学习流只剩直判/显示答案两条路。
+ * gravity（learn）与 make sense/wear down 走 recalled（显示答案→良好）、stable 走三档
+ * 自评失败（显示答案→重来→评分即前进，错题记录进今日学习）；assisted（提示后想起）
+ * 仅历史数据回放——2026-10-03 起三档自评（重来/良好/简单）、揭示前仅「显示答案」、
+ * 无「给我提示」入口，学习流统一为 看词 → 显示答案 → 三选一。
  * 第三个用例覆盖同日追加学习（PRODUCT §3.4）：完成页"再学 N 个新词"→ extend → 新 Learn 卡（同 recall 路径）。
  */
 test.use({ viewport: { width: 1280, height: 720 } });
@@ -36,21 +37,21 @@ async function continueAfterCorrect(page: Page) {
   await page.getByRole('button', { name: '下一题' }).click();
 }
 
-/** understanding Recall：recalled 路径——显示答案 → 自评"想起来了" → 评分即前进 */
+/** understanding Recall：recalled 路径——显示答案 → 自评"良好" → 评分即前进 */
 async function recallPass(page: Page, meaning: string) {
   await page.getByRole('button', { name: '显示答案' }).click();
   await expect(page.getByText(meaning, { exact: true })).toBeVisible(); // 揭示态展示 meaning
-  await page.getByRole('button', { name: '想起来了' }).click();
+  await page.getByRole('button', { name: '良好' }).click();
   // 自动前进：等自评按钮消失（冻结瞬态或已切卡）
-  await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '良好' })).toHaveCount(0);
   // 判语收起 = 已真正切卡（防冻结瞬态重入循环分支）
-  await expect(page.getByText('想起来了', { exact: true })).toBeHidden();
+  await expect(page.getByText('良好', { exact: true })).toBeHidden();
 }
 
 /**
  * 驱动会话循环直至完成摘要（主流程骨架，会话型用例共用）。返回是否在步数内完成。
- * 计划：gravity（learn）与 make sense / wear down 走 recall recalled（想起来了）；
- * stable 走揭示前「没想起来」直判（fail，错题可见于今日学习）；raw 填空答对；
+ * 计划：gravity（learn）与 make sense / wear down 走 recall recalled（良好）；
+ * stable 走三档自评失败（显示答案→重来，评分即前进，错题可见于今日学习）；raw 填空答对；
  * give up 表达题答对；未知补强卡兜底处理。
  */
 async function driveSessionToCompleted(page: Page): Promise<boolean> {
@@ -74,29 +75,29 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
       continue;
     }
 
-    // 1) Learn 卡（gravity，Recall Card）：以 source example 识别 → 显示答案 → 想起来了
+    // 1) Learn 卡（gravity，Recall Card）：以 source example 识别 → 显示答案 → 良好
     if (await page.getByText('I laugh at gravity all the time.').isVisible()) {
       await expect(page.getByRole('heading', { name: 'gravity' })).toBeVisible();
       await recallPass(page, '重力');
       continue;
     }
 
-    // 3) make sense：Recall recalled 路径（显示答案 → 想起来了 → 评分即前进）
+    // 3) make sense：Recall recalled 路径（显示答案 → 良好 → 评分即前进）
     if (await page.getByRole('heading', { name: 'make sense' }).isVisible()) {
       await recallPass(page, '讲得通');
       continue;
     }
 
-    // 4) stable：首次出现走揭示前直判失败（「没想起来」）
-    //    → 冻结"没想起来" + 正确释义与原句揭示（fail，记录进今日学习），手动下一题
+    // 4) stable：首次出现走三档自评失败（显示答案 → 重来 → 评分即前进）
+    //    → fail（错题记录进今日学习），释义/原句在揭示时已看过
     if (!stableFailed && (await page.getByRole('heading', { name: 'stable' }).isVisible())) {
       stableFailed = true;
-      await page.getByRole('button', { name: '没想起来' }).click();
-      await expect(page.getByText('没想起来', { exact: true })).toBeVisible();
-      await expect(page.getByText('正确释义：', { exact: true })).toBeVisible();
-      await expect(page.getByText('原句', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: '显示答案' }).click();
+      await expect(page.getByText('稳定的', { exact: true })).toBeVisible(); // 揭示态展示 meaning
       await expect(page.getByText('The connection has been stable all week.')).toBeVisible();
-      await page.getByRole('button', { name: '下一题' }).click();
+      await page.getByRole('button', { name: '重来' }).click();
+      // 评分即前进：等自评按钮消失即已切卡
+      await expect(page.getByRole('button', { name: '重来' })).toHaveCount(0);
       continue;
     }
 
@@ -111,7 +112,7 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
     const reveal = page.getByRole('button', { name: '显示答案' });
     if (await reveal.isVisible()) {
       await reveal.click();
-      await page.getByRole('button', { name: '想起来了' }).click();
+      await page.getByRole('button', { name: '良好' }).click();
       continue;
     }
     const optionButtons = page.getByRole('group', { name: '选项' }).getByRole('button');
@@ -204,7 +205,7 @@ test.describe('Today 复习全流程', () => {
     await page.screenshot({ path: '/tmp/task7-today-desktop.png' });
     await expect(page.locator('vite-error-overlay')).toHaveCount(0);
   });
-  test('idle → 开始 → Recall（learn/理解 想起来了、没想起来直判）+ 完整表达 → 完成摘要', async ({
+  test('idle → 开始 → Recall（learn/理解 良好、stable 显示答案后重来自评）+ 完整表达 → 完成摘要', async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -239,7 +240,7 @@ test.describe('Today 复习全流程', () => {
     const stableGroup = learning.getByRole('button', { name: /stable/ });
     await expect(stableGroup).toContainText('错');
     await stableGroup.click();
-    // 分组 li（按钮的父节点）内展开作答记录（fail 可能另插补强题，同组多行）：首行即没想起来直判
+    // 分组 li（按钮的父节点）内展开作答记录（fail 可能另插补强题，同组多行）：首行即重来自评
     const stableRecords = stableGroup.locator('..').locator('ul li');
     const recordCount = await stableRecords.count();
     expect(recordCount).toBeGreaterThanOrEqual(1);
@@ -284,7 +285,7 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText('The river delta splits into many channels.')).toBeVisible();
     await expect(page.getByText(/^\d+ \/ \d+$/)).toBeVisible();
 
-    // 做完追加的 delta Learn 卡（Recall 路径：显示答案 → 想起来了）→ 回完成摘要
+    // 做完追加的 delta Learn 卡（Recall 路径：显示答案 → 良好）→ 回完成摘要
     await recallPass(page, '三角洲');
     await expect(page.getByRole('heading', { name: '今天完成了' })).toBeVisible();
   });
@@ -452,13 +453,13 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
         await page.getByRole('button', { name: '下一题' }).click();
         continue;
       }
-      // Recall 卡（理解复习 / learn 新学）：显示答案 → 想起来了 → 评分即前进
+      // Recall 卡（理解复习 / learn 新学）：显示答案 → 良好 → 评分即前进
       const reveal = page.getByRole('button', { name: '显示答案' });
       if (await reveal.isVisible()) {
         if (await page.getByRole('heading', { name: 'carry on' }).isVisible()) carryOnDone = true;
         await reveal.click();
-        await page.getByRole('button', { name: '想起来了' }).click();
-        await expect(page.getByRole('button', { name: '想起来了' })).toHaveCount(0);
+        await page.getByRole('button', { name: '良好' }).click();
+        await expect(page.getByRole('button', { name: '良好' })).toHaveCount(0);
         continue;
       }
       await page.waitForTimeout(300);

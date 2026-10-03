@@ -296,6 +296,16 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
     expect(badBody.correct).toBe(false);
     expect(badBody.meaning).toBe(MEANING);
 
+    // easy（2026-10-03 三档自评）：非正式流同 pass 处理，不改正式状态
+    const easy = await post(ctx, `/api/library/pr-10/practice/${recall.questionId}/answer`, {
+      recall: 'easy',
+    });
+    const easyBody = PracticeAnswerResponse.parse(easy.json());
+    expect(easy.statusCode).toBe(200);
+    expect(easyBody.result).toBe('pass');
+    expect(easyBody.correct).toBe(true);
+    expect(easyBody.meaning).toBe(MEANING);
+
     // 零状态影响（review_states/next_review_at/status/daily_stats 全不变）
     expect(
       ctx.db.select().from(reviewStates).where(eq(reviewStates.learningItemId, 'pr-10')).all(),
@@ -314,7 +324,7 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
       .from(attempts)
       .where(eq(attempts.questionId, recall.questionId))
       .all();
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.mode === 'library_practice' && r.reviewTaskId === null)).toBe(true);
     expect(rows.every((r) => r.selectedOptionId === null)).toBe(true); // 直判不带选项
   });

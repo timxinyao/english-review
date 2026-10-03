@@ -59,7 +59,7 @@ describe('Today 沉浸式卡布局', () => {
     expect(body!.contains(screen.getByText('data has not been processed yet.'))).toBe(true);
   });
 
-  it('Recall 卡：词行/原句在滚动区，作答按钮（显示答案/没想起来）停靠底部 dock', async () => {
+  it('Recall 卡：词行/原句在滚动区，揭示前仅 [显示答案] 停靠底部 dock，揭示后三档键仍在 dock', async () => {
     stubApi({ '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }) });
     const { container } = renderTodayApp();
     await screen.findByRole('button', { name: '显示答案' });
@@ -69,9 +69,20 @@ describe('Today 沉浸式卡布局', () => {
     expect(body).not.toBeNull();
     expect(dock).not.toBeNull();
     expect(body!.contains(screen.getByText('The ladder feels stable.'))).toBe(true);
-    for (const name of ['显示答案', '没想起来']) {
+    // 揭示前：dock 只有一个全宽主按钮，无任何自评键
+    expect(body!.contains(screen.getByRole('button', { name: '显示答案' }))).toBe(false);
+    expect(dock!.contains(screen.getByRole('button', { name: '显示答案' }))).toBe(true);
+    expect(screen.queryByRole('button', { name: '重来' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '良好' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '简单' })).toBeNull();
+
+    // 揭示后：三档自评键（重来/良好/简单）都在 dock、不在滚动区（dock 节点被替换，重取）
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    const revealedDock = container.querySelector('[data-slot="dock"]');
+    expect(revealedDock).not.toBeNull();
+    for (const name of ['重来', '良好', '简单']) {
       expect(body!.contains(screen.getByRole('button', { name }))).toBe(false);
-      expect(dock!.contains(screen.getByRole('button', { name }))).toBe(true);
+      expect(revealedDock!.contains(screen.getByRole('button', { name }))).toBe(true);
     }
   });
 

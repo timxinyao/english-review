@@ -12,14 +12,15 @@ interface PracticeViewProps {
   onExit: () => void;
 }
 
-/** Recall 判语（与 Today RecallCard 三态一致：recalled / assisted / forgot） */
+/** Recall 判语（与 Today RecallCard 三档一致：recalled=良好 / forgot=重来；
+ *  basic_pass=assisted 仅历史/兼容）。easy→简单 无独立 result，按本次所按判语呈现 */
 const RECALL_VERDICTS: Record<
   PracticeAnswerResponse['result'],
   { label: string; className: string }
 > = {
-  pass: { label: '想起来了', className: 'text-success' },
+  pass: { label: '良好', className: 'text-success' },
   basic_pass: { label: '提示后想起（基本通过）', className: 'text-warning' },
-  fail: { label: '没想起来', className: 'text-destructive' },
+  fail: { label: '重来', className: 'text-destructive' },
 };
 
 interface RecallPracticeCardProps {
@@ -32,9 +33,9 @@ interface RecallPracticeCardProps {
 
 /**
  * Recall 练习卡（V2 / Phase 9；PRODUCT §7.1 主动回忆优先）：
- * 复用 Today RecallCard 交互原语（自评直判；2026-10-03 起无「给我提示」入口），
- * 但释义只由作答响应揭示（start 载荷不含 meaning，无 reveal 前泄漏）。
- * 非正式练习：不出「不会」，也不触发任何正式进度。
+ * 与 Today 同款三档键（重来/良好/简单，2026-10-03），但释义只由作答响应揭示
+ * （start 载荷不含 meaning，无「显示答案」前置、无 reveal 前泄漏）。
+ * 非正式练习：不改正式进度，easy 与 recalled 响应同为 pass、仅判语不同。
  */
 function RecallPracticeCard({
   question,
@@ -43,8 +44,18 @@ function RecallPracticeCard({
   onSubmit,
   onAdvance,
 }: RecallPracticeCardProps) {
+  const [lastRecall, setLastRecall] = useState<PracticeAnswerRequest['recall'] | null>(null);
   const frozen = result !== null;
-  const verdict = frozen ? RECALL_VERDICTS[result.result] : null;
+  const verdict = frozen
+    ? lastRecall === 'easy'
+      ? { label: '简单', className: 'text-success' }
+      : RECALL_VERDICTS[result.result]
+    : null;
+
+  function submit(body: PracticeAnswerRequest) {
+    if (body.recall) setLastRecall(body.recall);
+    onSubmit(body);
+  }
 
   const wordRow = (
     <div className="flex items-center gap-2">
@@ -82,21 +93,30 @@ function RecallPracticeCard({
 
       {!frozen && (
         <div className="space-y-2">
+          {/* 与 Today 三档同款：重来(negative)/良好(primary)/简单(neutral) 等宽一排 */}
           <div className="flex gap-2">
             <Button
               variant="negative"
               className="flex-1"
               disabled={pending}
-              onClick={() => onSubmit({ recall: 'forgot' })}
+              onClick={() => submit({ recall: 'forgot' })}
             >
-              没想起来
+              重来
             </Button>
             <Button
               className="flex-1"
               disabled={pending}
-              onClick={() => onSubmit({ recall: 'recalled' })}
+              onClick={() => submit({ recall: 'recalled' })}
             >
-              想起来了
+              良好
+            </Button>
+            <Button
+              variant="neutral"
+              className="flex-1"
+              disabled={pending}
+              onClick={() => submit({ recall: 'easy' })}
+            >
+              简单
             </Button>
           </div>
         </div>

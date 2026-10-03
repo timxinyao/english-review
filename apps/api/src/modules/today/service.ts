@@ -1585,19 +1585,20 @@ export async function answerTodayTask(
   } else if (isCloze) {
     outcome = await deps.evaluateCloze(db, question, body.answerText!);
   } else if (isRecallTask && body.recall) {
-    // Recall Card 直判：主动回忆（无提示）；understanding 与 learn（新词初见即回忆）共用，
-    // cloze 误传 recall 不生效，落入 cloze 路径
-    outcome = { correct: body.recall === 'recalled' };
+    // Recall Card 三档自评（2026-10-03）：recalled/easy 为通过（pass），forgot 未通过；
+    // understanding 与 learn（新词初见即回忆）共用，cloze 误传 recall 不生效，落入 cloze 路径
+    outcome = { correct: body.recall !== 'forgot' };
   } else {
     outcome = deps.evaluateChoice(question, body.selectedOptionId!);
   }
   const correct = outcome.correct === true;
   const viewedSource = body.viewedSource === true;
-  // Recall 判定（understanding 复习与 learn 新学共用）：recall→pass/fail；
+  // Recall 判定（understanding 复习与 learn 新学共用，三档自评 2026-10-03）：
+  // recalled=良好 / easy=简单（均 pass，靠 outcomeSource 区分）/ forgot=重来（fail）；
   // hint 选择→对=assisted(basic_pass)/错=forgot(fail)；
   // 查看原句不再降档（Recall 卡默认展示 source_example）。cloze 旧语义不变。
   // 主动不会按 fail 结算：理解题证据为 forgot（PRODUCT §6.2），其余题型无证据档。
-  let outcomeSource: 'recalled' | 'assisted' | 'forgot' | null = null;
+  let outcomeSource: 'recalled' | 'assisted' | 'forgot' | 'easy' | null = null;
   let result: AnswerResponse['result'];
   if (giveUp) {
     result = 'fail';
@@ -1659,7 +1660,8 @@ export async function answerTodayTask(
     const reinforcementIds: string[] = [];
 
     if (task.taskType === 'learn') {
-      // Learn Recall（方案 A）：三路径都完成新学——初始化 U(L1)+P 激活；
+      // Learn Recall（方案 A）：三档路径都完成新学——初始化 U(L1)+P 激活；
+      // recalled/easy 初始状态完全一致（首学无前序间隔，easy 不跳步、等同 pass）；
       // forgot/assisted 的揭示即教学时刻，明日以 Recall 短间隔回归。
       // 无论对错都已开始学 → queue_state='started' 且当日额度 +1。
       writeDimState(tx, itemId, 'understanding', deps.initialUnderstandingAfterLearn(now), nowIso);
@@ -1677,8 +1679,18 @@ export async function answerTodayTask(
         .where(eq(reviewSessions.id, session.id))
         .run();
     } else {
-      // 普通复习：review.advanceReviewState 推进该维度（含 streak 写回与 mastered 判定）
-      deps.advance(tx, itemId, task.dimension as Dimension, { kind: result }, now);
+      // 普通复习：review.advanceReviewState 推进该维度（含 streak 写回与 mastered 判定）。
+      // easy（三档「简单」）：U 维度结算等同 pass（streak/统计照常累计、计入通过），
+      // 唯一区别是间隔跳两步（复用 pass+tooEasy：TOO_EASY_EXTRA_LEVELS=1 → +1+1，封顶 7）。
+      // learn 首学不在此分支（首学 easy 等同 pass，无前序间隔不跳步，见上方 learn 分支注释）。
+      const easyRecall = isRecallTask && body.recall === 'easy';
+      deps.advance(
+        tx,
+        itemId,
+        task.dimension as Dimension,
+        easyRecall ? { kind: 'pass', tooEasy: true } : { kind: result },
+        now,
+      );
       bumpDailyStats(
         tx,
         session.sessionDate,

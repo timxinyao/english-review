@@ -56,9 +56,10 @@ function submittedAnswerOf(entry: SessionTaskEntry): string | null {
   if (result.submittedAnswerText !== null && result.submittedAnswerText !== '') {
     return result.submittedAnswerText;
   }
-  if (result.outcomeSource === 'recalled') return '想起来了';
+  if (result.outcomeSource === 'recalled') return '良好';
+  if (result.outcomeSource === 'easy') return '简单';
   if (result.outcomeSource === 'assisted') return '提示后想起';
-  if (result.outcomeSource === 'forgot') return '没想起来';
+  if (result.outcomeSource === 'forgot') return '重来';
   return null;
 }
 

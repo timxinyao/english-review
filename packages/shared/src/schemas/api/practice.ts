@@ -31,8 +31,8 @@ export type PracticeStartResponse = z.infer<typeof PracticeStartResponse>;
 
 export const PracticeAnswerRequest = z
   .object({
-    /** Recall 直判（主动回忆自评；与 selectedOptionId 二选一） */
-    recall: z.enum(['recalled', 'forgot']).optional(),
+    /** Recall 直判（三档自评：recalled=良好 / easy=简单 / forgot=重来；与 selectedOptionId 二选一） */
+    recall: z.enum(['recalled', 'easy', 'forgot']).optional(),
     selectedOptionId: z.string().min(1).optional(),
     /** Hint 模式提交的选择题标识（仅随 selectedOptionId） */
     hintUsed: z.boolean().optional(),

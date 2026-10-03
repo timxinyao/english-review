@@ -176,11 +176,11 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
   });
 
-  it('Recall 直判：想起来了 → 提交 recall → 释义揭示 → 下一题到表达题（2 / 2）', async () => {
+  it('Recall 直判：良好 → 提交 recall → 释义揭示 → 下一题到表达题（2 / 2）', async () => {
     renderDetailWithPractice();
 
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+    fireEvent.click(await screen.findByRole('button', { name: '良好' }));
 
     await waitFor(() => {
       expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);
@@ -188,7 +188,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
       recall: 'recalled',
     });
-    expect(await screen.findByText('想起来了')).toBeVisible();
+    expect(await screen.findByText('良好')).toBeVisible();
     expect(screen.getByText('放弃', { exact: true })).toBeVisible(); // 释义揭示
 
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
@@ -196,7 +196,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(screen.getByText('2 / 2')).toBeVisible();
   });
 
-  it('Recall 直判：没想起来 → fail 揭示释义后仍可继续', async () => {
+  it('Recall 直判：重来 → fail 揭示释义后仍可继续', async () => {
     renderDetailWithPractice({
       '/api/library/item-1/practice/pq-1/answer': makeRecallAnswer({
         result: 'fail',
@@ -205,7 +205,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     });
 
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-    const failBtn = await screen.findByRole('button', { name: '没想起来' });
+    const failBtn = await screen.findByRole('button', { name: '重来' });
     expect(failBtn.className).toContain('text-destructive'); // 否定键暖红语义色（与 Today 一致）
     fireEvent.click(failBtn);
 
@@ -215,7 +215,28 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
       recall: 'forgot',
     });
-    expect(await screen.findByText('没想起来')).toBeVisible();
+    expect(await screen.findByText('重来')).toBeVisible();
+    expect(screen.getByText('放弃', { exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(await screen.findByText('2 / 2')).toBeVisible();
+  });
+
+  it('Recall 直判：简单（2026-10-03 三档自评）→ 提交 {recall:"easy"} → 判语 简单、可继续', async () => {
+    renderDetailWithPractice();
+
+    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
+    // 三键一排：重来 / 良好 / 简单（Library 无「显示答案」前置）
+    const easyBtn = await screen.findByRole('button', { name: '简单' });
+    expect(easyBtn.className).toContain('border-input'); // neutral 中性档
+    fireEvent.click(easyBtn);
+
+    await waitFor(() => {
+      expect(apiCalls('/api/library/item-1/practice/pq-1/answer')).toHaveLength(1);
+    });
+    expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-1/answer')[0])).toEqual({
+      recall: 'easy',
+    });
+    expect(await screen.findByText('简单')).toBeVisible(); // pass 判语 = 简单
     expect(screen.getByText('放弃', { exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
     expect(await screen.findByText('2 / 2')).toBeVisible();
@@ -231,7 +252,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
 
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
     expect(await screen.findByText('1 / 1')).toBeVisible();
-    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+    fireEvent.click(await screen.findByRole('button', { name: '良好' }));
     expect(await screen.findByText('放弃', { exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
 
@@ -261,8 +282,8 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
 
     // 第 1 题：recall 直判通过
-    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
-    await screen.findByText('想起来了');
+    fireEvent.click(await screen.findByRole('button', { name: '良好' }));
+    await screen.findByText('良好');
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
 
     // 第 2 题：表达
@@ -301,7 +322,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
 
     // recall 直判通过 → 表达题
-    fireEvent.click(await screen.findByRole('button', { name: '想起来了' }));
+    fireEvent.click(await screen.findByRole('button', { name: '良好' }));
     await screen.findByText('放弃');
     fireEvent.click(screen.getByRole('button', { name: '下一题' }));
 

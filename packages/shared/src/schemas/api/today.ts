@@ -137,8 +137,9 @@ export const AnswerRequest = z
     selectedOptionId: z.string().min(1).optional(),
     answerText: z.string().min(1).max(500).optional(),
     viewedSource: z.boolean().optional(),
-    /** Understanding Recall Card：主动回忆直判（与 selectedOptionId 二选一） */
-    recall: z.enum(['recalled', 'forgot']).optional(),
+    /** Understanding Recall Card：三档自评（2026-10-03 Anki 式；与 selectedOptionId 二选一）。
+     *  recalled=良好（pass，跳一步）/ easy=简单（pass，跳两步）/ forgot=重来（fail） */
+    recall: z.enum(['recalled', 'easy', 'forgot']).optional(),
     /** Understanding Hint 模式提交的选择题标识 */
     hintUsed: z.boolean().optional(),
     /**
@@ -167,8 +168,9 @@ export type AnswerRequest = z.infer<typeof AnswerRequest>;
 
 export const AnswerResponse = z.object({
   result: z.enum(['pass', 'basic_pass', 'fail']),
-  /** understanding 三档证据：recalled=自答想起 / assisted=提示后对 / forgot=未想起或提示仍错；其余题型 null */
-  outcomeSource: z.enum(['recalled', 'assisted', 'forgot']).nullable().optional(),
+  /** understanding 四档证据（2026-10-03 三档自评）：recalled=自答想起（良好）/ easy=简单 /
+   *  assisted=历史提示后对 / forgot=未想起或提示仍错（重来）；其余题型 null */
+  outcomeSource: z.enum(['recalled', 'assisted', 'forgot', 'easy']).nullable().optional(),
   correct: z.boolean(),
   /** 本次作答是否为主动不会（giveUp=true，按 fail 结算且未提交任何答案） */
   gaveUp: z.boolean(),

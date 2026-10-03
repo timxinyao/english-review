@@ -13,6 +13,8 @@ export interface ProviderRequest {
   thinking: 'off' | 'low' | 'medium' | 'high' | 'max';
   /** 原始结构化变量（供 mock provider 生成确定性输出；GLM 忽略） */
   vars: Record<string, unknown>;
+  /** 任务级请求超时（缺省用 provider 默认 120s）；仅超时错误会重试一次 */
+  timeoutMs?: number;
 }
 
 export interface AiProvider {

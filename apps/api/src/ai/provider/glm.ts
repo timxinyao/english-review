@@ -8,6 +8,8 @@ export class AiProviderError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    /** 超时（abort）标记：provider 内部据此决定是否重试 */
+    readonly isTimeout = false,
   ) {
     super(message);
     this.name = 'AiProviderError';
@@ -28,72 +30,88 @@ interface MessagesResponse {
 export function createGlmProvider(config: AppConfig, fetcher: typeof fetch = fetch): AiProvider {
   const baseUrl = config.glmApiBase.replace(/\/$/, '');
 
+  /** 单次请求（不含重试）：超时抛 isTimeout 的 AiProviderError */
+  const requestOnce = async (req: ProviderRequest, timeoutMs: number): Promise<string> => {
+    const thinkingBudget = req.thinking === 'off' ? null : THINKING_BUDGET_TOKENS[req.thinking];
+    // 思考开启时保证正文输出空间：max_tokens 至少为 预算 + 正文额度
+    const maxTokens =
+      thinkingBudget === null
+        ? config.glmMaxTokens
+        : Math.max(config.glmMaxTokens, thinkingBudget + config.glmMaxTokens);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetcher(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': config.glmApiKey!,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: req.model,
+          max_tokens: maxTokens,
+          temperature: req.temperature,
+          // GLM 端点不传 thinking 时模型会"自发思考"（实测 flash 单次可自发 ~10k 字符导致 60s+ 延迟），
+          // 因此 off 必须显式 disabled
+          thinking:
+            thinkingBudget !== null
+              ? { type: 'enabled', budget_tokens: thinkingBudget }
+              : { type: 'disabled' },
+          messages: [{ role: 'user', content: req.prompt }],
+        }),
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        throw new AiProviderError(`GLM HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
+      }
+      let json: MessagesResponse;
+      try {
+        json = JSON.parse(text) as MessagesResponse;
+      } catch {
+        throw new AiProviderError('GLM 响应不是合法 JSON');
+      }
+      if (json.error) {
+        throw new AiProviderError(
+          `GLM 错误 ${json.error.type ?? ''}: ${(json.error.message ?? '').slice(0, 300)}`,
+        );
+      }
+      const content = (json.content ?? [])
+        .filter((c) => c.type === 'text' && typeof c.text === 'string')
+        .map((c) => c.text!)
+        .join('');
+      if (!content.trim()) {
+        throw new AiProviderError('GLM 响应缺少文本内容');
+      }
+      return content;
+    } catch (err) {
+      if (err instanceof AiProviderError) throw err;
+      if ((err as Error).name === 'AbortError') {
+        throw new AiProviderError(`GLM 请求超时（${timeoutMs}ms）`, undefined, true);
+      }
+      throw new AiProviderError(`GLM 请求失败：${(err as Error).message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   return {
     name: 'glm',
     async complete(req: ProviderRequest): Promise<string> {
-      const thinkingBudget = req.thinking === 'off' ? null : THINKING_BUDGET_TOKENS[req.thinking];
-      // 思考开启时保证正文输出空间：max_tokens 至少为 预算 + 正文额度
-      const maxTokens =
-        thinkingBudget === null
-          ? config.glmMaxTokens
-          : Math.max(config.glmMaxTokens, thinkingBudget + config.glmMaxTokens);
-
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      try {
-        const res = await fetcher(`${baseUrl}/v1/messages`, {
-          method: 'POST',
-          signal: controller.signal,
-          headers: {
-            'content-type': 'application/json',
-            'x-api-key': config.glmApiKey!,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: req.model,
-            max_tokens: maxTokens,
-            temperature: req.temperature,
-            // GLM 端点不传 thinking 时模型会"自发思考"（实测 flash 单次可自发 ~10k 字符导致 60s+ 延迟），
-            // 因此 off 必须显式 disabled
-            thinking:
-              thinkingBudget !== null
-                ? { type: 'enabled', budget_tokens: thinkingBudget }
-                : { type: 'disabled' },
-            messages: [{ role: 'user', content: req.prompt }],
-          }),
-        });
-
-        const text = await res.text();
-        if (!res.ok) {
-          throw new AiProviderError(`GLM HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
-        }
-        let json: MessagesResponse;
+      // 任务级超时（2026-10-03 批改长尾收紧）：仅当失败是超时且是本次 complete 的第一次
+      // 尝试时，立即重试一次（全新 AbortController）；非超时错误不重试，总尝试 ≤2——
+      // 只重试一次，结构化层面的重试仍由 completeStructured 负责。
+      const timeoutMs = req.timeoutMs ?? TIMEOUT_MS;
+      for (let attempt = 1; ; attempt++) {
         try {
-          json = JSON.parse(text) as MessagesResponse;
-        } catch {
-          throw new AiProviderError('GLM 响应不是合法 JSON');
+          return await requestOnce(req, timeoutMs);
+        } catch (err) {
+          if (err instanceof AiProviderError && err.isTimeout && attempt === 1) continue;
+          throw err;
         }
-        if (json.error) {
-          throw new AiProviderError(
-            `GLM 错误 ${json.error.type ?? ''}: ${(json.error.message ?? '').slice(0, 300)}`,
-          );
-        }
-        const content = (json.content ?? [])
-          .filter((c) => c.type === 'text' && typeof c.text === 'string')
-          .map((c) => c.text!)
-          .join('');
-        if (!content.trim()) {
-          throw new AiProviderError('GLM 响应缺少文本内容');
-        }
-        return content;
-      } catch (err) {
-        if (err instanceof AiProviderError) throw err;
-        if ((err as Error).name === 'AbortError') {
-          throw new AiProviderError(`GLM 请求超时（${TIMEOUT_MS}ms）`);
-        }
-        throw new AiProviderError(`GLM 请求失败：${(err as Error).message}`);
-      } finally {
-        clearTimeout(timer);
       }
     },
   };

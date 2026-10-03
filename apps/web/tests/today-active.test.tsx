@@ -537,3 +537,36 @@ describe('进度区交互：整个进度区为弹层入口', () => {
     expect(screen.getByRole('button', { name: '自动发音' })).toBeVisible();
   });
 });
+
+describe('回前台自动刷新今日状态（2026-10-04）', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('visibilitychange 变 visible 时 invalidate today（/api/today 重新请求）；hidden 不触发', async () => {
+    stubApi({
+      '/api/today': () => makeActive(makeChoiceTask()),
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'stable' });
+    // 精确匹配 /api/today（排除 /api/today/tasks 等前缀同源调用）
+    const todayCallCount = () =>
+      apiCalls('/api/today').filter((c) => c.path === '/api/today').length;
+    const baseline = todayCallCount();
+    expect(baseline).toBeGreaterThanOrEqual(1);
+
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    try {
+      // 不可见（如切回 PWA 前台前）：不触发刷新
+      visibility.mockReturnValue('hidden');
+      fireEvent(document, new Event('visibilitychange'));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(todayCallCount()).toBe(baseline);
+
+      // 回到可见：invalidate todayKeys.all，/api/today 重新请求（服务端批改已结算的结果立即可见）
+      visibility.mockReturnValue('visible');
+      fireEvent(document, new Event('visibilitychange'));
+      await waitFor(() => expect(todayCallCount()).toBeGreaterThan(baseline));
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+});

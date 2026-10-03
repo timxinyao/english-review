@@ -84,3 +84,97 @@ describe('GLM provider 请求体组装（thinking 档位）', () => {
     );
   });
 });
+
+/** 第一次调用挂起（模拟慢请求）：与真实 fetch 一致，abort 时 reject AbortError；第二次起成功 */
+function hangThenSuccessFetcher() {
+  let calls = 0;
+  const signals: (AbortSignal | null | undefined)[] = [];
+  const fetcher = (async (_url: unknown, init?: RequestInit) => {
+    calls += 1;
+    signals.push(init?.signal);
+    if (calls === 1) {
+      return new Promise<never>((_, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('The operation was aborted.', 'AbortError')),
+        );
+      });
+    }
+    return new Response(JSON.stringify({ content: [{ type: 'text', text: '{"ok":true}' }] }), {
+      status: 200,
+    });
+  }) as unknown as typeof fetch;
+  return { fetcher, getCalls: () => calls, signals };
+}
+
+/** 每次调用都挂起直到 abort（重试后仍超时） */
+function alwaysHangingFetcher() {
+  let calls = 0;
+  const fetcher = (async (_url: unknown, init?: RequestInit) => {
+    calls += 1;
+    return new Promise<never>((_, reject) => {
+      init?.signal?.addEventListener('abort', () =>
+        reject(new DOMException('The operation was aborted.', 'AbortError')),
+      );
+    });
+  }) as unknown as typeof fetch;
+  return { fetcher, getCalls: () => calls };
+}
+
+describe('GLM provider timeoutMs 与超时单次重试（2026-10-03 批改长尾收紧）', () => {
+  it('timeoutMs 生效：首次超时 abort 后立即重试一次成功，fetcher 共 2 次（重试用新 controller）', async () => {
+    const { fetcher, getCalls, signals } = hangThenSuccessFetcher();
+    const provider = createGlmProvider(config(), fetcher);
+    const result = await provider.complete({
+      task: 'checkProduction',
+      model: 'glm-5.3',
+      temperature: 0.2,
+      thinking: 'medium',
+      prompt: 'p',
+      vars: {},
+      timeoutMs: 35,
+    });
+    expect(result).toBe('{"ok":true}');
+    expect(getCalls()).toBe(2);
+    expect(signals[0]).toBeDefined();
+    expect(signals[1]).toBeDefined();
+    expect(signals[0]).not.toBe(signals[1]); // 第二次是全新 AbortController
+  });
+
+  it('重试后仍超时：抛超时错误且 fetcher 恰好 2 次（不再第三次）', async () => {
+    const { fetcher, getCalls } = alwaysHangingFetcher();
+    const provider = createGlmProvider(config(), fetcher);
+    await expect(
+      provider.complete({
+        task: 'checkProduction',
+        model: 'glm-5.3',
+        temperature: 0.2,
+        thinking: 'medium',
+        prompt: 'p',
+        vars: {},
+        timeoutMs: 20,
+      }),
+    ).rejects.toThrow(/超时/);
+    expect(getCalls()).toBe(2);
+  });
+
+  it('非超时错误（HTTP 500）不重试：fetcher 仅 1 次', async () => {
+    let calls = 0;
+    const fetcher = (async () => {
+      calls += 1;
+      return new Response('boom', { status: 500 });
+    }) as unknown as typeof fetch;
+    const provider = createGlmProvider(config(), fetcher);
+    await expect(
+      provider.complete({
+        task: 'checkProduction',
+        model: 'glm-5.3',
+        temperature: 0.2,
+        thinking: 'medium',
+        prompt: 'p',
+        vars: {},
+        timeoutMs: 35,
+      }),
+    ).rejects.toThrow('GLM HTTP 500');
+    expect(calls).toBe(1);
+  });
+});

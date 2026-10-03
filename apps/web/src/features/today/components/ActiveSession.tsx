@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
 import { AudioLines, VolumeX } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
@@ -8,7 +9,7 @@ import { speak } from '../../../lib/tts';
 import { TaskCard } from './TaskCard';
 import { TodayLearningSheet } from './TodayLearningSheet';
 import { UndoAnswerControl } from './UndoAnswer';
-import { useSessionTasks } from '../api';
+import { todayKeys, useSessionTasks } from '../api';
 
 export interface FrozenAnswer {
   task: TodayTaskView;
@@ -151,10 +152,24 @@ export function ActiveSession({
   const { data: sessionTasks } = useSessionTasks();
   const entries = sessionTasks?.tasks ?? null;
   const undoableTaskId = sessionTasks?.undoableTaskId ?? null;
+  const queryClient = useQueryClient();
   /** 切卡自动读词（设备本地偏好）：缺省开，'0'=关 */
   const [autoSpeak, setAutoSpeak] = useState(
     () => localStorage.getItem('el:auto-pronounce') !== '0',
   );
+
+  // 回前台刷新今日状态（2026-10-04）：PWA 切出后服务端批改仍在持续结算，
+  // 而 refetchOnWindowFocus 全局关闭（providers.tsx），缺口在前端——回前台时
+  // 主动 invalidate today，让切出期间已结算的结果立即可见。
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void queryClient.invalidateQueries({ queryKey: todayKeys.all });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [queryClient]);
 
   // 聚焦起锁定根滚动；失焦后仍等视觉视口恢复，避免 iOS 在键盘动画中解锁。
   // 不再反复 scrollTo(0,0)：它会和 Safari 的输入框 reveal 互相争抢。

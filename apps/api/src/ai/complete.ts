@@ -73,6 +73,7 @@ export async function completeStructured<T>(
         thinking: resolveThinking(task, deps.config),
         prompt: rendered.text,
         vars,
+        timeoutMs: policy.timeoutMs,
       });
       const parsed = schema.safeParse(extractJson(raw));
       if (!parsed.success) {

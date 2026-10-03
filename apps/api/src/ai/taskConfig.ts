@@ -9,6 +9,8 @@ interface TaskModelPolicy {
   temperature: number;
   /** 任务级思考强度默认（GLM_THINKING 未设置时生效） */
   thinking: ThinkingLevel;
+  /** 任务级请求超时（缺省 provider 默认 120s）；超时仅重试一次 */
+  timeoutMs?: number;
 }
 
 export const THINKING_BUDGET_TOKENS: Record<Exclude<ThinkingLevel, 'off'>, number> = {
@@ -30,7 +32,9 @@ export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
   generateProductionPrompt: { alias: 'flash', temperature: 0.8, thinking: 'off' },
   // 批改是唯一 main+思考组合：基准实测 main+medium=100%·14s，flash 各档最高 89% 且更慢，
   // off 档两模型均 67%（docs/MODEL_BENCHMARK.md）
-  checkProduction: { alias: 'max', temperature: 0.2, thinking: 'medium' },
+  // timeoutMs：2026-10-03 基准 avg 15s 但长尾 max 37s、偶发 120s provider 超时——
+  // 收紧到 35s，超时仅重试一次（防长尾干等、防无限重试）
+  checkProduction: { alias: 'max', temperature: 0.2, thinking: 'medium', timeoutMs: 35_000 },
   generateRead: { alias: 'flash', temperature: 0.8, thinking: 'off' },
   judgeDuplicateMeaning: { alias: 'flash', temperature: 0.2, thinking: 'low' },
 };

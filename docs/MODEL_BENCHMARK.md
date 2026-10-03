@@ -35,6 +35,22 @@ pnpm exec tsx scripts/ai-bench.ts --models flash=glm-5.3-flash,ds=deepseek-chat
 
 ## 3. 历史结果
 
+### 2026-10-03 · GLM checkProduction 复测（用户反馈批改变慢；部分档位受时间预算截断）
+
+| 组合 | 首过率 · 延迟 | 备注 |
+| --- | --- | --- |
+| flash/off | 12/18=67% · avg 4.4s | 与 09-25 一致 |
+| flash/low | 16/18=89% · avg 20.3s | max 35.3s |
+| flash/medium | 2/3 · avg 25.4s（截断） | max 57.5s |
+| main/off | 15/18=83% · avg 3.4s | 较 09-25 的 67% 略升，仍不足 |
+| main/low | 15/18=83% · avg 21.4s | 含一次 120s provider 超时 |
+| **main/medium** | **17/18=94% · avg 15.0s** | 唯一失败为 JSON 解析错（生产端有 2 次结构化重试兜底）；max 37.2s |
+| main/high | 9/10=90% · avg 14.9s（截断） | — |
+
+另：ai:eval 当前配置 6/6 通过但该轮平均 ~25s（样本方差大）。
+
+**本轮结论**：① main+medium 仍是最优组合，策略**不变**；② 平均延迟与 09-25 基本持平（15s vs 14s），但**方差明显变大**（max 37s、偶发 120s 超时），"感觉变慢"来自长尾与 GLM 侧波动；③ flash 准确率依旧 ≤89%，继续排除。
+
 ### 2026-09-25 · GLM（glm-5.3-flash vs glm-5.3，Anthropic 兼容端点）
 
 | 任务 | flash/off | flash/low | flash/med | flash/high | flash/max | main/off | main/low | main/med | main/high | main/max |

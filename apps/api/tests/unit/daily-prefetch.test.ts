@@ -58,11 +58,16 @@ async function seedDueItem(
   dimension: 'understanding' | 'production',
   nextReviewAt: string | null,
   overrides: Partial<Parameters<typeof seedItem>[1]> = {},
-  level = 2,
+  stability = 5,
 ): Promise<string> {
   const id = await seedItem(db, { target, status: 'active', queueState: 'started', ...overrides });
   await seedExample(db, id, 'source', `An example with ${target}.`);
-  await seedReviewState(db, id, dimension, { level, nextReviewAt });
+  await seedReviewState(db, id, dimension, {
+    difficulty: 5,
+    stability,
+    reps: 2,
+    nextReviewAt,
+  });
   return id;
 }
 

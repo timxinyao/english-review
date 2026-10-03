@@ -77,15 +77,17 @@ describe('Foxi V2 cutover', () => {
     const all = [chunk, word, optedInWord, optedOutChunk, newChunk, paused, archived];
     for (const id of all) {
       await seedReviewState(db, id, 'understanding', {
-        level: 4,
-        stable: id === optedInWord || id === word ? 1 : 0,
+        difficulty: 5,
+        stability: id === optedInWord || id === word ? 130 : 20,
+        reps: 4,
         nextReviewAt: OLD_DUE,
         lastReviewAt: '2026-09-25T00:00:00.000Z',
         correctStreak: 3,
       });
       await seedReviewState(db, id, 'production', {
-        level: 5,
-        stable: id === optedInWord ? 1 : 0,
+        difficulty: 5,
+        stability: id === optedInWord ? 130 : 25,
+        reps: 5,
         nextReviewAt: OLD_DUE,
         lastReviewAt: '2026-09-24T00:00:00.000Z',
         correctStreak: 4,
@@ -130,8 +132,10 @@ describe('Foxi V2 cutover', () => {
     );
     for (const id of all) {
       expect(production(db, id)).toMatchObject({
-        level: 0,
-        stable: 0,
+        difficulty: null,
+        stability: null,
+        reps: 0,
+        lapses: 0,
         nextReviewAt: id === chunk || id === optedInWord ? NOW.toISOString() : null,
         lastReviewAt: null,
         correctStreak: 0,
@@ -141,7 +145,7 @@ describe('Foxi V2 cutover', () => {
         db.select().from(learningItems).where(eq(learningItems.id, id)).get()?.needsReinforcement,
       ).toBe(0);
     }
-    expect(state(db, word, 'understanding')).toMatchObject({ level: 4, stable: 1 });
+    expect(state(db, word, 'understanding')).toMatchObject({ stability: 130, reps: 4 });
     expect(db.select().from(learningItems).where(eq(learningItems.id, word)).get()?.status).toBe(
       'mastered',
     );
@@ -174,15 +178,17 @@ describe('Foxi V2 cutover', () => {
     expect(rawSqlite(db).serialize()).toEqual(afterFirstRun);
   });
 
-  it('creates an immediately due L0 P row when a started effective-P item has no old P row', async () => {
+  it('creates an immediately due inactive P row when a started effective-P item has no old P row', async () => {
     const db = createDatabase(':memory:');
     runMigrations(db);
     const itemId = await seedItem(db, { type: 'chunk' });
-    await seedReviewState(db, itemId, 'understanding', { level: 2 });
+    await seedReviewState(db, itemId, 'understanding', { stability: 5, reps: 2 });
 
     expect(applyV2Cutover(db, NOW, 'Asia/Shanghai')).toEqual({ applied: true });
     expect(production(db, itemId)).toMatchObject({
-      level: 0,
+      difficulty: null,
+      stability: null,
+      reps: 0,
       nextReviewAt: NOW.toISOString(),
       lastReviewAt: null,
     });

@@ -112,8 +112,8 @@ describe('E2E 播种（seedE2eData）', () => {
       states.find((s) => s.learningItemId === 'e2e-item-raw' && s.dimension === 'understanding')
         ?.nextReviewAt,
     ).toBe('2026-10-01T02:00:00.000Z');
-    // stable U L3
-    expect(states.find((s) => s.learningItemId === 'e2e-item-stable')?.level).toBe(3);
+    // stable U S15（旧 L3 档换算）
+    expect(states.find((s) => s.learningItemId === 'e2e-item-stable')?.stability).toBe(15);
 
     // Phase 9（Task 10）：make sense（chunk 默认开）的表达题库存（练一下第 2 题）
     const makeSenseP = qs.find((q) => q.id === 'e2e-q-make-sense-p')!;
@@ -128,7 +128,7 @@ describe('E2E 播种（seedE2eData）', () => {
     });
   });
 
-  it('give up 种子：U=L7 stable（不到期）、P=L4 昨日到期、production 题内容与元数据', () => {
+  it('give up 种子：U=S130 掌握线（七天后到期）、P=S25 昨日到期、production 题内容与元数据', () => {
     seedE2eData(db, NOW);
     const giveUp = db
       .select()
@@ -149,11 +149,11 @@ describe('E2E 播种（seedE2eData）', () => {
       .from(reviewStates)
       .all()
       .find((s) => s.learningItemId === giveUp.id && s.dimension === 'production')!;
-    expect(u.level).toBe(7);
-    expect(u.stable).toBe(1);
-    expect(u.nextReviewAt).toBeNull();
-    expect(p.level).toBe(4);
-    expect(p.stable).toBe(0);
+    expect(u.stability).toBe(130);
+    expect(u.reps).toBe(7);
+    expect(u.nextReviewAt).toBe('2026-10-01T02:00:00.000Z'); // 七天后到期（今天不出 U 题）
+    expect(p.stability).toBe(25);
+    expect(p.reps).toBe(4);
     expect(p.nextReviewAt).toBe('2026-09-23T02:00:00.000Z'); // due yesterday
 
     const q = db
@@ -224,13 +224,13 @@ describe('E2E V2 journey 播种（Phase 9 Task 10）', () => {
       .sort();
     expect(dimensions).toContain('e2e-item-set-off:production');
     expect(dimensions).toContain('e2e-item-carry-on:learn');
-    // put off 的 P 状态保持 L2 未被动过（排除≠清除）
+    // put off 的 P 状态保持 S5 未被动过（排除≠清除）
     const putOffP = db
       .select()
       .from(reviewStates)
       .all()
       .find((s) => s.learningItemId === 'e2e-item-put-off' && s.dimension === 'production')!;
-    expect(putOffP.level).toBe(2);
+    expect(putOffP.stability).toBe(5);
     expect(putOffP.nextReviewAt).toBe('2026-09-23T02:00:00.000Z');
   });
 

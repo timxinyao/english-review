@@ -66,7 +66,13 @@ async function post(ctx: Ctx, url: string, payload?: Record<string, unknown>) {
 
 async function seedDueChoice(db: AppDatabase, itemId: string, target: string): Promise<void> {
   await seedItem(db, { id: itemId, target, queueState: 'started' });
-  await seedReviewState(db, itemId, 'understanding', { level: 3, nextReviewAt: dayAgo() });
+  await seedReviewState(db, itemId, 'understanding', {
+    difficulty: 5,
+    stability: 15,
+    reps: 3,
+    nextReviewAt: dayAgo(),
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
+  });
   await seedQuestion(db, itemId, {
     type: 'understanding',
     payloadJson: choicePayload(DEFAULT_OPTIONS, '解释'),
@@ -79,7 +85,13 @@ async function seedDueChoice(db: AppDatabase, itemId: string, target: string): P
 
 async function seedDueCloze(db: AppDatabase, itemId: string, target: string): Promise<void> {
   await seedItem(db, { id: itemId, target, queueState: 'started' });
-  await seedReviewState(db, itemId, 'production', { level: 1, nextReviewAt: dayAgo() });
+  await seedReviewState(db, itemId, 'production', {
+    difficulty: 5,
+    stability: 5,
+    reps: 1,
+    nextReviewAt: dayAgo(),
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
+  });
   await seedQuestion(db, itemId, {
     type: 'cloze',
     payloadJson: JSON.stringify({ acceptedAnswers: [target], explanation: 'cloze 解释' }),
@@ -89,7 +101,13 @@ async function seedDueCloze(db: AppDatabase, itemId: string, target: string): Pr
 
 async function seedDueProduction(db: AppDatabase, itemId: string, target: string): Promise<void> {
   await seedItem(db, { id: itemId, type: 'chunk', target, queueState: 'started' });
-  await seedReviewState(db, itemId, 'production', { level: 4, nextReviewAt: dayAgo() });
+  await seedReviewState(db, itemId, 'production', {
+    difficulty: 5,
+    stability: 25,
+    reps: 4,
+    nextReviewAt: dayAgo(),
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
+  });
   await seedQuestion(db, itemId, {
     type: 'production',
     promptText: `请使用 ${target} 表达这个意思。`,
@@ -410,14 +428,15 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
     expect(body.referenceAnswer ?? null).toBeNull();
     expect(body.answerNote ?? null).toBeNull();
     expect(body.correction).toBeNull();
-    // 既有 fail 结算规则不变：补强照插、维度降级 L3 → L2
+    // 既有 fail 结算规则不变：补强照插、fail 记错（lapses+1、S 下降）
     expect(body.reinforcementAdded).toBe(true);
     const state = ctx.db
       .select()
       .from(reviewStates)
       .where(eq(reviewStates.learningItemId, 'gu-1'))
       .get();
-    expect(state?.level).toBe(2);
+    expect(state?.lapses).toBe(1);
+    expect(state!.stability).toBeLessThan(15);
 
     // attempt：feedback=gave_up、无提交答案、零 AI 追溯字段
     const attempt = attemptOf(ctx, taskId);

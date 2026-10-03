@@ -23,7 +23,9 @@ beforeEach(() => {
 async function seedFlaggedItem(itemId: string, due: boolean): Promise<void> {
   await seedItem(db, { id: itemId, queueState: 'started', needsReinforcement: 1 });
   await seedReviewState(db, itemId, 'understanding', {
-    level: 3,
+    difficulty: 5,
+    stability: 15,
+    reps: 3,
     nextReviewAt: due ? '2026-09-23T00:00:00.000Z' : '2026-10-01T00:00:00.000Z',
   });
   await seedQuestion(db, itemId, {

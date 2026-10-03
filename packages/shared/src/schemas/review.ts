@@ -15,9 +15,11 @@ export const ReviewState = z.object({
   id: z.string().min(1),
   learningItemId: z.string().min(1),
   dimension: ReviewDimension,
-  /** 0=未激活，1..7=L1..L7 */
-  level: z.number().int().min(0).max(7),
-  stable: z.number().int().min(0).max(1),
+  /** FSRS D/S；NULL=未激活 */
+  difficulty: z.number().nullable(),
+  stability: z.number().nullable(),
+  reps: z.number().int().min(0),
+  lapses: z.number().int().min(0),
   nextReviewAt: z.string().nullable(),
   lastReviewAt: z.string().nullable(),
   correctStreak: z.number().int(),

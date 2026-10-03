@@ -95,12 +95,14 @@ async function seedForGenerate(): Promise<void> {
   ] as const) {
     await seedItem(db, { id, target, meaning, queueState: 'started' });
     await seedReviewState(db, id, 'understanding', {
-      level: 2,
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
       nextReviewAt: new Date(NOW.getTime() - DAY_MS).toISOString(),
     });
   }
   await seedItem(db, { id: 'old-1', target: 'stable', meaning: '稳定的', status: 'mastered' });
-  await seedReviewState(db, 'old-1', 'understanding', { level: 7, stable: 1 });
+  await seedReviewState(db, 'old-1', 'understanding', { difficulty: 5, stability: 130, reps: 8 });
 }
 
 /** 遗留（V1）文章：checks_json 含一答对 + 一未答检查题 */

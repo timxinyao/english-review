@@ -85,14 +85,16 @@ describe('LibraryDetail 详情', () => {
     expect(screen.getByText('A resilient mindset helps.')).toBeVisible();
   });
 
-  it('渲染两维状态：level 与下次复习时间', async () => {
+  it('渲染两维状态：stability 天数、阶段与下次复习时间', async () => {
     renderDetail();
     await screen.findByRole('heading', { name: 'resilient' });
 
     expect(screen.getByText('理解')).toBeVisible();
     expect(screen.getByText('输出')).toBeVisible();
-    expect(screen.getByText('L4')).toBeVisible();
-    expect(screen.getByText('L2')).toBeVisible();
+    expect(screen.getByText('S45天')).toBeVisible();
+    expect(screen.getByText('熟练')).toBeVisible();
+    expect(screen.getByText('—')).toBeVisible();
+    expect(screen.getByText('未开始')).toBeVisible();
     expect(screen.getByText('2026-09-25')).toBeVisible();
     expect(screen.getByText('未安排')).toBeVisible();
   });

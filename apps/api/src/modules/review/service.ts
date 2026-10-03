@@ -1,14 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, isNotNull, lte } from 'drizzle-orm';
 import {
-  BASIC_PASS_INTERVAL_FACTOR,
-  FAIL_INTERVAL_FACTOR,
-  INTERVALS_DAYS,
-  LEVEL_MAX,
-  LEVEL_MIN,
-  MIN_INTERVAL_DAYS,
   PRODUCTION_FIRST_REVIEW_DELAY_DAYS,
-  TOO_EASY_EXTRA_LEVELS,
   localDateString,
   type ReviewDimension,
 } from '@el/shared';
@@ -16,6 +9,7 @@ import { learningItems, reviewStates } from '../../db/schema.js';
 import { effectiveProductionEnabled, isMastered } from './goals.js';
 import type { DbExecutor, DbTx } from '../questions/service.js';
 import type { ReviewOutcome } from './fsrs-engine.js';
+import { advanceCard, cardFromSnapshot, ratingOf } from './fsrs-engine.js';
 
 export { isMastered } from './goals.js';
 
@@ -24,10 +18,12 @@ export { isMastered } from './goals.js';
 /** ReviewOutcome 定义已移至 fsrs-engine.ts（避免循环引用）；re-export 保持消费方 import 路径不变 */
 export type { ReviewOutcome } from './fsrs-engine.js';
 
-/** 维度复习状态快照（纯函数进出；时间一律 ISO UTC 字符串） */
+/** 维度复习状态快照（纯函数进出；时间一律 ISO UTC 字符串；D/S NULL=未激活） */
 export interface ReviewStateSnapshot {
-  level: number;
-  stable: boolean;
+  difficulty: number | null;
+  stability: number | null;
+  reps: number;
+  lapses: number;
   nextReviewAt: string | null;
   lastReviewAt: string | null;
   correctStreak: number;
@@ -42,14 +38,12 @@ function addDaysIso(now: Date, days: number): string {
   return new Date(now.getTime() + Math.round(days * MS_PER_DAY)).toISOString();
 }
 
-/** L0（未激活）没有对应间隔，按 L1 处理（PRODUCT §6.2 阶梯） */
-function intervalAt(level: number): number {
-  return INTERVALS_DAYS[Math.min(Math.max(level, LEVEL_MIN), LEVEL_MAX) - 1]!;
-}
-
-const INACTIVE_SNAPSHOT: ReviewStateSnapshot = {
-  level: 0,
-  stable: false,
+/** 未激活快照（D/S/reps/lapses 全零，无排期） */
+export const INACTIVE_SNAPSHOT: ReviewStateSnapshot = {
+  difficulty: null,
+  stability: null,
+  reps: 0,
+  lapses: 0,
   nextReviewAt: null,
   lastReviewAt: null,
   correctStreak: 0,
@@ -58,8 +52,10 @@ const INACTIVE_SNAPSHOT: ReviewStateSnapshot = {
 
 function toSnapshot(row: typeof reviewStates.$inferSelect): ReviewStateSnapshot {
   return {
-    level: row.level,
-    stable: row.stable === 1,
+    difficulty: row.difficulty,
+    stability: row.stability,
+    reps: row.reps,
+    lapses: row.lapses,
     nextReviewAt: row.nextReviewAt,
     lastReviewAt: row.lastReviewAt,
     correctStreak: row.correctStreak,
@@ -67,67 +63,50 @@ function toSnapshot(row: typeof reviewStates.$inferSelect): ReviewStateSnapshot 
   };
 }
 
-// ---------- 状态机纯函数（PRODUCT_DESIGN §6.2 + Phase 3 确认默认值）----------
+// ---------- 状态机纯函数（FSRS 换轨，PRODUCT_DESIGN §6.2 2026-10）----------
 
 /**
- * pass：level+1（封顶 7），next = 新级间隔；L7 到期再 pass → stable（吸收态，不再排期）。
- * basic_pass：level 不变，next = 当前级间隔 × 0.5（min 1 天）。
- * fail：level-1（min 1；L0 输入按 1 处理不降），next = 降级后间隔 × 0.5（min 1 天）。
- * tooEasy（仅 pass）：额外 +1 级，仍封顶 7 / 不提前 stable。
- * streaks：pass 记对；basic_pass 双清零；fail 记错。
+ * 单次作答演进：行快照 → FSRS Card → 按 outcome 评分推进 → 映射回快照。
+ * 间隔 clamp（1..365 天）在 fsrs-engine.advanceCard 内；mastered 项照常排期（无 null 吸收态）。
+ * streaks 规则不变：pass 记对；basic_pass/fail 清对；fail 记错。
  */
 export function computeNextReviewState(
   current: ReviewStateSnapshot,
   outcome: ReviewOutcome,
   now: Date,
 ): ReviewStateSnapshot {
-  let level = current.level;
-  let stable = current.stable;
-  let intervalDays: number;
-
-  if (outcome.kind === 'pass') {
-    if (current.stable) {
-      // stable 吸收态：保持 L7/stable，不排期
-      intervalDays = INTERVALS_DAYS[LEVEL_MAX - 1]!;
-    } else {
-      const extra = outcome.tooEasy === true ? TOO_EASY_EXTRA_LEVELS : 0;
-      level = Math.min(current.level + 1 + extra, LEVEL_MAX);
-      stable = current.level >= LEVEL_MAX; // L7 到期再 pass → stable
-      intervalDays = INTERVALS_DAYS[level - 1]!;
-    }
-  } else if (outcome.kind === 'basic_pass') {
-    intervalDays = Math.max(
-      intervalAt(current.level) * BASIC_PASS_INTERVAL_FACTOR,
-      MIN_INTERVAL_DAYS,
-    );
-  } else {
-    level = Math.max(current.level - 1, LEVEL_MIN);
-    intervalDays = Math.max(INTERVALS_DAYS[level - 1]! * FAIL_INTERVAL_FACTOR, MIN_INTERVAL_DAYS);
-  }
+  const card = advanceCard(cardFromSnapshot(current, now), now, ratingOf(outcome));
 
   const correctStreak = outcome.kind === 'pass' ? current.correctStreak + 1 : 0;
   const wrongStreak = outcome.kind === 'fail' ? current.wrongStreak + 1 : 0;
 
   return {
-    level,
-    stable,
-    nextReviewAt: stable ? null : addDaysIso(now, intervalDays),
+    difficulty: card.difficulty,
+    stability: card.stability,
+    reps: card.reps,
+    lapses: card.lapses,
+    nextReviewAt: card.due.toISOString(),
     lastReviewAt: now.toISOString(),
     correctStreak,
     wrongStreak,
   };
 }
 
-/** Learn 首道理解题答对：U 进入 L1，next=+1d，记一次答对（PRODUCT §6.3） */
-export function initialUnderstandingAfterLearn(now: Date): ReviewStateSnapshot {
-  return computeNextReviewState(INACTIVE_SNAPSHOT, { kind: 'pass' }, now);
+/** Learn 首答即首评分：直接以判定 outcome 从未激活态建 U 卡（PRODUCT §6.3 方案 A） */
+export function initialUnderstandingAfterLearn(
+  outcome: ReviewOutcome,
+  now: Date,
+): ReviewStateSnapshot {
+  return computeNextReviewState(INACTIVE_SNAPSHOT, outcome, now);
 }
 
-/** Production 首次激活：L0、next=+1d（激活但未首答） */
+/** Production 首次激活：D/S 未激活、reps/lapses=0、next=+1d（激活但未首答） */
 export function initialProductionActivation(now: Date): ReviewStateSnapshot {
   return {
-    level: 0,
-    stable: false,
+    difficulty: null,
+    stability: null,
+    reps: 0,
+    lapses: 0,
     nextReviewAt: addDaysIso(now, PRODUCTION_FIRST_REVIEW_DELAY_DAYS),
     lastReviewAt: null,
     correctStreak: 0,
@@ -173,7 +152,15 @@ export function ensureProductionDueAfterGoalEnabled(
     .from(reviewStates)
     .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, 'production')))
     .get();
-  if (p && (p.level !== 0 || p.stable !== 0 || p.nextReviewAt !== null || p.lastReviewAt !== null))
+  if (
+    p &&
+    (p.difficulty !== null ||
+      p.stability !== null ||
+      p.reps !== 0 ||
+      p.lapses !== 0 ||
+      p.nextReviewAt !== null ||
+      p.lastReviewAt !== null)
+  )
     return;
   const today = localDateString(now, timezone);
   const nextDay = new Date(Date.parse(`${today}T00:00:00.000Z`) + MS_PER_DAY)
@@ -199,8 +186,10 @@ export function ensureProductionDueAfterGoalEnabled(
         id: randomUUID(),
         learningItemId: itemId,
         dimension: 'production',
-        level: 0,
-        stable: 0,
+        difficulty: null,
+        stability: null,
+        reps: 0,
+        lapses: 0,
         nextReviewAt,
         lastReviewAt: null,
         correctStreak: 0,
@@ -235,8 +224,10 @@ export function advanceReviewState(
   const post = computeNextReviewState(pre ?? INACTIVE_SNAPSHOT, outcome, now);
 
   const values = {
-    level: post.level,
-    stable: post.stable ? 1 : 0,
+    difficulty: post.difficulty,
+    stability: post.stability,
+    reps: post.reps,
+    lapses: post.lapses,
     nextReviewAt: post.nextReviewAt,
     lastReviewAt: post.lastReviewAt,
     correctStreak: post.correctStreak,

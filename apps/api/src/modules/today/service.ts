@@ -46,7 +46,7 @@ import {
   type QuestionPoolType,
   type QuestionRow,
 } from '../questions/service.js';
-import { effectiveProductionEnabled } from '../review/goals.js';
+import { effectiveProductionEnabled, isMastered } from '../review/goals.js';
 import {
   maybeSavePersonalExample,
   trimProductionHistory,
@@ -66,10 +66,12 @@ export type QuestionKind = QuestionPoolType;
 // 依赖接口（review / questions 模块的适配层；默认绑定真实模块，测试可注入 fake）
 // ---------------------------------------------------------------------------
 
-/** 单维度复习状态快照（review_states 行的业务投影） */
+/** 单维度复习状态快照（review_states 行的业务投影；D/S NULL=未激活） */
 export interface DimSnapshot {
-  level: number;
-  stable: boolean;
+  difficulty: number | null;
+  stability: number | null;
+  reps: number;
+  lapses: number;
   nextReviewAt: string | null;
   lastReviewAt: string | null;
   correctStreak: number;
@@ -132,7 +134,7 @@ export interface TodayDeps {
     outcome: ReviewOutcomeInput,
     now: Date,
   ): { pre: DimSnapshot | null; post: DimSnapshot };
-  initialUnderstandingAfterLearn(now: Date): DimSnapshot;
+  initialUnderstandingAfterLearn(outcome: ReviewOutcomeInput, now: Date): DimSnapshot;
   initialProductionActivation(now: Date): DimSnapshot;
   acquire(
     exec: DbExecutor,
@@ -179,8 +181,10 @@ function toDimSnapshot(result: unknown): DimSnapshot {
   }
   const r = result as Record<string, unknown>;
   return {
-    level: typeof r.level === 'number' ? r.level : 0,
-    stable: r.stable === true || r.stable === 1,
+    difficulty: typeof r.difficulty === 'number' ? r.difficulty : null,
+    stability: typeof r.stability === 'number' ? r.stability : null,
+    reps: typeof r.reps === 'number' ? r.reps : 0,
+    lapses: typeof r.lapses === 'number' ? r.lapses : 0,
     nextReviewAt: typeof r.nextReviewAt === 'string' ? r.nextReviewAt : null,
     lastReviewAt: typeof r.lastReviewAt === 'string' ? r.lastReviewAt : null,
     correctStreak: typeof r.correctStreak === 'number' ? r.correctStreak : 0,
@@ -210,7 +214,7 @@ export async function loadRealTodayDeps(): Promise<TodayDeps> {
         pre: DimSnapshot | null;
         post: DimSnapshot;
       },
-    initialUnderstandingAfterLearn: (now) => toDimSnapshot(initialUFn(now)),
+    initialUnderstandingAfterLearn: (outcome, now) => toDimSnapshot(initialUFn(outcome, now)),
     initialProductionActivation: (now) => toDimSnapshot(initialPFn(now)),
     acquire: (exec, itemId, type, now, excludeQuestionIds) =>
       (acquireFn(exec, itemId, type, now, excludeQuestionIds) as QuestionRow | null | undefined) ??
@@ -263,8 +267,10 @@ function requireTask(exec: DbExecutor, taskId: string): TaskRow {
 function rowToDim(row: ReviewStateRow): DimSnapshot & { id: string } {
   return {
     id: row.id,
-    level: row.level,
-    stable: row.stable === 1,
+    difficulty: row.difficulty,
+    stability: row.stability,
+    reps: row.reps,
+    lapses: row.lapses,
     nextReviewAt: row.nextReviewAt,
     lastReviewAt: row.lastReviewAt,
     correctStreak: row.correctStreak,
@@ -304,6 +310,33 @@ function parseSnapshot(json: string | null): StateSnapshot | null {
   }
 }
 
+/** 撤销恢复用行值：旧快照（FSRS 前，无 D/S/reps/lapses 字段）对新字段保持现值（沿用 optional 兼容模式） */
+function restoreDimValues(
+  itemId: string,
+  dim: Dimension,
+  snap: Partial<DimSnapshot> & { id: string },
+  current: ReviewStateRow | undefined,
+  nowIso: string,
+): typeof reviewStates.$inferInsert {
+  // undefined=旧快照缺字段 → 保持现值；null 是合法值（未激活），必须原样恢复
+  const keep = <T>(snapVal: T | undefined, currentVal: T | undefined, fallback: T): T =>
+    snapVal === undefined ? (currentVal ?? fallback) : snapVal;
+  return {
+    id: snap.id,
+    learningItemId: itemId,
+    dimension: dim,
+    difficulty: keep(snap.difficulty, current?.difficulty, null),
+    stability: keep(snap.stability, current?.stability, null),
+    reps: keep(snap.reps, current?.reps, 0),
+    lapses: keep(snap.lapses, current?.lapses, 0),
+    nextReviewAt: snap.nextReviewAt ?? null,
+    lastReviewAt: snap.lastReviewAt ?? null,
+    correctStreak: snap.correctStreak ?? 0,
+    wrongStreak: snap.wrongStreak ?? 0,
+    updatedAt: nowIso,
+  };
+}
+
 /** 坏题撤销 / 反馈重算前：把单个维度恢复为快照值（快照为 null 则删除该行） */
 function restoreDimState(
   exec: DbExecutor,
@@ -312,6 +345,11 @@ function restoreDimState(
   snap: (DimSnapshot & { id: string }) | null,
   nowIso: string,
 ): void {
+  const current = exec
+    .select()
+    .from(reviewStates)
+    .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, dim)))
+    .get();
   exec
     .delete(reviewStates)
     .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, dim)))
@@ -319,18 +357,7 @@ function restoreDimState(
   if (snap) {
     exec
       .insert(reviewStates)
-      .values({
-        id: snap.id,
-        learningItemId: itemId,
-        dimension: dim,
-        level: snap.level,
-        stable: snap.stable ? 1 : 0,
-        nextReviewAt: snap.nextReviewAt,
-        lastReviewAt: snap.lastReviewAt,
-        correctStreak: snap.correctStreak,
-        wrongStreak: snap.wrongStreak,
-        updatedAt: nowIso,
-      })
+      .values(restoreDimValues(itemId, dim, snap, current, nowIso))
       .run();
   }
 }
@@ -344,8 +371,10 @@ function writeDimState(
   nowIso: string,
 ): void {
   const values = {
-    level: next.level,
-    stable: next.stable ? 1 : 0,
+    difficulty: next.difficulty,
+    stability: next.stability,
+    reps: next.reps,
+    lapses: next.lapses,
     nextReviewAt: next.nextReviewAt,
     lastReviewAt: next.lastReviewAt,
     correctStreak: next.correctStreak,
@@ -375,27 +404,18 @@ function restoreSnapshot(
   nowIso: string,
 ): void {
   for (const dim of ['understanding', 'production'] as const) {
+    const current = exec
+      .select()
+      .from(reviewStates)
+      .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, dim)))
+      .get();
     exec
       .delete(reviewStates)
       .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, dim)))
       .run();
     const pre = snap.reviewStates[dim];
     if (pre) {
-      exec
-        .insert(reviewStates)
-        .values({
-          id: pre.id,
-          learningItemId: itemId,
-          dimension: dim,
-          level: pre.level,
-          stable: pre.stable ? 1 : 0,
-          nextReviewAt: pre.nextReviewAt,
-          lastReviewAt: pre.lastReviewAt,
-          correctStreak: pre.correctStreak,
-          wrongStreak: pre.wrongStreak,
-          updatedAt: nowIso,
-        })
-        .run();
+      exec.insert(reviewStates).values(restoreDimValues(itemId, dim, pre, current, nowIso)).run();
     }
   }
   exec
@@ -795,7 +815,6 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
       and(
         eq(learningItems.status, 'active'),
         eq(learningItems.queueState, 'started'),
-        eq(reviewStates.stable, 0),
         isNotNull(reviewStates.nextReviewAt),
         lte(reviewStates.nextReviewAt, nowIso),
       ),
@@ -1033,7 +1052,6 @@ async function startTodaySessionInner(
       and(
         eq(learningItems.status, 'active'),
         eq(learningItems.queueState, 'started'),
-        eq(reviewStates.stable, 0),
         isNotNull(reviewStates.nextReviewAt),
         lte(reviewStates.nextReviewAt, nowIso),
       ),
@@ -1658,13 +1676,23 @@ export async function answerTodayTask(
     const itemId = task.learningItemId;
     const pre = snapshotOf(tx, itemId);
     const reinforcementIds: string[] = [];
+    // easy（三档「简单」）= pass + tooEasy（FSRS Easy 评分）；learn 首答与非 learn 复习共用映射
+    const easyRecall = isRecallTask && body.recall === 'easy';
+    const settleOutcome: ReviewOutcomeInput = easyRecall
+      ? { kind: 'pass', tooEasy: true }
+      : { kind: result };
 
     if (task.taskType === 'learn') {
-      // Learn Recall（方案 A）：三档路径都完成新学——初始化 U(L1)+P 激活；
-      // recalled/easy 初始状态完全一致（首学无前序间隔，easy 不跳步、等同 pass）；
-      // forgot/assisted 的揭示即教学时刻，明日以 Recall 短间隔回归。
+      // Learn Recall（方案 A）：三档路径都完成新学——首答判定即首次 Rating 建 U 卡 + P 激活；
+      // forgot/assisted 的揭示即教学时刻，明日以短间隔回归；easy 首答即 Easy 评分。
       // 无论对错都已开始学 → queue_state='started' 且当日额度 +1。
-      writeDimState(tx, itemId, 'understanding', deps.initialUnderstandingAfterLearn(now), nowIso);
+      writeDimState(
+        tx,
+        itemId,
+        'understanding',
+        deps.initialUnderstandingAfterLearn(settleOutcome, now),
+        nowIso,
+      );
       const item = tx.select().from(learningItems).where(eq(learningItems.id, itemId)).get()!;
       if (effectiveProductionEnabled(item)) {
         writeDimState(tx, itemId, 'production', deps.initialProductionActivation(now), nowIso);
@@ -1679,18 +1707,9 @@ export async function answerTodayTask(
         .where(eq(reviewSessions.id, session.id))
         .run();
     } else {
-      // 普通复习：review.advanceReviewState 推进该维度（含 streak 写回与 mastered 判定）。
-      // easy（三档「简单」）：U 维度结算等同 pass（streak/统计照常累计、计入通过），
-      // 唯一区别是间隔跳两步（复用 pass+tooEasy：TOO_EASY_EXTRA_LEVELS=1 → +1+1，封顶 7）。
-      // learn 首学不在此分支（首学 easy 等同 pass，无前序间隔不跳步，见上方 learn 分支注释）。
-      const easyRecall = isRecallTask && body.recall === 'easy';
-      deps.advance(
-        tx,
-        itemId,
-        task.dimension as Dimension,
-        easyRecall ? { kind: 'pass', tooEasy: true } : { kind: result },
-        now,
-      );
+      // 普通复习：review.advanceReviewState（FSRS）推进该维度（含 streak 写回与 mastered 判定）。
+      // easy（三档「简单」）：结算等同 pass 计入通过，评分映射为 FSRS Easy（间隔更长）。
+      deps.advance(tx, itemId, task.dimension as Dimension, settleOutcome, now);
       bumpDailyStats(
         tx,
         session.sessionDate,
@@ -2308,9 +2327,37 @@ export function submitTaskFeedback(
         .from(reviewStates)
         .where(eq(reviewStates.learningItemId, itemId))
         .all();
-      const allStable = states.length === 2 && states.every((s) => s.stable === 1);
+      const u = states.find((s) => s.dimension === 'understanding');
+      const p = states.find((s) => s.dimension === 'production');
       const item = tx.select().from(learningItems).where(eq(learningItems.id, itemId)).get();
-      if (!allStable && item?.status === 'mastered') {
+      const stillMastered =
+        !!u &&
+        !!p &&
+        !!item &&
+        isMastered(
+          {
+            difficulty: u.difficulty,
+            stability: u.stability,
+            reps: u.reps,
+            lapses: u.lapses,
+            nextReviewAt: u.nextReviewAt,
+            lastReviewAt: u.lastReviewAt,
+            correctStreak: u.correctStreak,
+            wrongStreak: u.wrongStreak,
+          },
+          {
+            difficulty: p.difficulty,
+            stability: p.stability,
+            reps: p.reps,
+            lapses: p.lapses,
+            nextReviewAt: p.nextReviewAt,
+            lastReviewAt: p.lastReviewAt,
+            correctStreak: p.correctStreak,
+            wrongStreak: p.wrongStreak,
+          },
+          effectiveProductionEnabled(item),
+        );
+      if (!stillMastered && item?.status === 'mastered') {
         tx.update(learningItems)
           .set({ status: 'active', updatedAt: nowIso })
           .where(eq(learningItems.id, itemId))

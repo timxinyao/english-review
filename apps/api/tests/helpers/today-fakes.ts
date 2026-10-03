@@ -1,8 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
-import { INTERVALS_DAYS } from '@el/shared';
+import { MASTERED_STABILITY_DAYS } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
 import { learningItems, questions, reviewStates } from '../../src/db/schema.js';
+import {
+  advanceCard,
+  cardFromSnapshot,
+  ratingOf,
+} from '../../src/modules/review/fsrs-engine.js';
 import type {
   DbExecutor,
   DbTx,
@@ -24,43 +29,27 @@ function isoPlusDays(now: Date, days: number): string {
   return new Date(now.getTime() + Math.round(days * MS_PER_DAY)).toISOString();
 }
 
-/** 与 review.computeNextReviewState 相同的阶梯公式（镜像真实模块，保证 fake 语义一致） */
+/** 未激活快照（与 review.INACTIVE_SNAPSHOT 同形） */
 const INACTIVE: DimSnapshot = {
-  level: 0,
-  stable: false,
+  difficulty: null,
+  stability: null,
+  reps: 0,
+  lapses: 0,
   nextReviewAt: null,
   lastReviewAt: null,
   correctStreak: 0,
   wrongStreak: 0,
 };
 
-function intervalAt(level: number): number {
-  return INTERVALS_DAYS[Math.min(Math.max(level, 1), 7) - 1]!;
-}
-
+/** 与 review.computeNextReviewState 相同的 FSRS 推进（直接复用 fsrs-engine，保证 fake 语义一致） */
 function computeNext(current: DimSnapshot, outcome: ReviewOutcomeInput, now: Date): DimSnapshot {
-  let level = current.level;
-  let stable = current.stable;
-  let intervalDays: number;
-  if (outcome.kind === 'pass') {
-    if (current.stable) {
-      intervalDays = INTERVALS_DAYS[6]!;
-    } else {
-      const extra = outcome.tooEasy === true ? 1 : 0;
-      level = Math.min(current.level + 1 + extra, 7);
-      stable = current.level >= 7;
-      intervalDays = INTERVALS_DAYS[level - 1]!;
-    }
-  } else if (outcome.kind === 'basic_pass') {
-    intervalDays = Math.max(intervalAt(current.level) * 0.5, 1);
-  } else {
-    level = Math.max(current.level - 1, 1);
-    intervalDays = Math.max(INTERVALS_DAYS[level - 1]! * 0.5, 1);
-  }
+  const card = advanceCard(cardFromSnapshot(current, now), now, ratingOf(outcome));
   return {
-    level,
-    stable,
-    nextReviewAt: stable ? null : isoPlusDays(now, intervalDays),
+    difficulty: card.difficulty,
+    stability: card.stability,
+    reps: card.reps,
+    lapses: card.lapses,
+    nextReviewAt: card.due.toISOString(),
     lastReviewAt: now.toISOString(),
     correctStreak: outcome.kind === 'pass' ? current.correctStreak + 1 : 0,
     wrongStreak: outcome.kind === 'fail' ? current.wrongStreak + 1 : 0,
@@ -75,8 +64,10 @@ function upsertDimState(
   nowIso: string,
 ): void {
   const values = {
-    level: next.level,
-    stable: next.stable ? 1 : 0,
+    difficulty: next.difficulty,
+    stability: next.stability,
+    reps: next.reps,
+    lapses: next.lapses,
     nextReviewAt: next.nextReviewAt,
     lastReviewAt: next.lastReviewAt,
     correctStreak: next.correctStreak,
@@ -97,8 +88,10 @@ function upsertDimState(
 
 function rowToDim(row: typeof reviewStates.$inferSelect): DimSnapshot {
   return {
-    level: row.level,
-    stable: row.stable === 1,
+    difficulty: row.difficulty,
+    stability: row.stability,
+    reps: row.reps,
+    lapses: row.lapses,
     nextReviewAt: row.nextReviewAt,
     lastReviewAt: row.lastReviewAt,
     correctStreak: row.correctStreak,
@@ -135,7 +128,7 @@ function productionPayloadOf(
 
 /**
  * 按真实模块语义实现的 review / questions fake（公式与排序镜像 src/modules/{review,questions}）：
- * - advance = advanceReviewState：读行→计算→写回→两维 stable 置 mastered
+ * - advance = advanceReviewState：读行→计算（fsrs-engine）→写回→两维 S≥120 置 mastered
  * - acquire 按 lastUsedAt 最旧优先（支持测试用排除列表）
  * - generate 插入一道确定题（cloze 遵循 promptText 存 text_with_blank 的约定）
  * - evaluateProduction：mustUse 归一化包含于答案 → pass（eligible，0.9）；否则 fail
@@ -153,13 +146,16 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
       const post = computeNext(pre ?? INACTIVE, outcome, now);
       upsertDimState(tx, itemId, dimension, post, nowIso);
 
-      // 两维均 stable → mastered（与真实 advanceReviewState 一致）
+      // 两维均越过掌握线（S≥120）→ mastered（与真实 advanceReviewState 一致）
       const states = tx
         .select()
         .from(reviewStates)
         .where(eq(reviewStates.learningItemId, itemId))
         .all();
-      if (states.length === 2 && states.every((s) => s.stable === 1)) {
+      if (
+        states.length === 2 &&
+        states.every((s) => typeof s.stability === 'number' && s.stability >= MASTERED_STABILITY_DAYS)
+      ) {
         tx.update(learningItems)
           .set({ status: 'mastered', updatedAt: nowIso })
           .where(eq(learningItems.id, itemId))
@@ -167,13 +163,15 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
       }
       return { pre, post };
     },
-    initialUnderstandingAfterLearn(now) {
-      return computeNext(INACTIVE, { kind: 'pass' }, now); // L1、next=+1d、记一次答对
+    initialUnderstandingAfterLearn(outcome, now) {
+      return computeNext(INACTIVE, outcome, now); // 首答即首评分建 U
     },
     initialProductionActivation(now) {
       return {
-        level: 0,
-        stable: false,
+        difficulty: null,
+        stability: null,
+        reps: 0,
+        lapses: 0,
         nextReviewAt: isoPlusDays(now, 1),
         lastReviewAt: null,
         correctStreak: 0,

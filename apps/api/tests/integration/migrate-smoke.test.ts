@@ -36,6 +36,23 @@ describe('migration smoke', () => {
     expect(() => runMigrations(db)).not.toThrow();
   });
 
+  it('review_states 迁移后为 FSRS 列：D/S 可空、reps/lapses 默认 0，level/stable 已删', () => {
+    const db = createDatabase(':memory:');
+    runMigrations(db);
+    const columns = rawSqlite(db).prepare('PRAGMA table_info(review_states)').all() as {
+      name: string;
+      dflt_value: string | null;
+      notnull: number;
+    }[];
+    const byName = new Map(columns.map((c) => [c.name, c]));
+    expect(byName.has('level')).toBe(false);
+    expect(byName.has('stable')).toBe(false);
+    expect(byName.get('difficulty')).toMatchObject({ dflt_value: null, notnull: 0 });
+    expect(byName.get('stability')).toMatchObject({ dflt_value: null, notnull: 0 });
+    expect(byName.get('reps')).toMatchObject({ dflt_value: '0', notnull: 1 });
+    expect(byName.get('lapses')).toMatchObject({ dflt_value: '0', notnull: 1 });
+  });
+
   it('旧记录迁移后新增覆盖列默认为 NULL，并限制为 0/1/NULL', () => {
     const db = createDatabase(':memory:');
     runMigrations(db);

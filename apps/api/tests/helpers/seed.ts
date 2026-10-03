@@ -123,8 +123,10 @@ export async function seedReviewState(
   await db.insert(reviewStates).values({
     learningItemId: itemId,
     dimension,
-    level: 0,
-    stable: 0,
+    difficulty: null,
+    stability: null,
+    reps: 0,
+    lapses: 0,
     nextReviewAt: null,
     lastReviewAt: null,
     correctStreak: 0,

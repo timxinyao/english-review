@@ -47,7 +47,9 @@ describe('V2 pending task binding', () => {
     for (let i = 0; i < 100; i += 1) {
       await seedItem(db, { id: `due-${i}`, target: `due-${i}`, queueState: 'started' });
       await seedReviewState(db, `due-${i}`, 'understanding', {
-        level: 2,
+        difficulty: 5,
+        stability: 5,
+        reps: 2,
         nextReviewAt: YESTERDAY_ISO,
       });
       if (i > 0) await seedQuestion(db, `due-${i}`, { type: 'understanding' });
@@ -81,7 +83,9 @@ describe('V2 pending task binding', () => {
   it('leaves failed preparation pending and binds one question on retry', async () => {
     await seedItem(db, { id: 'pending', target: 'pending', queueState: 'started' });
     await seedReviewState(db, 'pending', 'understanding', {
-      level: 2,
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
       nextReviewAt: YESTERDAY_ISO,
     });
     const started = await startTodaySession(db, deps, TZ, NOW);
@@ -152,7 +156,9 @@ describe('V2 pending task binding', () => {
     await seedItem(db, { id: 'target-race', target: 'old target', queueState: 'started' });
     await seedExample(db, 'target-race', 'source', 'The old target appears here.');
     await seedReviewState(db, 'target-race', 'understanding', {
-      level: 2,
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
       nextReviewAt: YESTERDAY_ISO,
     });
     const started = await startTodaySession(db, deps, TZ, NOW);
@@ -204,7 +210,9 @@ describe('V2 pending task binding', () => {
     await seedItem(db, { id: 'target-race-real', target: 'old target', queueState: 'started' });
     await seedExample(db, 'target-race-real', 'source', 'The old target appears here.');
     await seedReviewState(db, 'target-race-real', 'understanding', {
-      level: 2,
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
       nextReviewAt: YESTERDAY_ISO,
     });
     const started = await startTodaySession(db, deps, TZ, NOW);
@@ -252,8 +260,11 @@ async function seedDueItem(
   await seedItem(db, { id: itemId, target: itemId, queueState: 'started', ...overrides });
   for (const dim of dims) {
     await seedReviewState(db, itemId, dim, {
-      level: dim === 'understanding' ? 3 : 1,
+      difficulty: 5,
+      stability: dim === 'understanding' ? 15 : 2,
+      reps: dim === 'understanding' ? 3 : 1,
       nextReviewAt: YESTERDAY_ISO,
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
     });
     await seedQuestion(db, itemId, {
       type: dim === 'understanding' ? 'understanding' : 'cloze',
@@ -376,14 +387,20 @@ describe('GET 状态：三态映射（getTodayStatus）', () => {
     expect(res.newTodayAvailable).toBe(7); // 候选充足，剩余额度 10-3
   });
 
-  it('dueItems 排除 stable 维度与非 active / 非 started 项', async () => {
+  it('dueItems 排除 mastered 项与非 active / 非 started 项（FSRS：掌握项照常排期，但 status=mastered 不进 due）', async () => {
     await seedDueItem('paused-item', ['understanding'], { status: 'paused' });
     await seedDueItem('archived-item', ['understanding'], { status: 'archived' });
     await seedDueItem('queued-item', ['understanding'], { queueState: 'new' });
-    await seedItem(db, { id: 'stable-item', target: 'stable-item', queueState: 'started' });
+    await seedItem(db, {
+      id: 'stable-item',
+      target: 'stable-item',
+      queueState: 'started',
+      status: 'mastered',
+    });
     await seedReviewState(db, 'stable-item', 'understanding', {
-      level: 7,
-      stable: 1,
+      difficulty: 5,
+      stability: 130,
+      reps: 8,
       nextReviewAt: YESTERDAY_ISO,
     });
 
@@ -582,7 +599,12 @@ describe('POST start：session 创建与幂等', () => {
     await seedDueItem('item-a', ['understanding']);
     // item-b 到期但无题
     await seedItem(db, { id: 'item-b', target: 'item-b', queueState: 'started' });
-    await seedReviewState(db, 'item-b', 'understanding', { level: 2, nextReviewAt: YESTERDAY_ISO });
+    await seedReviewState(db, 'item-b', 'understanding', {
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
+      nextReviewAt: YESTERDAY_ISO,
+    });
     const failing = createFakeDeps({ generateFailFor: new Set(['item-b:understanding']) });
 
     const res = await startTodaySession(db, failing, TZ, NOW);
@@ -629,11 +651,18 @@ describe('due 查询边界', () => {
   it('next_review_at 恰好等于 now 视为到期；未到期不算', async () => {
     await seedItem(db, { id: 'exact', target: 'exact', queueState: 'started' });
     await seedReviewState(db, 'exact', 'understanding', {
-      level: 2,
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
       nextReviewAt: NOW.toISOString(),
     });
     await seedItem(db, { id: 'future', target: 'future', queueState: 'started' });
-    await seedReviewState(db, 'future', 'understanding', { level: 2, nextReviewAt: FUTURE_ISO });
+    await seedReviewState(db, 'future', 'understanding', {
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
+      nextReviewAt: FUTURE_ISO,
+    });
 
     const res = getTodayStatus(db, TZ, NOW);
     if (res.status !== 'idle') throw new Error('应处于 idle');
@@ -647,7 +676,9 @@ describe('prepare 并发安全与 start 非阻塞', () => {
     for (const [i, id] of ids.entries()) {
       await seedItem(db, { id, target: id, queueState: 'started' });
       await seedReviewState(db, id, 'understanding', {
-        level: 2,
+        difficulty: 5,
+        stability: 5,
+        reps: 2,
         nextReviewAt: new Date(Date.parse(YESTERDAY_ISO) + i * 60_000).toISOString(),
       });
     }

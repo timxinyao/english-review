@@ -36,7 +36,7 @@ async function seedReadyItem(): Promise<string> {
 }
 
 describe('advanceReviewState', () => {
-  it('行不存在 → pre=null 并创建行', async () => {
+  it('行不存在 → pre=null 并创建行（未激活 + Good 建卡）', async () => {
     const itemId = await seedReadyItem();
     let pre: unknown;
     let post: unknown;
@@ -44,13 +44,14 @@ describe('advanceReviewState', () => {
       ({ pre, post } = advanceReviewState(tx, itemId, 'understanding', { kind: 'pass' }, NOW));
     });
     expect(pre).toBeNull();
-    expect(post).toMatchObject({ level: 1, stable: false });
+    expect(post).toMatchObject({ reps: 1, lapses: 0, correctStreak: 1 });
 
     const row = stateRow(itemId, 'understanding');
     expect(row).not.toBeNull();
-    expect(row!.level).toBe(1);
-    expect(row!.stable).toBe(0);
-    expect(row!.nextReviewAt).toBe(new Date(NOW.getTime() + 86_400_000).toISOString());
+    expect(row!.difficulty).not.toBeNull();
+    expect(row!.stability).toBeGreaterThan(0);
+    expect(row!.reps).toBe(1);
+    expect(Date.parse(row!.nextReviewAt!) - NOW.getTime()).toBeGreaterThanOrEqual(86_400_000);
     expect(row!.lastReviewAt).toBe(NOW.toISOString());
     expect(row!.correctStreak).toBe(1);
     expect(row!.wrongStreak).toBe(0);
@@ -58,7 +59,12 @@ describe('advanceReviewState', () => {
 
   it('pre 返回原有快照，post 为推进结果并写回', async () => {
     const itemId = await seedReadyItem();
-    await seedReviewState(db, itemId, 'understanding', { level: 2 });
+    await seedReviewState(db, itemId, 'understanding', {
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
+    });
 
     let pre: ReviewStateSnapshot | null | undefined;
     let post: ReviewStateSnapshot | undefined;
@@ -69,23 +75,37 @@ describe('advanceReviewState', () => {
     });
 
     expect(pre).toEqual({
-      level: 2,
-      stable: false,
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
+      lapses: 0,
       nextReviewAt: null,
-      lastReviewAt: null,
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
       correctStreak: 0,
       wrongStreak: 0,
     });
-    expect(post!.level).toBe(3);
-    expect(stateRow(itemId, 'understanding')!.level).toBe(3);
+    expect(post!.reps).toBe(3);
+    expect(stateRow(itemId, 'understanding')!.reps).toBe(3);
   });
 
   it('只修改对应维度，另一维保持不变', async () => {
     const itemId = await seedReadyItem();
     const uNext = '2026-09-25T08:00:00.000Z';
     const pNext = '2026-09-26T08:00:00.000Z';
-    await seedReviewState(db, itemId, 'understanding', { level: 3, nextReviewAt: uNext });
-    await seedReviewState(db, itemId, 'production', { level: 2, nextReviewAt: pNext });
+    await seedReviewState(db, itemId, 'understanding', {
+      difficulty: 5,
+      stability: 15,
+      reps: 3,
+      nextReviewAt: uNext,
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
+    });
+    await seedReviewState(db, itemId, 'production', {
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
+      nextReviewAt: pNext,
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
+    });
     const pBefore = stateRow(itemId, 'production')!;
 
     db.transaction((tx: DbTx) => {
@@ -94,38 +114,61 @@ describe('advanceReviewState', () => {
 
     const u = stateRow(itemId, 'understanding')!;
     const p = stateRow(itemId, 'production')!;
-    expect(u.level).toBe(2); // fail 降级
-    expect(p.level).toBe(2); // 未动
+    expect(u.lapses).toBe(1); // fail 记错
+    expect(u.stability!).toBeLessThan(15);
+    expect(p.reps).toBe(2); // 未动
     expect(p.nextReviewAt).toBe(pNext);
     expect(p.updatedAt).toBe(pBefore.updatedAt);
     expect(p.lastReviewAt).toBe(pBefore.lastReviewAt);
   });
 
-  it('两维均 stable → item.status 变 mastered', async () => {
+  it('两维均越过掌握线 → item.status 变 mastered', async () => {
     const itemId = await seedReadyItem();
-    await seedReviewState(db, itemId, 'understanding', { level: 7, stable: 1, nextReviewAt: null });
-    await seedReviewState(db, itemId, 'production', { level: 7, stable: 0 });
+    await seedReviewState(db, itemId, 'understanding', {
+      difficulty: 5,
+      stability: 130,
+      reps: 8,
+      nextReviewAt: null,
+    });
+    await seedReviewState(db, itemId, 'production', {
+      difficulty: 5,
+      stability: 118,
+      reps: 7,
+      nextReviewAt: '2026-09-23T00:00:00.000Z',
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
+    });
 
     let post: ReturnType<typeof advanceReviewState>['post'] | undefined;
     db.transaction((tx: DbTx) => {
       post = advanceReviewState(tx, itemId, 'production', { kind: 'pass' }, NOW).post;
     });
 
-    expect(post!.stable).toBe(true);
+    expect(post!.stability!).toBeGreaterThanOrEqual(120);
     expect(itemRow(itemId).status).toBe('mastered');
   });
 
-  it('需造句的 Chunk 只有一维 stable 不触发 mastered', async () => {
+  it('需造句的 Chunk 只有一维越过掌握线不触发 mastered', async () => {
     const itemId = await seedReadyItem();
     db.update(learningItems).set({ type: 'chunk' }).where(eq(learningItems.id, itemId)).run();
-    await seedReviewState(db, itemId, 'understanding', { level: 7, stable: 1, nextReviewAt: null });
-    await seedReviewState(db, itemId, 'production', { level: 3, stable: 0 });
+    await seedReviewState(db, itemId, 'understanding', {
+      difficulty: 5,
+      stability: 130,
+      reps: 8,
+      nextReviewAt: null,
+    });
+    await seedReviewState(db, itemId, 'production', {
+      difficulty: 5,
+      stability: 15,
+      reps: 3,
+      nextReviewAt: '2026-09-23T00:00:00.000Z',
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
+    });
 
     db.transaction((tx: DbTx) => {
       advanceReviewState(tx, itemId, 'production', { kind: 'pass' }, NOW);
     });
 
-    expect(stateRow(itemId, 'production')!.level).toBe(4);
+    expect(stateRow(itemId, 'production')!.stability!).toBeLessThan(120);
     expect(itemRow(itemId).status).toBe('active');
   });
 });

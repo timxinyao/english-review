@@ -31,7 +31,13 @@ describe.skipIf(realDeps === null)('today 与 review/questions 真实模块绑�
     cookie = await loginCookie(ctx.app);
     setTodayDepsForTests(realDeps);
     await seedItem(ctx.db, { id: 'rb-1', target: 'stable', queueState: 'started' });
-    await seedReviewState(ctx.db, 'rb-1', 'understanding', { level: 3, nextReviewAt: dayAgo() });
+    await seedReviewState(ctx.db, 'rb-1', 'understanding', {
+      difficulty: 5,
+      stability: 15,
+      reps: 3,
+      nextReviewAt: dayAgo(),
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
+    });
     await seedQuestion(ctx.db, 'rb-1', {
       type: 'understanding',
       payloadJson: JSON.stringify({
@@ -88,7 +94,8 @@ describe.skipIf(realDeps === null)('today 与 review/questions 真实模块绑�
       .from(reviewStates)
       .where(eq(reviewStates.learningItemId, 'rb-1'))
       .get();
-    expect(state?.level).toBeGreaterThan(3);
+    expect(state!.stability).toBeGreaterThan(15); // Good 后 S 上升
+    expect(state?.reps).toBe(4);
     expect(state?.nextReviewAt).not.toBeNull();
   });
 
@@ -103,7 +110,13 @@ describe.skipIf(realDeps === null)('today 与 review/questions 真实模块绑�
       meaning: '逐渐消耗',
       queueState: 'started',
     });
-    await seedReviewState(isolated.db, itemId, 'production', { level: 1, nextReviewAt: dayAgo() });
+    await seedReviewState(isolated.db, itemId, 'production', {
+      difficulty: 5,
+      stability: 2,
+      reps: 1,
+      nextReviewAt: dayAgo(),
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
+    });
     for (let index = 0; index < 3; index++) {
       await seedQuestion(isolated.db, itemId, {
         id: `legacy-cloze-${index}`,

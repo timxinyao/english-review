@@ -19,6 +19,7 @@
  */
 import 'dotenv/config';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { stabilityStageLabel } from '@el/shared';
 import type {
   ImportPreviewResponse,
   LibraryItemDetail,
@@ -192,7 +193,7 @@ function fmtExamples(d: LibraryItemDetail): string {
   d.personalExamples.forEach((p) => lines.push(`personal${p.pinned ? '📌' : ''}: ${p.text}`));
   d.reviewStates.forEach((r) =>
     lines.push(
-      `${r.dimension === 'understanding' ? 'U' : 'P'}: L${r.level}${r.stable ? '(stable)' : ''} · 下次 ${r.nextReviewAt?.slice(0, 10) ?? '-'}`,
+      `${r.dimension === 'understanding' ? 'U' : 'P'}: ${r.stability === null ? '未开始' : `S${Math.round(r.stability)}天(${stabilityStageLabel(r.stability)})`} · 下次 ${r.nextReviewAt?.slice(0, 10) ?? '-'}`,
     ),
   );
   d.productionHistory

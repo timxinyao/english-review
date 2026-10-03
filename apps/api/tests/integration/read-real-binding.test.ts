@@ -29,7 +29,7 @@ describe.skipIf(realDeps === null)('read 与 AI 链路真实绑定', () => {
     setReadDepsForTests(realDeps);
     for (const id of ['rb-a', 'rb-b', 'rb-c']) {
       await seedItem(ctx.db, { id, target: id, meaning: `${id} 释义`, queueState: 'started' });
-      await seedReviewState(ctx.db, id, 'understanding', { level: 2 });
+      await seedReviewState(ctx.db, id, 'understanding', { difficulty: 5, stability: 5, reps: 2 });
     }
   });
 

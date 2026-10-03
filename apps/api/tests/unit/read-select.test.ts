@@ -56,15 +56,13 @@ function seedFail(itemId: string, at: string, voided = false): void {
     .run();
 }
 
-/** active+started 项 + U 维状态（level/lastReviewAt 可覆盖） */
+/** active+started 项 + U 维状态（stability/lastReviewAt 可覆盖；≥120=掌握） */
 async function seedActive(
   itemId: string,
   overrides: {
-    uLevel?: number;
-    uStable?: number;
+    uStability?: number;
     uLast?: string | null;
-    pLevel?: number | null;
-    pStable?: number;
+    pStability?: number | null;
     pWrongStreak?: number;
     pLast?: string | null;
     needsReinforcement?: number;
@@ -80,18 +78,20 @@ async function seedActive(
     needsReinforcement: overrides.needsReinforcement ?? 0,
   });
   await seedReviewState(db, itemId, 'understanding', {
-    level: overrides.uLevel ?? 3,
-    stable: overrides.uStable ?? 0,
+    difficulty: 5,
+    stability: overrides.uStability ?? 15,
+    reps: 3,
     lastReviewAt: overrides.uLast === undefined ? daysAgo(10) : overrides.uLast,
-    nextReviewAt: overrides.uStable ? null : daysAgo(1),
+    nextReviewAt: daysAgo(1),
   });
-  if (overrides.pLevel !== null) {
+  if (overrides.pStability !== null) {
     await seedReviewState(db, itemId, 'production', {
-      level: overrides.pLevel ?? 1,
-      stable: overrides.pStable ?? 0,
+      difficulty: 5,
+      stability: overrides.pStability ?? 5,
+      reps: 1,
       wrongStreak: overrides.pWrongStreak ?? 0,
       lastReviewAt: overrides.pLast === undefined ? daysAgo(10) : overrides.pLast,
-      nextReviewAt: overrides.pStable ? null : daysAgo(1),
+      nextReviewAt: daysAgo(1),
     });
   }
 }
@@ -142,13 +142,13 @@ describe('buildReadSelection：focus 弱项排序', () => {
     expect(sel.focusItems.map((f) => f.id)).toEqual(['item-fresh-fail', 'item-old-fail']);
   });
 
-  it('fail 数相同时按 production wrong_streak DESC，再按（激活维）level ASC', async () => {
+  it('fail 数相同时按 production wrong_streak DESC，再按（激活维）stability ASC', async () => {
     await seedActive('item-p-weak', { pWrongStreak: 3 });
     await seedActive('item-p-ok', { pWrongStreak: 0 });
-    await seedActive('item-level-high', { uLevel: 6, pLevel: null });
+    await seedActive('item-level-high', { uStability: 70, pStability: null });
 
     const sel = buildReadSelection(db, NOW);
-    // item-p-weak(wrong_streak 3) > item-p-ok(0)；item-level-high 无 P 行，wrong_streak=0、level=6 排最后
+    // item-p-weak(wrong_streak 3) > item-p-ok(0)；item-level-high 无 P 行，wrong_streak=0、S=70（最高）排最后
     expect(sel.focusItems.map((f) => f.id)).toEqual([
       'item-p-weak',
       'item-p-ok',
@@ -201,11 +201,11 @@ describe('buildReadSelection：focus 弱项排序', () => {
 });
 
 describe('buildReadSelection：old 稳定项', () => {
-  it('mastered 或两维 stable；按 lastReviewAt ASC（最久未复习优先）；两维 stable 的 active 项不进 focus', async () => {
+  it('mastered 或两维越过掌握线；按 lastReviewAt ASC（最久未复习优先）；两维掌握的 active 项不进 focus', async () => {
     // mastered，很久没复习
     await seedActive('old-mastered', { status: 'mastered', uLast: daysAgo(100) });
-    // 只有一维 stable：不是 old 候选，仍是 focus 候选
-    await seedActive('half-stable', { uLevel: 7, uStable: 1 });
+    // 只有一维越过掌握线：不是 old 候选，仍是 focus 候选
+    await seedActive('half-stable', { uStability: 130 });
 
     const sel = buildReadSelection(db, NOW);
     expect(sel.focusItems.map((f) => f.id)).toEqual(['half-stable']);
@@ -213,15 +213,13 @@ describe('buildReadSelection：old 稳定项', () => {
     expect(sel.oldItems[0]).toMatchObject({ id: 'old-mastered', target: 'old-mastered' });
   });
 
-  it('两维 stable 的 active 项：mastered 语义（进 old，不进 focus）', async () => {
+  it('两维均越过掌握线的 active 项：mastered 语义（进 old，不进 focus）', async () => {
     // 弱项（保证 focus 非空）
     await seedActive('weak-one');
-    // 两维 stable 的 active 项
+    // 两维 S≥120 的 active 项
     await seedActive('dual-stable', {
-      uLevel: 7,
-      uStable: 1,
-      pLevel: 7,
-      pStable: 1,
+      uStability: 130,
+      pStability: 130,
       uLast: daysAgo(80),
       pLast: daysAgo(80),
     });
@@ -242,7 +240,7 @@ describe('buildReadSelection：old 稳定项', () => {
     await seedActive('weak-one'); // 保证 focus 非空
     for (let i = 0; i < 7; i++) {
       // 仅 U 维（P 维缺失），lastReviewAt = 10+i 天前：i 越大越久未复习
-      await seedActive(`m-${i}`, { status: 'mastered', uLast: daysAgo(10 + i), pLevel: null });
+      await seedActive(`m-${i}`, { status: 'mastered', uLast: daysAgo(10 + i), pStability: null });
     }
     const sel = buildReadSelection(db, NOW);
     expect(sel.oldItems).toHaveLength(5);

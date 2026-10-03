@@ -92,16 +92,18 @@ async function seedRichData(db: AppDatabase): Promise<{ wordId: string; chunkId:
     createdAt: '2026-09-05T00:00:00.000Z',
   });
   await seedReviewState(db, wordId, 'understanding', {
-    level: 3,
-    stable: 1,
+    difficulty: 5,
+    stability: 15,
+    reps: 3,
     nextReviewAt: '2026-09-21T00:00:00.000Z',
     lastReviewAt: '2026-09-14T00:00:00.000Z',
     correctStreak: 2,
     wrongStreak: 0,
   });
   await seedReviewState(db, wordId, 'production', {
-    level: 2,
-    stable: 0,
+    difficulty: 5,
+    stability: 5,
+    reps: 2,
     nextReviewAt: '2026-09-25T00:00:00.000Z',
     lastReviewAt: '2026-09-15T00:00:00.000Z',
     correctStreak: 1,
@@ -122,8 +124,8 @@ async function seedRichData(db: AppDatabase): Promise<{ wordId: string; chunkId:
     sortOrder: 0,
     createdAt: '2026-07-01T00:00:00.000Z',
   });
-  await seedReviewState(db, chunkId, 'understanding', { level: 5, stable: 1 });
-  await seedReviewState(db, chunkId, 'production', { level: 0 });
+  await seedReviewState(db, chunkId, 'understanding', { difficulty: 5, stability: 45, reps: 5 });
+  await seedReviewState(db, chunkId, 'production', { difficulty: null, stability: null, reps: 0 });
 
   await db.insert(dailyStats).values([
     {
@@ -235,7 +237,7 @@ describe('GET /api/export/backup', () => {
       (word.reviewStates as Array<Record<string, unknown>>).find(
         (s) => s.dimension === 'production',
       ),
-    ).toMatchObject({ level: 2, nextReviewAt: '2026-09-25T00:00:00.000Z' });
+    ).toMatchObject({ difficulty: 5, stability: 5, reps: 2, nextReviewAt: '2026-09-25T00:00:00.000Z' });
     expect(applyV2Cutover(db, new Date(NOW), 'Asia/Shanghai')).toEqual({ applied: true });
     const preview = await app.inject({
       method: 'POST',
@@ -262,7 +264,7 @@ describe('GET /api/export/backup', () => {
         .where(eq(reviewStates.learningItemId, wordId))
         .all()
         .find((s) => s.dimension === 'production'),
-    ).toMatchObject({ level: 2, nextReviewAt: '2026-09-25T00:00:00.000Z' });
+    ).toMatchObject({ difficulty: 5, stability: 5, reps: 2, nextReviewAt: '2026-09-25T00:00:00.000Z' });
   });
 
   it('V1.2 backup without goal field previews and restores with null override', async () => {
@@ -307,7 +309,7 @@ describe('GET /api/export/backup', () => {
         .where(eq(reviewStates.learningItemId, wordId))
         .all()
         .find((state) => state.dimension === 'understanding'),
-    ).toMatchObject({ level: 3, stable: 1, correctStreak: 2 });
+    ).toMatchObject({ difficulty: 5, stability: 15, reps: 3, correctStreak: 2 });
     expect(
       db
         .select()
@@ -316,8 +318,10 @@ describe('GET /api/export/backup', () => {
         .all()
         .find((state) => state.dimension === 'production'),
     ).toMatchObject({
-      level: 0,
-      stable: 0,
+      difficulty: null,
+      stability: null,
+      reps: 0,
+      lapses: 0,
       nextReviewAt: null,
       lastReviewAt: null,
       correctStreak: 0,
@@ -337,7 +341,7 @@ describe('GET /api/export/backup', () => {
       .where(eq(reviewStates.learningItemId, chunkId))
       .all()
       .find((state) => state.dimension === 'production');
-    expect(restoredChunkProduction).toMatchObject({ level: 0, stable: 0 });
+    expect(restoredChunkProduction).toMatchObject({ difficulty: null, stability: null, reps: 0 });
     expect(Date.parse(restoredChunkProduction!.nextReviewAt!)).toBeGreaterThanOrEqual(beforeCommit);
     expect(Date.parse(restoredChunkProduction!.nextReviewAt!)).toBeLessThanOrEqual(afterCommit);
   });
@@ -400,8 +404,10 @@ describe('GET /api/export/backup', () => {
     const states = word.reviewStates as Array<Record<string, unknown>>;
     expect(states).toHaveLength(2);
     expect(states.find((s) => s.dimension === 'understanding')).toMatchObject({
-      level: 3,
-      stable: 1,
+      difficulty: 5,
+      stability: 15,
+      reps: 3,
+      lapses: 0,
       nextReviewAt: '2026-09-21T00:00:00.000Z',
       correctStreak: 2,
     });
@@ -621,12 +627,14 @@ describe('POST /api/restore/commit', () => {
       .all();
     expect(states).toHaveLength(2);
     const understanding = states.find((s) => s.dimension === 'understanding')!;
-    expect(understanding.level).toBe(3);
-    expect(understanding.stable).toBe(1);
+    expect(understanding.difficulty).toBe(5);
+    expect(understanding.stability).toBe(15);
+    expect(understanding.reps).toBe(3);
     expect(understanding.nextReviewAt).toBe('2026-09-21T00:00:00.000Z');
     expect(understanding.correctStreak).toBe(2);
     const production = states.find((s) => s.dimension === 'production')!;
-    expect(production.level).toBe(2);
+    expect(production.stability).toBe(5);
+    expect(production.reps).toBe(2);
 
     // ---- daily_stats / settings 还原 ----
     const statsRows = db.select().from(dailyStats).all();

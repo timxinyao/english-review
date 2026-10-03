@@ -78,8 +78,10 @@ export const reviewStates = sqliteTable(
       .notNull()
       .references(() => learningItems.id, { onDelete: 'cascade' }),
     dimension: text('dimension').notNull(), // understanding | production
-    level: integer('level').notNull().default(0), // 0 未激活，1..7
-    stable: integer('stable').notNull().default(0),
+    difficulty: real('difficulty'), // FSRS D；NULL=未激活
+    stability: real('stability'), // FSRS S；NULL=未激活
+    reps: integer('reps').notNull().default(0),
+    lapses: integer('lapses').notNull().default(0),
     nextReviewAt: text('next_review_at'),
     lastReviewAt: text('last_review_at'),
     correctStreak: integer('correct_streak').notNull().default(0),

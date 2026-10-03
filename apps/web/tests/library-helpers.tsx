@@ -107,12 +107,12 @@ export function makeDetail(overrides: Partial<LibraryItemDetail['item']> = {}): 
     reviewStates: [
       {
         dimension: 'understanding',
-        level: 4,
-        stable: false,
+        difficulty: 5,
+        stability: 45,
         nextReviewAt: '2026-09-25T10:00:00.000Z',
         lastReviewAt: '2026-09-24T10:00:00.000Z',
       },
-      { dimension: 'production', level: 2, stable: false, nextReviewAt: null, lastReviewAt: null },
+      { dimension: 'production', difficulty: null, stability: null, nextReviewAt: null, lastReviewAt: null },
     ],
     productionHistory: [],
   };

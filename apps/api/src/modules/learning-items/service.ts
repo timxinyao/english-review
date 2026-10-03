@@ -6,8 +6,8 @@ import {
   PERSONAL_EXAMPLE_MAX,
   PERSONAL_EXAMPLE_REPLACE_MARGIN,
   PRODUCTION_HISTORY_KEEP,
-  reviewStageLabel,
   serializeTags,
+  stabilityStageLabel,
   type LibraryItemDetail,
   type LibraryListItemDto,
   type LibraryListQuery,
@@ -165,8 +165,8 @@ export async function listLearningItems(
       queueState: row.queueState as 'new' | 'started',
       tags: parseTags(row.tagsJson),
       source: row.source,
-      understandingStage: reviewStageLabel(u?.level ?? 0, (u?.stable ?? 0) === 1),
-      productionStage: reviewStageLabel(p?.level ?? 0, (p?.stable ?? 0) === 1),
+      understandingStage: stabilityStageLabel(u?.stability ?? null),
+      productionStage: stabilityStageLabel(p?.stability ?? null),
       nextReviewAt: nexts.length > 0 ? nexts.reduce((a, b) => (a < b ? a : b)) : null,
       createdAt: row.createdAt,
     };
@@ -179,14 +179,14 @@ export async function listLearningItems(
 // ---------- 详情 ----------
 
 function zeroState(dimension: 'understanding' | 'production'): ReviewStateDto {
-  return { dimension, level: 0, stable: false, nextReviewAt: null, lastReviewAt: null };
+  return { dimension, difficulty: null, stability: null, nextReviewAt: null, lastReviewAt: null };
 }
 
 function toStateDto(row: ReviewStateRow): ReviewStateDto {
   return {
     dimension: row.dimension as 'understanding' | 'production',
-    level: row.level,
-    stable: row.stable === 1,
+    difficulty: row.difficulty,
+    stability: row.stability,
     nextReviewAt: row.nextReviewAt,
     lastReviewAt: row.lastReviewAt,
   };
@@ -600,15 +600,17 @@ export const archiveLearningItem = (db: AppDatabase, id: string) =>
 export const restoreLearningItem = (db: AppDatabase, id: string) =>
   applyTransition(db, id, 'restore');
 
-/** reset：两维进度归零 + status=active + queue_state=new + needs_reinforcement=0 */
+/** reset：两维进度归零（FSRS 未激活）+ status=active + queue_state=new + needs_reinforcement=0 */
 export async function resetLearningItem(db: AppDatabase, id: string): Promise<LibraryItemDetail> {
   const now = nowIso();
   db.transaction((tx: DbTx) => {
     requireItem(tx, id);
     for (const dimension of ['understanding', 'production'] as const) {
       upsertState(tx, id, dimension, {
-        level: 0,
-        stable: 0,
+        difficulty: null,
+        stability: null,
+        reps: 0,
+        lapses: 0,
         nextReviewAt: null,
         lastReviewAt: null,
         correctStreak: 0,
@@ -624,13 +626,13 @@ export async function resetLearningItem(db: AppDatabase, id: string): Promise<Li
   return getLearningItemDetail(db, id);
 }
 
-/** master：两维 stable + L7，status=mastered（TECHNICAL_DESIGN §6.2 补充说明） */
+/** master：两维 stability 置于掌握线（S=120），status=mastered（TECHNICAL_DESIGN §6.2 补充说明） */
 export async function masterLearningItem(db: AppDatabase, id: string): Promise<LibraryItemDetail> {
   const now = nowIso();
   db.transaction((tx: DbTx) => {
     requireItem(tx, id);
     for (const dimension of ['understanding', 'production'] as const) {
-      upsertState(tx, id, dimension, { level: 7, stable: 1, updatedAt: now });
+      upsertState(tx, id, dimension, { difficulty: 5, stability: 120, updatedAt: now });
     }
     tx.update(learningItems)
       .set({ status: 'mastered', updatedAt: now })
@@ -657,8 +659,10 @@ function upsertState(
         id: randomUUID(),
         learningItemId: id,
         dimension,
-        level: 0,
-        stable: 0,
+        difficulty: null,
+        stability: null,
+        reps: 0,
+        lapses: 0,
         nextReviewAt: null,
         lastReviewAt: null,
         correctStreak: 0,

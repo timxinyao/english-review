@@ -23,7 +23,7 @@ export const LibraryListItemDto = z.object({
   queueState: z.enum(['new', 'started']),
   tags: z.array(z.string()),
   source: z.string().nullable(),
-  /** 自然语言阶段：未开始 / 初学 / 练习中 / 稳定 */
+  /** 自然语言阶段（stabilityStageLabel）：未开始 / 新 / 巩固 / 熟练 / 掌握 */
   understandingStage: z.string(),
   productionStage: z.string(),
   /** 两维度中最近的到期时间 */
@@ -53,8 +53,9 @@ export type PersonalExampleDto = z.infer<typeof PersonalExampleDto>;
 
 export const ReviewStateDto = z.object({
   dimension: z.enum(['understanding', 'production']),
-  level: z.number().int(),
-  stable: z.boolean(),
+  /** FSRS D/S；NULL=未激活 */
+  difficulty: z.number().nullable(),
+  stability: z.number().nullable(),
   nextReviewAt: z.string().nullable(),
   lastReviewAt: z.string().nullable(),
 });

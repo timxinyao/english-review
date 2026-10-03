@@ -122,7 +122,7 @@ const SEED_QUESTIONS: SeedQuestionSpec[] = [
 
 /**
  * Phase 4 表达题种子（前端 Playwright 依赖以下文案，勿随意改动）：
- * word "give up"（放弃）——U=L7 stable（不到期）、P=L4 昨日到期（today 会出表达题），
+ * word "give up"（放弃）——U=S130 掌握线（七天后到期，今天不出题）、P=S25 昨日到期（today 会出表达题），
  * 附 1 道 production 种子题。幂等：已存在 target='give up' 即跳过。
  */
 function seedGiveUp(db: AppDatabase, now: Date): boolean {
@@ -173,15 +173,17 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
       updatedAt: createdAt,
     })
     .run();
-  // U=L7 stable=1 next=null（不到期）；P=L4 due yesterday
+  // U=S130（掌握线、七天后才到期，今天不出题）；P=S25 due yesterday
   db.insert(reviewStates)
     .values({
       id: 'e2e-state-e2e-item-give-up-understanding',
       learningItemId: 'e2e-item-give-up',
       dimension: 'understanding',
-      level: 7,
-      stable: 1,
-      nextReviewAt: null,
+      difficulty: 5,
+      stability: 130,
+      reps: 7,
+      lapses: 0,
+      nextReviewAt: new Date(now.getTime() + 7 * DAY_MS).toISOString(),
       lastReviewAt: fourDaysAgo,
       correctStreak: 7,
       wrongStreak: 0,
@@ -193,8 +195,10 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
       id: 'e2e-state-e2e-item-give-up-production',
       learningItemId: 'e2e-item-give-up',
       dimension: 'production',
-      level: 4,
-      stable: 0,
+      difficulty: 5,
+      stability: 25,
+      reps: 4,
+      lapses: 0,
       nextReviewAt: yesterday,
       lastReviewAt: fourDaysAgo,
       correctStreak: 4,
@@ -311,7 +315,6 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
   const nowIso = now.toISOString();
   const yesterday = new Date(now.getTime() - DAY_MS).toISOString();
   const fourDaysAgo = new Date(now.getTime() - 4 * DAY_MS).toISOString();
-  const inSevenDays = new Date(now.getTime() + 7 * DAY_MS).toISOString();
   const createdAt = '2026-09-10T00:00:00.000Z';
 
   const items: Array<Partial<typeof learningItems.$inferInsert> & { id: string }> = [
@@ -421,42 +424,49 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
   const states: Array<{
     itemId: string;
     dimension: 'understanding' | 'production';
-    level: number;
+    /** 旧 level 档位的 FSRS stability 换算（1→2、2→5、3→15、5→45） */
+    stability: number;
+    reps: number;
     nextReviewAt: string | null;
     lastReviewAt: string | null;
   }> = [
     {
       itemId: 'e2e-item-stable',
       dimension: 'understanding',
-      level: 3,
+      stability: 15,
+      reps: 3,
       nextReviewAt: yesterday,
       lastReviewAt: fourDaysAgo,
     },
     {
       itemId: 'e2e-item-wear-down',
       dimension: 'understanding',
-      level: 2,
+      stability: 5,
+      reps: 2,
       nextReviewAt: yesterday,
       lastReviewAt: fourDaysAgo,
     },
     {
       itemId: 'e2e-item-raw',
       dimension: 'understanding',
-      level: 2,
-      nextReviewAt: inSevenDays,
+      stability: 5,
+      reps: 2,
+      nextReviewAt: new Date(now.getTime() + 7 * DAY_MS).toISOString(),
       lastReviewAt: fourDaysAgo,
     },
     {
       itemId: 'e2e-item-raw',
       dimension: 'production',
-      level: 1,
+      stability: 2,
+      reps: 1,
       nextReviewAt: yesterday,
       lastReviewAt: fourDaysAgo,
     },
     {
       itemId: 'e2e-item-make-sense',
       dimension: 'understanding',
-      level: 5,
+      stability: 45,
+      reps: 5,
       nextReviewAt: yesterday,
       lastReviewAt: fourDaysAgo,
     },
@@ -467,11 +477,13 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
         id: `e2e-state-${st.itemId}-${st.dimension}`,
         learningItemId: st.itemId,
         dimension: st.dimension,
-        level: st.level,
-        stable: 0,
+        difficulty: 5,
+        stability: st.stability,
+        reps: st.reps,
+        lapses: 0,
         nextReviewAt: st.nextReviewAt,
         lastReviewAt: st.lastReviewAt,
-        correctStreak: st.level,
+        correctStreak: st.reps,
         wrongStreak: 0,
         updatedAt: nowIso,
       })
@@ -854,7 +866,6 @@ export function seedV2Journeys(db: AppDatabase, now = new Date()): boolean {
   const nowIso = now.toISOString();
   const yesterday = new Date(now.getTime() - DAY_MS).toISOString();
   const fourDaysAgo = new Date(now.getTime() - 4 * DAY_MS).toISOString();
-  const inSevenDays = new Date(now.getTime() + 7 * DAY_MS).toISOString();
   const createdAt = '2026-09-12T00:00:00.000Z';
 
   const items: Array<{
@@ -936,41 +947,47 @@ export function seedV2Journeys(db: AppDatabase, now = new Date()): boolean {
   const states: Array<{
     itemId: string;
     dimension: 'understanding' | 'production';
-    level: number;
+    /** FSRS S；null=未激活 */
+    stability: number | null;
+    reps: number;
     nextReviewAt: string | null;
     lastReviewAt: string | null;
     correctStreak: number;
   }> = [
-    // set off：U 不到期；P L0 昨日到期（Learn 完成后的次日到期态）
+    // set off：U 不到期（S2）；P 未激活、昨日到期（Learn 完成后的次日到期态）
     {
       itemId: 'e2e-item-set-off',
       dimension: 'understanding',
-      level: 1,
-      nextReviewAt: inSevenDays,
+      stability: 2,
+      reps: 1,
+      nextReviewAt: new Date(now.getTime() + 7 * DAY_MS).toISOString(),
       lastReviewAt: fourDaysAgo,
       correctStreak: 1,
     },
     {
       itemId: 'e2e-item-set-off',
       dimension: 'production',
-      level: 0,
+      stability: null,
+      reps: 0,
       nextReviewAt: yesterday,
       lastReviewAt: null,
       correctStreak: 0,
     },
-    // put off：U 不到期；P L2 昨日到期（显式关闭 → 被排除、保持原状）
+    // put off：U 不到期（S45）；P S5 昨日到期（显式关闭 → 被排除、保持原状）
     {
       itemId: 'e2e-item-put-off',
       dimension: 'understanding',
-      level: 5,
-      nextReviewAt: inSevenDays,
+      stability: 45,
+      reps: 5,
+      nextReviewAt: new Date(now.getTime() + 7 * DAY_MS).toISOString(),
       lastReviewAt: fourDaysAgo,
       correctStreak: 5,
     },
     {
       itemId: 'e2e-item-put-off',
       dimension: 'production',
-      level: 2,
+      stability: 5,
+      reps: 2,
       nextReviewAt: yesterday,
       lastReviewAt: fourDaysAgo,
       correctStreak: 2,
@@ -982,8 +999,10 @@ export function seedV2Journeys(db: AppDatabase, now = new Date()): boolean {
         id: `e2e-state-${st.itemId}-${st.dimension}`,
         learningItemId: st.itemId,
         dimension: st.dimension,
-        level: st.level,
-        stable: 0,
+        difficulty: st.stability === null ? null : 5,
+        stability: st.stability,
+        reps: st.reps,
+        lapses: 0,
         nextReviewAt: st.nextReviewAt,
         lastReviewAt: st.lastReviewAt,
         correctStreak: st.correctStreak,
@@ -1139,8 +1158,10 @@ export function seedLargeDueQueue(db: AppDatabase, count = 40, now = new Date())
         id: `e2e-state-${itemId}-understanding`,
         learningItemId: itemId,
         dimension: 'understanding',
-        level: 2,
-        stable: 0,
+        difficulty: 5,
+        stability: 5,
+        reps: 2,
+        lapses: 0,
         nextReviewAt: yesterday,
         lastReviewAt: fourDaysAgo,
         correctStreak: 2,

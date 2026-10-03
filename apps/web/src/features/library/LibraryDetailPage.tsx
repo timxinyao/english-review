@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import {
-  reviewStageLabel,
+  stabilityStageLabel,
   type LibraryItemDetail,
   type UpdateLearningItemRequest,
 } from '@el/shared';
@@ -558,9 +558,11 @@ export function LibraryDetailPage() {
                     <span className="w-10 text-muted-foreground">
                       {DIMENSION_LABELS[rs.dimension]}
                     </span>
-                    <span>L{rs.level}</span>
+                    <span>
+                      {rs.stability === null ? '—' : `S${Math.round(rs.stability)}天`}
+                    </span>
                     <span className="text-muted-foreground">
-                      {reviewStageLabel(rs.level, rs.stable)}
+                      {stabilityStageLabel(rs.stability)}
                     </span>
                     <span className="text-muted-foreground">下次复习</span>
                     <span>{rs.nextReviewAt ? rs.nextReviewAt.slice(0, 10) : '未安排'}</span>

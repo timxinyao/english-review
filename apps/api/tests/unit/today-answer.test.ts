@@ -63,15 +63,20 @@ async function startTodaySession(
   return result;
 }
 
+/** FSRS 期中 U 维种子：S=stability（默认 15，对应旧 L3 档位），reps=3，4 天前复习过 */
 async function seedDueChoiceItem(
   itemId: string,
-  level = 3,
+  stability = 15,
   explanation = '解释文本',
 ): Promise<string> {
   await seedItem(db, { id: itemId, target: itemId, queueState: 'started' });
   await seedReviewState(db, itemId, 'understanding', {
-    level,
+    difficulty: 5,
+    stability,
+    reps: 3,
+    lapses: 0,
     nextReviewAt: '2026-09-23T00:00:00.000Z',
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
   });
   await seedQuestion(db, itemId, {
     type: 'understanding',
@@ -86,8 +91,12 @@ async function seedDueChoiceItem(
 async function seedDueClozeItem(itemId: string, accepted: string[]): Promise<string> {
   await seedItem(db, { id: itemId, target: itemId, queueState: 'started' });
   await seedReviewState(db, itemId, 'production', {
-    level: 1,
+    difficulty: 5,
+    stability: 5,
+    reps: 1,
+    lapses: 0,
     nextReviewAt: '2026-09-23T00:00:00.000Z',
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
   });
   const questionId = await seedQuestion(db, itemId, {
     type: 'cloze',
@@ -102,8 +111,12 @@ async function seedDueClozeItem(itemId: string, accepted: string[]): Promise<str
 async function seedDueProductionItem(itemId: string, mustUse: string): Promise<string> {
   await seedItem(db, { id: itemId, type: 'chunk', target: mustUse, queueState: 'started' });
   await seedReviewState(db, itemId, 'production', {
-    level: 4,
+    difficulty: 5,
+    stability: 25,
+    reps: 4,
+    lapses: 0,
     nextReviewAt: '2026-09-23T00:00:00.000Z',
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
   });
   await seedQuestion(db, itemId, {
     id: `${itemId}-prod`,
@@ -204,11 +217,14 @@ describe('answer：理解题（understanding 复习）', () => {
       recommendRead: false,
     });
 
-    // 状态推进：L3 → L4，next = 14 天后
+    // 状态推进（FSRS Good）：reps 累计、S 上升、lastReviewAt=now、下次 ≥1 天、记对
     const u = dim('item-a', 'understanding')!;
-    expect(u.level).toBe(4);
-    expect(u.stable).toBe(0);
-    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 14 * DAY_MS)));
+    expect(u.reps).toBe(4);
+    expect(u.stability).not.toBeNull();
+    expect(u.stability!).toBeGreaterThan(15);
+    expect(u.lastReviewAt).toBe(iso(NOW));
+    expect(Date.parse(u.nextReviewAt!)).toBeGreaterThanOrEqual(NOW.getTime() + DAY_MS);
+    expect(u.correctStreak).toBe(1);
 
     // 任务与统计
     expect(tasks()[0]!.completedAt).toBe(iso(NOW));
@@ -221,15 +237,15 @@ describe('answer：理解题（understanding 复习）', () => {
     expect(attempt.selectedOptionId).toBeNull();
     expect(attempt.mode).toBe('today');
     const pre = JSON.parse(attempt.preStateJson!) as {
-      reviewStates: { understanding: { level: number } };
+      reviewStates: { understanding: { reps: number } };
     };
     const post = JSON.parse(attempt.postStateJson!) as {
-      reviewStates: { understanding: { level: number } };
+      reviewStates: { understanding: { reps: number } };
       itemStatus: string;
       reinforcementTaskIds: string[];
     };
-    expect(pre.reviewStates.understanding.level).toBe(3);
-    expect(post.reviewStates.understanding.level).toBe(4);
+    expect(pre.reviewStates.understanding.reps).toBe(3);
+    expect(post.reviewStates.understanding.reps).toBe(4);
     expect(post.itemStatus).toBe('active');
     expect(post.reinforcementTaskIds).toEqual([]);
   });
@@ -254,10 +270,11 @@ describe('answer：理解题（understanding 复习）', () => {
     expect(res.reinforcementAdded).toBe(true);
     expect(res.progress).toEqual({ completed: 1, total: 5 }); // 4 base + 1 补强
 
-    // 状态降级：L3 → L2，next = 降级间隔 3d × 0.5 = 1.5 天
+    // 状态回退（FSRS Again）：lapses+1、S 明显下降、间隔仍 ≥1 天
     const u = dim('item-a', 'understanding')!;
-    expect(u.level).toBe(2);
-    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 1.5 * DAY_MS)));
+    expect(u.lapses).toBe(1);
+    expect(u.stability!).toBeLessThan(15);
+    expect(Date.parse(u.nextReviewAt!)).toBeGreaterThanOrEqual(NOW.getTime() + DAY_MS);
 
     // 补强任务：同 item 同维度，origin=reinforcement
     const rf = tasks().find((t) => t.origin === 'reinforcement')!;
@@ -274,8 +291,9 @@ describe('answer：理解题（understanding 复习）', () => {
     expect(post.reinforcementTaskIds).toEqual([rf.id]);
   });
 
-  it('hint 选对 → basic_pass：不升级、半间隔（viewedSource 不再影响档位）', async () => {
+  it('hint 选对 → basic_pass：Hard 评分（间隔短于 Good、双 streak 清零；viewedSource 不再影响档位）', async () => {
     await seedDueChoiceItem('item-a');
+    await seedDueChoiceItem('item-b'); // 同种子，recalled（Good）对照
     await startSession();
     const task = taskByItem('item-a')!;
 
@@ -288,8 +306,14 @@ describe('answer：理解题（understanding 复习）', () => {
     expect(res.outcomeSource).toBe('assisted');
     expect(res.correct).toBe(true);
     const u = dim('item-a', 'understanding')!;
-    expect(u.level).toBe(3); // 不升级
-    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 3.5 * DAY_MS))); // L3 间隔 7d × 0.5 = 3.5d
+    expect(u.reps).toBe(4); // 仍计一次复习
+    expect(u.correctStreak).toBe(0); // basic_pass 清对
+    expect(Date.parse(u.nextReviewAt!)).toBeGreaterThanOrEqual(NOW.getTime() + DAY_MS);
+    // Hard 间隔短于同种子 Good（recalled 对照）
+    await answerTodayTask(db, deps, TZ, NOW, taskByItem('item-b')!.id, { recall: 'recalled' });
+    expect(Date.parse(u.nextReviewAt!)).toBeLessThan(
+      Date.parse(dim('item-b', 'understanding')!.nextReviewAt!),
+    );
     const attempt = db.select().from(attempts).all()[0]!;
     expect(attempt.viewedSource).toBe(1);
     expect(attempt.result).toBe('basic_pass');
@@ -325,14 +349,17 @@ describe('answer：填空题（cloze）', () => {
     expect(res.correctOptionId).toBeNull();
 
     const p = dim('item-a', 'production')!;
-    expect(p.level).toBe(2); // L1 → L2
+    expect(p.reps).toBe(2); // FSRS：一次 Good 复习，reps 累计
   });
 
   it('答错 → fail，揭示解释并插入 cloze 补强（不复用刚答错的题）', async () => {
     await seedItem(db, { id: 'item-a', target: 'item-a', queueState: 'started' });
     await seedReviewState(db, 'item-a', 'production', {
-      level: 1,
+      difficulty: 5,
+      stability: 5,
+      reps: 1,
       nextReviewAt: '2026-09-23T00:00:00.000Z',
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
     });
     const questionId = await seedQuestion(db, 'item-a', {
       type: 'cloze',
@@ -388,9 +415,11 @@ describe('answer：Learn 任务', () => {
     await seedReviewState(db, 'goal', 'production');
     await startSession();
     await answerTodayTask(db, deps, TZ, NOW, taskByItem('goal')!.id, { recall: 'forgot' });
-    expect(dim('goal', 'understanding')!.level).toBe(1);
+    expect(dim('goal', 'understanding')!.reps).toBe(1); // 按首答 outcome（fail）建 U
     expect(dim('goal', 'production')).toMatchObject({
-      level: 0,
+      difficulty: null,
+      stability: null,
+      reps: 0,
       nextReviewAt: enabled ? '2026-09-25T02:00:00.000Z' : null,
     });
     expect(stats()?.newItemsStarted).toBe(1);
@@ -406,11 +435,14 @@ describe('answer：Learn 任务', () => {
 
     const u = dim('new-1', 'understanding')!;
     const p = dim('new-1', 'production')!;
-    expect(u.level).toBe(1);
-    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + DAY_MS)));
+    expect(u.difficulty).not.toBeNull();
+    expect(u.stability).toBeGreaterThan(0);
+    expect(u.reps).toBe(1);
     expect(u.lastReviewAt).toBe(iso(NOW));
-    // Production 激活但未首答：L0、next=+1d、lastReviewAt=null（review 契约）
-    expect(p.level).toBe(0);
+    expect(Date.parse(u.nextReviewAt!)).toBeGreaterThanOrEqual(NOW.getTime() + DAY_MS);
+    // Production 激活但未首答：D/S 未激活、next=+1d、lastReviewAt=null（review 契约）
+    expect(p.difficulty).toBeNull();
+    expect(p.stability).toBeNull();
     expect(p.nextReviewAt).toBe(iso(new Date(NOW.getTime() + DAY_MS)));
     expect(p.lastReviewAt).toBeNull();
 
@@ -431,10 +463,10 @@ describe('answer：Learn 任务', () => {
     expect(res.result).toBe('fail');
     expect(res.outcomeSource).toBe('forgot');
 
-    // 方案 A：三路径都完成新学 → U/P 两维行均初始化
+    // 方案 A：三路径都完成新学 → U/P 两维行均初始化（fail 首答也是一次评分）
     expect(db.select().from(reviewStates).all()).toHaveLength(2);
-    expect(dim('new-1', 'understanding')!.level).toBe(1);
-    expect(dim('new-1', 'production')!.level).toBe(0);
+    expect(dim('new-1', 'understanding')!.reps).toBe(1);
+    expect(dim('new-1', 'production')!.stability).toBeNull();
     expect(
       db.select().from(learningItems).where(eq(learningItems.id, 'new-1')).get()?.queueState,
     ).toBe('started');
@@ -473,7 +505,7 @@ describe('answer：幂等', () => {
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(db.select().from(attempts).all()).toEqual([]);
     expect(stats()).toBeNull();
-    expect(dim('edited', 'production')!.level).toBe(4);
+    expect(dim('edited', 'production')!.reps).toBe(4); // 状态未被推进
   });
   it('批改期间跨本地日，事务再次拒绝且不产生学习写入', async () => {
     await seedDueProductionItem('midnight', 'wear down');
@@ -492,7 +524,7 @@ describe('answer：幂等', () => {
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(db.select().from(attempts).all()).toEqual([]);
     expect(stats()).toBeNull();
-    expect(dim('midnight', 'production')!.level).toBe(4);
+    expect(dim('midnight', 'production')!.reps).toBe(4); // 状态未被推进
   });
   it('跨本地日 answer 和已完成 replay 均拒绝，学习状态和统计不变', async () => {
     await seedDueChoiceItem('expired');
@@ -545,7 +577,7 @@ describe('answer：幂等', () => {
     expect(second.progress).toEqual({ completed: 1, total: 2 });
     expect(db.select().from(attempts).all()).toHaveLength(1);
     expect(stats()?.formalTasksCompleted).toBe(1);
-    expect(dim('item-a', 'understanding')!.level).toBe(4); // 未被第二次提交降级
+    expect(dim('item-a', 'understanding')!.reps).toBe(4); // 未被第二次提交推进
     expect(first.result).toBe(second.result);
   });
 
@@ -595,8 +627,11 @@ describe('answer：补强上限与降级', () => {
   it('补强题生成失败 → 跳过补强，不影响结算', async () => {
     await seedItem(db, { id: 'item-a', target: 'item-a', queueState: 'started' });
     await seedReviewState(db, 'item-a', 'understanding', {
-      level: 3,
+      difficulty: 5,
+      stability: 15,
+      reps: 3,
       nextReviewAt: '2026-09-23T00:00:00.000Z',
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
     });
     // 只有一道题（将被答错的那道），且生成失败
     await seedQuestion(db, 'item-a', {
@@ -666,19 +701,23 @@ describe('answer：完成检测与摘要', () => {
   });
 });
 
-describe('answer：L7 stable 与 mastered', () => {
-  it('最后一个维度 L7 到期再 pass → stable，两维 stable → item 自动 mastered', async () => {
+describe('answer：S≥120 与 mastered', () => {
+  it('最后一维 S≥120 后再 pass：两维均越过掌握线 → item 自动 mastered，且照常排期', async () => {
     await seedItem(db, { id: 'item-a', target: 'item-a', queueState: 'started' });
     await seedReviewState(db, 'item-a', 'understanding', {
-      level: 7,
-      stable: 0,
+      difficulty: 5,
+      stability: 130,
+      reps: 8,
       nextReviewAt: '2026-09-23T00:00:00.000Z',
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
     });
-    // P 已 stable（不参与 due 调度）
+    // P 已越过掌握线（FSRS 下仍照常排期）
     await seedReviewState(db, 'item-a', 'production', {
-      level: 7,
-      stable: 1,
-      nextReviewAt: null,
+      difficulty: 5,
+      stability: 130,
+      reps: 8,
+      nextReviewAt: '2026-10-20T00:00:00.000Z',
+      lastReviewAt: '2026-09-20T00:00:00.000Z',
     });
     await seedQuestion(db, 'item-a', {
       type: 'understanding',
@@ -693,8 +732,9 @@ describe('answer：L7 stable 与 mastered', () => {
 
     const item = db.select().from(learningItems).where(eq(learningItems.id, 'item-a')).get()!;
     expect(item.status).toBe('mastered');
-    expect(dim('item-a', 'understanding')!.stable).toBe(1);
-    expect(dim('item-a', 'understanding')!.level).toBe(7);
+    const uAfter = dim('item-a', 'understanding')!;
+    expect(uAfter.stability!).toBeGreaterThanOrEqual(120);
+    expect(uAfter.nextReviewAt).not.toBeNull(); // 掌握后不再有 null 吸收态
   });
 });
 
@@ -708,8 +748,10 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(res.result).toBe('pass');
     expect(res.outcomeSource).toBe('recalled');
     expect(res.correct).toBe(true);
-    // kind=pass：L3 → L4
-    expect(dim('item-a', 'understanding')!.level).toBe(4);
+    // kind=pass（Good）：reps 累计、S 上升
+    const uAfter = dim('item-a', 'understanding')!;
+    expect(uAfter.reps).toBe(4);
+    expect(uAfter.stability!).toBeGreaterThan(15);
 
     const attempt = db.select().from(attempts).all()[0]!;
     expect(attempt.outcomeSource).toBe('recalled');
@@ -727,8 +769,10 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(res.result).toBe('fail');
     expect(res.outcomeSource).toBe('forgot');
     expect(res.reinforcementAdded).toBe(true);
-    // kind=fail：L3 → L2
-    expect(dim('item-a', 'understanding')!.level).toBe(2);
+    // kind=fail（Again）：lapses+1、S 下降
+    const uFail = dim('item-a', 'understanding')!;
+    expect(uFail.lapses).toBe(1);
+    expect(uFail.stability!).toBeLessThan(15);
 
     const attempt = db.select().from(attempts).all()[0]!;
     expect(attempt.outcomeSource).toBe('forgot');
@@ -758,9 +802,9 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(withoutViewed.result).toBe('basic_pass');
     expect(withoutViewed.outcomeSource).toBe('assisted');
 
-    // kind=basic_pass：不升级
-    expect(dim('item-a', 'understanding')!.level).toBe(3);
-    expect(dim('item-b', 'understanding')!.level).toBe(3);
+    // kind=basic_pass：双 streak 清零（不记对）
+    expect(dim('item-a', 'understanding')!.correctStreak).toBe(0);
+    expect(dim('item-b', 'understanding')!.correctStreak).toBe(0);
   });
 
   it('hint 后选错 → result=fail、outcome_source=forgot、揭示正确项', async () => {
@@ -778,12 +822,14 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(res.correct).toBe(false);
     expect(res.correctOptionId).toBe('o1');
     expect(res.explanation).toBe('解释文本');
-    // kind=fail：L3 → L2
-    expect(dim('item-a', 'understanding')!.level).toBe(2);
+    // kind=fail（Again）：lapses+1、S 下降
+    expect(dim('item-a', 'understanding')!.lapses).toBe(1);
+    expect(dim('item-a', 'understanding')!.stability!).toBeLessThan(15);
   });
 
-  it('easy（2026-10-03 三档自评「简单」）：result=pass、correct=true、outcomeSource=easy，U 跳两步且 streak/统计按 pass', async () => {
-    await seedDueChoiceItem('item-a'); // L3
+  it('easy（2026-10-03 三档自评「简单」）：result=pass、correct=true、outcomeSource=easy，Easy 评分间隔长于 Good 且 streak/统计按 pass', async () => {
+    await seedDueChoiceItem('item-a');
+    await seedDueChoiceItem('item-b'); // 同种子，recalled（Good）对照
     await startSession();
     const task = taskByItem('item-a')!;
 
@@ -793,17 +839,22 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(res.correct).toBe(true);
     expect(res.explanation).toBeNull(); // 答对不揭示解释
     // 计入通过统计（result=pass → 摘要 pass、daily_stats formal）
-    expect(res.completed).toMatchObject({ pass: 1, fail: 0 });
     expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 0 });
 
-    // U 跳两步：L3 → L5（recalled 对照只到 L4），next = L5 间隔 30 天
     const u = dim('item-a', 'understanding')!;
-    expect(u.level).toBe(5);
-    expect(u.stable).toBe(0);
-    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 30 * DAY_MS)));
+    expect(u.reps).toBe(4);
     // streak 按 pass：记对、清错
     expect(u.correctStreak).toBe(1);
     expect(u.wrongStreak).toBe(0);
+
+    // Easy 间隔长于同种子 Good（recalled 对照）
+    const resGood = await answerTodayTask(db, deps, TZ, NOW, taskByItem('item-b')!.id, {
+      recall: 'recalled',
+    });
+    const uGood = dim('item-b', 'understanding')!;
+    expect(Date.parse(u.nextReviewAt!)).toBeGreaterThan(Date.parse(uGood.nextReviewAt!));
+    expect(u.stability!).toBeGreaterThan(uGood.stability!);
+    expect(resGood.completed).toMatchObject({ pass: 2, fail: 0 });
 
     // attempt 落库 outcome_source=easy（沿用 attempt 元数据机制）
     const attempt = db.select().from(attempts).all()[0]!;
@@ -812,8 +863,8 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(attempt.selectedOptionId).toBeNull();
   });
 
-  it('easy 在 ladder 顶端封顶：L6（60 天档）easy → L7/120 天，不越界、不提前 stable', async () => {
-    await seedDueChoiceItem('item-a', 6);
+  it('easy 间隔受 365 天上限约束（高 S 起点不越界）', async () => {
+    await seedDueChoiceItem('item-a', 200);
     await startSession();
     const task = taskByItem('item-a')!;
 
@@ -821,9 +872,8 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
     expect(res.result).toBe('pass');
 
     const u = dim('item-a', 'understanding')!;
-    expect(u.level).toBe(7); // min(6+2, 7)
-    expect(u.stable).toBe(0); // 与 pass 相同：L7 到期再答才 stable
-    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 120 * DAY_MS)));
+    expect(Date.parse(u.nextReviewAt!) - NOW.getTime()).toBeLessThanOrEqual(365 * DAY_MS);
+    expect(u.stability!).toBeGreaterThanOrEqual(200); // S 本身不回退
   });
 
   it('幂等回放：重复提交返回首次 outcomeSource', async () => {
@@ -844,14 +894,19 @@ describe('answer：understanding Recall 判定（三档证据）', () => {
 });
 
 describe('learn Recall（初见即回忆，方案 A）', () => {
-  /** 断言两维行均按新学初始化：U=L1、P=L0，next_review_at 均为明日 */
+  /** 断言两维行均按新学初始化：U=按首答评分建卡（reps=1、next≥+1d）、P 激活未首答（next=+1d） */
   function expectInitializedDims(itemId: string): void {
     const u = dim(itemId, 'understanding')!;
     const p = dim(itemId, 'production')!;
-    expect(u.level).toBe(1);
-    expect(u.nextReviewAt).toBe(iso(new Date(NOW.getTime() + DAY_MS)));
-    expect(p.level).toBe(0);
+    expect(u.difficulty).not.toBeNull();
+    expect(u.stability).toBeGreaterThan(0);
+    expect(u.reps).toBe(1);
+    expect(u.lastReviewAt).toBe(iso(NOW));
+    expect(Date.parse(u.nextReviewAt!)).toBeGreaterThanOrEqual(NOW.getTime() + DAY_MS);
+    expect(p.difficulty).toBeNull();
+    expect(p.stability).toBeNull();
     expect(p.nextReviewAt).toBe(iso(new Date(NOW.getTime() + DAY_MS)));
+    expect(p.lastReviewAt).toBeNull();
   }
 
   it('recalled：初始化 U+P、result=pass、outcomeSource=recalled、额度+1', async () => {
@@ -885,18 +940,29 @@ describe('learn Recall（初见即回忆，方案 A）', () => {
     expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 1 });
   });
 
-  it('easy：等同 pass——初始 U 状态与 recalled 相同（首学不跳两步）、outcomeSource=easy、额度+1', async () => {
+  it('easy：首答即 Easy 评分——U 间隔长于 recalled（Good）对照、outcomeSource=easy、额度+1', async () => {
     await seedLearnItem('new-1');
+    await seedLearnItem('new-2'); // recalled 对照
     await startSession();
-    const learn = taskByItem('new-1', { type: 'learn' })!;
 
-    const res = await answerTodayTask(db, deps, TZ, NOW, learn.id, { recall: 'easy' });
+    const res = await answerTodayTask(db, deps, TZ, NOW, taskByItem('new-1', { type: 'learn' })!.id, {
+      recall: 'easy',
+    });
     expect(res.result).toBe('pass');
     expect(res.outcomeSource).toBe('easy');
     expect(res.correct).toBe(true);
 
-    expectInitializedDims('new-1'); // U=L1、next=+1d，与 recalled/pass 完全一致
-    expect(stats()).toMatchObject({ formalTasksCompleted: 1, newItemsStarted: 1 });
+    expectInitializedDims('new-1');
+    await answerTodayTask(db, deps, TZ, NOW, taskByItem('new-2', { type: 'learn' })!.id, {
+      recall: 'recalled',
+    });
+    expectInitializedDims('new-2');
+    // Easy 首评分比 Good 排得更远、S 更高
+    const easyU = dim('new-1', 'understanding')!;
+    const goodU = dim('new-2', 'understanding')!;
+    expect(Date.parse(easyU.nextReviewAt!)).toBeGreaterThan(Date.parse(goodU.nextReviewAt!));
+    expect(easyU.stability!).toBeGreaterThan(goodU.stability!);
+    expect(stats()).toMatchObject({ formalTasksCompleted: 2, newItemsStarted: 2 });
   });
 
   it('hint 选对：初始化、result=basic_pass、outcomeSource=assisted', async () => {
@@ -1017,9 +1083,9 @@ describe('answer：主动不会（giveUp）', () => {
     expect(res.referenceAnswer ?? null).toBeNull();
     expect(res.answerNote ?? null).toBeNull();
     expect(res.correction).toBeNull();
-    // 既有 fail 结算：L3 → L2 + 补强
+    // 既有 fail 结算：lapses+1、S 下降 + 补强
     expect(res.reinforcementAdded).toBe(true);
-    expect(dim('item-a', 'understanding')!.level).toBe(2);
+    expect(dim('item-a', 'understanding')!.lapses).toBe(1);
     expect(stats()).toMatchObject({ formalTasksCompleted: 1 });
 
     const attempt = db.select().from(attempts).all()[0]!;
@@ -1100,8 +1166,8 @@ describe('answer：主动不会（giveUp）', () => {
     expect(res.correctOptionId).toBe('o1'); // 揭示即教学
     expect(res.reinforcementAdded).toBe(false);
 
-    expect(dim('new-1', 'understanding')!.level).toBe(1);
-    expect(dim('new-1', 'production')!.level).toBe(0);
+    expect(dim('new-1', 'understanding')!.reps).toBe(1); // give-up 也按 fail 首评分建 U
+    expect(dim('new-1', 'production')!.stability).toBeNull();
     expect(
       db.select().from(learningItems).where(eq(learningItems.id, 'new-1')).get()?.queueState,
     ).toBe('started');

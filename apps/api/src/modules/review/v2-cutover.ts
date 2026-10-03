@@ -29,8 +29,10 @@ export function applyV2Cutover(db: AppDatabase, now: Date, timezone: string): { 
     // Old P evidence included cloze. It cannot be interpreted as V2 sentence-production mastery.
     tx.update(reviewStates)
       .set({
-        level: 0,
-        stable: 0,
+        difficulty: null,
+        stability: null,
+        reps: 0,
+        lapses: 0,
         nextReviewAt: null,
         lastReviewAt: null,
         correctStreak: 0,
@@ -75,8 +77,10 @@ export function applyV2Cutover(db: AppDatabase, now: Date, timezone: string): { 
             id: randomUUID(),
             learningItemId: item.id,
             dimension: 'production',
-            level: 0,
-            stable: 0,
+            difficulty: null,
+            stability: null,
+            reps: 0,
+            lapses: 0,
             nextReviewAt: nowIso,
             lastReviewAt: null,
             correctStreak: 0,
@@ -114,15 +118,30 @@ export function normalizeRestoredV1_2BackupForV2(backup: BackupExport, now: Date
       });
       const u = item.reviewStates.find((state) => state.dimension === 'understanding');
       const inactive = {
-        level: 0,
-        stable: false,
+        difficulty: null,
+        stability: null,
+        reps: 0,
+        lapses: 0,
         nextReviewAt: null,
         lastReviewAt: null,
         correctStreak: 0,
         wrongStreak: 0,
       };
+      // 1.2 backups predate FSRS：U 维无 stability 字段 → isMastered 恒 false，统一回落 active；
+      // 进度回放（Task 3）负责把历史换算回 FSRS 状态。
       const mastered = isMastered(
-        u ? { ...u, stable: u.stable === 1 } : inactive,
+        u
+          ? {
+              difficulty: u.difficulty ?? null,
+              stability: u.stability ?? null,
+              reps: u.reps ?? 0,
+              lapses: u.lapses ?? 0,
+              nextReviewAt: u.nextReviewAt,
+              lastReviewAt: u.lastReviewAt,
+              correctStreak: u.correctStreak,
+              wrongStreak: u.wrongStreak,
+            }
+          : inactive,
         inactive,
         enabled,
       );
@@ -135,8 +154,10 @@ export function normalizeRestoredV1_2BackupForV2(backup: BackupExport, now: Date
       const due = item.queueState === 'started' && status === 'active' && enabled ? nowIso : null;
       const resetProduction = (state: BackupReviewState): BackupReviewState => ({
         ...state,
-        level: 0,
-        stable: 0,
+        difficulty: null,
+        stability: null,
+        reps: 0,
+        lapses: 0,
         nextReviewAt: due,
         lastReviewAt: null,
         correctStreak: 0,
@@ -150,8 +171,6 @@ export function normalizeRestoredV1_2BackupForV2(backup: BackupExport, now: Date
         reviewStates.push(
           resetProduction({
             dimension: 'production',
-            level: 0,
-            stable: 0,
             nextReviewAt: null,
             lastReviewAt: null,
             correctStreak: 0,

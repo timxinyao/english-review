@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { INTERVALS_DAYS } from '@el/shared';
 import { eq } from 'drizzle-orm';
 import { createDatabase } from '../../src/db/client.js';
 import { learningItems, reviewStates } from '../../src/db/schema.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import { effectiveProductionEnabled } from '../../src/modules/review/goals.js';
 import {
+  INACTIVE_SNAPSHOT,
   computeNextReviewState,
   initialProductionActivation,
   initialUnderstandingAfterLearn,
@@ -14,16 +14,19 @@ import {
   type ReviewStateSnapshot,
 } from '../../src/modules/review/service.js';
 
-const NOW = new Date('2026-09-24T08:00:00.000Z');
+const NOW = new Date('2026-10-03T00:00:00.000Z');
+const DAY_MS = 86_400_000;
 
 function plusDays(days: number): string {
-  return new Date(NOW.getTime() + days * 86_400_000).toISOString();
+  return new Date(NOW.getTime() + days * DAY_MS).toISOString();
 }
 
 function snap(overrides: Partial<ReviewStateSnapshot> = {}): ReviewStateSnapshot {
   return {
-    level: 1,
-    stable: false,
+    difficulty: 5,
+    stability: 15,
+    reps: 3,
+    lapses: 0,
     nextReviewAt: plusDays(-1),
     lastReviewAt: plusDays(-1),
     correctStreak: 0,
@@ -32,126 +35,57 @@ function snap(overrides: Partial<ReviewStateSnapshot> = {}): ReviewStateSnapshot
   };
 }
 
-describe('computeNextReviewState：pass', () => {
-  it('pass 从 L1 开始全级别序列 L1→…→L7→stable，next_review_at 按 ISO 正确计算', () => {
-    let state = initialUnderstandingAfterLearn(NOW);
-    expect(state.level).toBe(1);
-    expect(state.nextReviewAt).toBe(plusDays(1));
+describe('computeNextReviewState（FSRS）', () => {
+  it('未激活输入 + Good：激活并排期 ≥1 天；Easy 间隔 > Good；Again 最短', () => {
+    const inactive = INACTIVE_SNAPSHOT;
+    const good = computeNextReviewState(inactive, { kind: 'pass' }, NOW);
+    const easy = computeNextReviewState(inactive, { kind: 'pass', tooEasy: true }, NOW);
+    const again = computeNextReviewState(inactive, { kind: 'fail' }, NOW);
+    expect(Date.parse(good.nextReviewAt!) - NOW.getTime()).toBeGreaterThanOrEqual(DAY_MS);
+    expect(Date.parse(easy.nextReviewAt!)).toBeGreaterThan(Date.parse(good.nextReviewAt!));
+    expect(Date.parse(again.nextReviewAt!)).toBeLessThan(Date.parse(good.nextReviewAt!));
+    expect(good.stability).toBeGreaterThanOrEqual(0);
+  });
 
-    for (let level = 2; level <= 7; level++) {
-      state = computeNextReviewState(state, { kind: 'pass' }, NOW);
-      expect(state.level).toBe(level);
-      expect(state.stable).toBe(false);
-      expect(state.nextReviewAt).toBe(plusDays(INTERVALS_DAYS[level - 1]!));
-      expect(state.lastReviewAt).toBe(NOW.toISOString());
+  it('未激活 + basic_pass（Hard）：同样激活，间隔介于 Again 与 Good 之间', () => {
+    const hard = computeNextReviewState(INACTIVE_SNAPSHOT, { kind: 'basic_pass' }, NOW);
+    const good = computeNextReviewState(INACTIVE_SNAPSHOT, { kind: 'pass' }, NOW);
+    const again = computeNextReviewState(INACTIVE_SNAPSHOT, { kind: 'fail' }, NOW);
+    expect(hard.difficulty).not.toBeNull();
+    expect(Date.parse(hard.nextReviewAt!)).toBeGreaterThan(Date.parse(again.nextReviewAt!));
+    expect(Date.parse(hard.nextReviewAt!)).toBeLessThan(Date.parse(good.nextReviewAt!));
+  });
+
+  it('连续 Good：stability 单调增、间隔递增、reps 累计；fail 后 lapses+1', () => {
+    const s = computeNextReviewState(INACTIVE_SNAPSHOT, { kind: 'pass' }, NOW);
+    expect(s.reps).toBe(1);
+    const s2 = computeNextReviewState(s, { kind: 'pass' }, new Date(NOW.getTime() + 3 * DAY_MS));
+    expect(s2.stability!).toBeGreaterThan(s.stability!);
+    expect(s2.reps).toBe(s.reps + 1);
+    expect(Date.parse(s2.nextReviewAt!)).toBeGreaterThan(Date.parse(s.nextReviewAt!));
+    const s3 = computeNextReviewState(s2, { kind: 'fail' }, new Date(NOW.getTime() + 4 * DAY_MS));
+    expect(s3.lapses).toBe(s2.lapses + 1);
+    expect(s3.wrongStreak).toBe(1);
+    expect(s3.correctStreak).toBe(0);
+  });
+
+  it('stability 增长后间隔封顶 365 天；S≥120（mastered）仍照常排期（无 null 吸收态）', () => {
+    let s = computeNextReviewState(INACTIVE_SNAPSHOT, { kind: 'pass' }, NOW);
+    for (let i = 2; i <= 6; i++) {
+      s = computeNextReviewState(s, { kind: 'pass' }, new Date(Date.parse(s.nextReviewAt!)));
+      expect(Date.parse(s.nextReviewAt!) - Date.parse(s.lastReviewAt!)).toBeLessThanOrEqual(
+        365 * DAY_MS + 1000,
+      );
     }
-
-    // L7 到期再 pass → stable
-    state = computeNextReviewState(state, { kind: 'pass' }, NOW);
-    expect(state.level).toBe(7);
-    expect(state.stable).toBe(true);
-    expect(state.nextReviewAt).toBeNull();
-    expect(state.lastReviewAt).toBe(NOW.toISOString());
+    expect(s.stability!).toBeGreaterThanOrEqual(120); // Good×6 已越过掌握线
+    expect(s.nextReviewAt).not.toBeNull(); // 掌握后不再有「不排期」状态
   });
 
-  it('pass 升 1 级并按新级别间隔调度（L1→L2 = +3 天）', () => {
-    const out = computeNextReviewState(snap({ level: 1 }), { kind: 'pass' }, NOW);
-    expect(out.level).toBe(2);
-    expect(out.nextReviewAt).toBe(plusDays(3));
-    expect(out.stable).toBe(false);
-  });
-
-  it('L0（未激活）输入 pass → 进入 L1，next=+1 天', () => {
-    const out = computeNextReviewState(
-      snap({ level: 0, nextReviewAt: null, lastReviewAt: null }),
-      { kind: 'pass' },
-      NOW,
-    );
-    expect(out.level).toBe(1);
-    expect(out.nextReviewAt).toBe(plusDays(1));
-  });
-
-  it('tooEasy 在 pass 基础上额外 +1 级', () => {
-    const out = computeNextReviewState(snap({ level: 1 }), { kind: 'pass', tooEasy: true }, NOW);
-    expect(out.level).toBe(3);
-    expect(out.nextReviewAt).toBe(plusDays(INTERVALS_DAYS[2]!));
-  });
-
-  it('tooEasy 从 L6 封顶 L7 但不提前 stable', () => {
-    const out = computeNextReviewState(snap({ level: 6 }), { kind: 'pass', tooEasy: true }, NOW);
-    expect(out.level).toBe(7);
-    expect(out.stable).toBe(false);
-    expect(out.nextReviewAt).toBe(plusDays(INTERVALS_DAYS[6]!));
-  });
-
-  it('tooEasy 在 L7 → stable', () => {
-    const out = computeNextReviewState(snap({ level: 7 }), { kind: 'pass', tooEasy: true }, NOW);
-    expect(out.level).toBe(7);
-    expect(out.stable).toBe(true);
-    expect(out.nextReviewAt).toBeNull();
-  });
-
-  it('stable 是吸收态：再 pass 保持 stable 且不排期', () => {
-    const out = computeNextReviewState(
-      snap({ level: 7, stable: true, nextReviewAt: null }),
-      { kind: 'pass' },
-      NOW,
-    );
-    expect(out.stable).toBe(true);
-    expect(out.level).toBe(7);
-    expect(out.nextReviewAt).toBeNull();
-  });
-});
-
-describe('computeNextReviewState：basic_pass', () => {
-  it.each([1, 2, 3, 7])('basic_pass L%d 不升级，间隔 = 当前级间隔 × 0.5（min 1 天）', (level) => {
-    const out = computeNextReviewState(snap({ level }), { kind: 'basic_pass' }, NOW);
-    expect(out.level).toBe(level);
-    expect(out.stable).toBe(false);
-    const expected = Math.max(INTERVALS_DAYS[level - 1]! * 0.5, 1);
-    expect(out.nextReviewAt).toBe(plusDays(expected));
-  });
-
-  it('basic_pass L1 的 0.5 天被抬到 1 天', () => {
-    const out = computeNextReviewState(snap({ level: 1 }), { kind: 'basic_pass' }, NOW);
-    expect(out.nextReviewAt).toBe(plusDays(1));
-  });
-
-  it('basic_pass L7 → 120 × 0.5 = 60 天', () => {
-    const out = computeNextReviewState(snap({ level: 7 }), { kind: 'basic_pass' }, NOW);
-    expect(out.nextReviewAt).toBe(plusDays(60));
-    expect(out.stable).toBe(false);
-  });
-});
-
-describe('computeNextReviewState：fail', () => {
-  it('fail 降 1 级并按降级后间隔 × 0.5 排期（L3→L2 = +1.5 天）', () => {
-    const out = computeNextReviewState(snap({ level: 3 }), { kind: 'fail' }, NOW);
-    expect(out.level).toBe(2);
-    expect(out.nextReviewAt).toBe(plusDays(INTERVALS_DAYS[1]! * 0.5));
-  });
-
-  it('fail 在 L1 不再降级，间隔抬到 1 天', () => {
-    const out = computeNextReviewState(snap({ level: 1 }), { kind: 'fail' }, NOW);
-    expect(out.level).toBe(1);
-    expect(out.nextReviewAt).toBe(plusDays(1));
-  });
-
-  it('fail 的 L0 输入按 1 处理不降（结果 L1）', () => {
-    const out = computeNextReviewState(
-      snap({ level: 0, nextReviewAt: null, lastReviewAt: null }),
-      { kind: 'fail' },
-      NOW,
-    );
-    expect(out.level).toBe(1);
-    expect(out.nextReviewAt).toBe(plusDays(1));
-  });
-
-  it('fail 在 L7 降到 L6，间隔 = L6 间隔 × 0.5 = 30 天', () => {
-    const out = computeNextReviewState(snap({ level: 7 }), { kind: 'fail' }, NOW);
-    expect(out.level).toBe(6);
-    expect(out.nextReviewAt).toBe(plusDays(INTERVALS_DAYS[5]! * 0.5));
-    expect(out.nextReviewAt).toBe(plusDays(30));
+  it('tooEasy（Easy 评分）比同起点 pass 间隔更长', () => {
+    const base = snap();
+    const pass = computeNextReviewState(base, { kind: 'pass' }, NOW);
+    const easy = computeNextReviewState(base, { kind: 'pass', tooEasy: true }, NOW);
+    expect(Date.parse(easy.nextReviewAt!)).toBeGreaterThan(Date.parse(pass.nextReviewAt!));
   });
 });
 
@@ -188,23 +122,31 @@ describe('computeNextReviewState：streaks', () => {
 });
 
 describe('初始状态与 mastered 判定', () => {
-  it('initialUnderstandingAfterLearn：L1、next=+1d、记一次答对', () => {
-    const out = initialUnderstandingAfterLearn(NOW);
-    expect(out).toEqual({
-      level: 1,
-      stable: false,
-      nextReviewAt: plusDays(1),
-      lastReviewAt: NOW.toISOString(),
-      correctStreak: 1,
-      wrongStreak: 0,
-    });
+  it('initialUnderstandingAfterLearn：learn 首答即首评分，按 outcome 建 U', () => {
+    const pass = initialUnderstandingAfterLearn({ kind: 'pass' }, NOW);
+    expect(pass.difficulty).not.toBeNull();
+    expect(pass.stability).toBeGreaterThan(0);
+    expect(pass.reps).toBe(1);
+    expect(pass.lapses).toBe(0);
+    expect(pass.lastReviewAt).toBe(NOW.toISOString());
+    expect(Date.parse(pass.nextReviewAt!) - NOW.getTime()).toBeGreaterThanOrEqual(DAY_MS);
+    expect(pass.correctStreak).toBe(1);
+
+    const easy = initialUnderstandingAfterLearn({ kind: 'pass', tooEasy: true }, NOW);
+    expect(Date.parse(easy.nextReviewAt!)).toBeGreaterThan(Date.parse(pass.nextReviewAt!));
+
+    const fail = initialUnderstandingAfterLearn({ kind: 'fail' }, NOW);
+    expect(fail.wrongStreak).toBe(1);
+    expect(Date.parse(fail.nextReviewAt!) - NOW.getTime()).toBeGreaterThanOrEqual(DAY_MS);
   });
 
-  it('initialProductionActivation：L0、next=+1d、激活但未首答', () => {
+  it('initialProductionActivation：D/S 未激活、reps/lapses=0、next=+1d、未首答', () => {
     const out = initialProductionActivation(NOW);
     expect(out).toEqual({
-      level: 0,
-      stable: false,
+      difficulty: null,
+      stability: null,
+      reps: 0,
+      lapses: 0,
       nextReviewAt: plusDays(1),
       lastReviewAt: null,
       correctStreak: 0,
@@ -212,15 +154,23 @@ describe('初始状态与 mastered 判定', () => {
     });
   });
 
-  it('isMastered：只按当前有效目标要求稳定维度', () => {
-    const stable = snap({ level: 7, stable: true, nextReviewAt: null });
-    const notStable = snap({ level: 7, stable: false });
-    expect(isMastered(stable, stable, true)).toBe(true);
-    expect(isMastered(notStable, stable, true)).toBe(false);
-    expect(isMastered(stable, notStable, true)).toBe(false);
-    expect(isMastered(notStable, notStable, true)).toBe(false);
-    expect(isMastered(stable, notStable, false)).toBe(true);
-    expect(isMastered(notStable, stable, false)).toBe(false);
+  it('mastered 谓词：U/P 均 S≥120 且目标开 → mastered；S<120 不 master', () => {
+    const mk = (stability: number): ReviewStateSnapshot => ({
+      difficulty: 5,
+      stability,
+      reps: 5,
+      lapses: 0,
+      nextReviewAt: '2027-01-01T00:00:00.000Z',
+      lastReviewAt: '2026-10-01T00:00:00.000Z',
+      correctStreak: 5,
+      wrongStreak: 0,
+    });
+    expect(isMastered(mk(130), mk(130), true)).toBe(true);
+    expect(isMastered(mk(130), mk(60), true)).toBe(false);
+    expect(isMastered(mk(60), mk(130), true)).toBe(false);
+    expect(isMastered(mk(130), mk(0), false)).toBe(true); // P 不要求
+    expect(isMastered(mk(119.9), mk(130), false)).toBe(false); // 阈值含等号
+    expect(isMastered(INACTIVE_SNAPSHOT, INACTIVE_SNAPSHOT, false)).toBe(false);
   });
 
   it('effectiveProductionEnabled：Word 默认关、Chunk 默认开，显式覆盖优先', () => {
@@ -260,8 +210,9 @@ describe('初始状态与 mastered 判定', () => {
           id: `${id}-u`,
           learningItemId: id,
           dimension: 'understanding',
-          level: 7,
-          stable: 1,
+          difficulty: 5,
+          stability: 130,
+          reps: 8,
           updatedAt: now,
         })
         .run();
@@ -270,8 +221,9 @@ describe('初始状态与 mastered 判定', () => {
           id: `${id}-p`,
           learningItemId: id,
           dimension: 'production',
-          level: 1,
-          stable: 0,
+          difficulty: 5,
+          stability: 5,
+          reps: 1,
           updatedAt: now,
         })
         .run();
@@ -282,8 +234,8 @@ describe('初始状态与 mastered 判定', () => {
     expect(
       db.select({ id: learningItems.id, status: learningItems.status }).from(learningItems).all(),
     ).toEqual([
-      { id: 'word', status: 'mastered' },
-      { id: 'chunk', status: 'active' },
+      { id: 'word', status: 'mastered' }, // word P 默认关闭 → 只看 U
+      { id: 'chunk', status: 'active' }, // chunk P 开启且 S=5 <120 → 不掌握
       { id: 'paused', status: 'paused' },
       { id: 'archived', status: 'archived' },
     ]);

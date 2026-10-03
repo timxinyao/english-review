@@ -94,7 +94,13 @@ async function seedV2Item(db: AppDatabase, itemId: string, opts: SeedOpts = {}):
   });
   await seedExample(db, itemId, 'source', SOURCE_EXAMPLE);
   if (pLevel !== null) {
-    await seedReviewState(db, itemId, 'production', { level: pLevel, nextReviewAt: dayAgo() });
+    await seedReviewState(db, itemId, 'production', {
+      difficulty: pLevel === 0 ? null : 5,
+      stability: pLevel === 0 ? null : 25,
+      reps: pLevel,
+      nextReviewAt: dayAgo(),
+      lastReviewAt: pLevel === 0 ? null : '2026-09-20T00:00:00.000Z',
+    });
   }
   if (understandingStock) {
     await seedQuestion(db, itemId, {

@@ -3,6 +3,7 @@ import { and, desc, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
   CONTENT_LEVELS,
   DEFAULT_CONTENT_LEVEL,
+  MASTERED_STABILITY_DAYS,
   READ_FOCUS_MAX,
   READ_KEEP_DAYS,
   READ_OLD_MAX,
@@ -151,17 +152,19 @@ interface Candidate {
   failCount: number;
   /** production 维 wrong_streak（无行 = 0） */
   prodWrongStreak: number;
-  /** 激活维（level>0）最小 level */
-  minLevel: number;
+  /** 激活维（stability 非 NULL）最小 stability */
+  minStability: number;
   /** 两维最近一次复习时间（null = 从未） */
   lastReviewAt: string | null;
 }
 
-/** 两维 stable = 理解与表达都稳定（mastered 语义） */
+/** 两维均越过掌握线（S≥120）= 理解与表达都稳定（mastered 语义） */
 function isTwoDimStable(states: StateRow[]): boolean {
   const u = states.find((s) => s.dimension === 'understanding');
   const p = states.find((s) => s.dimension === 'production');
-  return !!u && !!p && u.stable === 1 && p.stable === 1;
+  const mastered = (s: StateRow | undefined) =>
+    typeof s?.stability === 'number' && s.stability >= MASTERED_STABILITY_DAYS;
+  return !!u && !!p && mastered(u) && mastered(p);
 }
 
 /** settings 的 content_level（缺省 B1；非法值回退默认） */
@@ -175,9 +178,9 @@ function readContentLevel(db: AppDatabase): string {
 
 /**
  * 选词（可测试的确定性规则，测试固定断言）：
- * - focus：active+started、至少一行 review_states、且非「两维 stable」的项，按
+ * - focus：active+started、至少一行 review_states、且非「两维掌握（S≥120）」的项，按
  *   ① 近 30 天 today-fail 数 DESC；② production wrong_streak DESC；
- *   ③ 激活维最小 level ASC；④ lastReviewAt DESC（最近复习优先）；⑤ id ASC。
+ *   ③ 激活维最小 stability ASC；④ lastReviewAt DESC（最近复习优先）；⑤ id ASC。
  *   取前 READ_FOCUS_MAX 个；不足按实际数量；0 个抛 CONFLICT。
  * - old：mastered 或两维 stable 项（排除 focus），按 lastReviewAt ASC（最久未复习优先）、id ASC。
  * - recentReadTypes：最近 3 篇文章的 type（时间正序）。
@@ -228,7 +231,9 @@ export function buildReadSelection(db: AppDatabase, now: Date): ReadSelection {
       0,
       ...states.filter((s) => s.dimension === 'production').map((s) => s.wrongStreak),
     );
-    const activeLevels = states.map((s) => s.level).filter((l) => l > 0);
+    const activeStability = states
+      .map((s) => s.stability)
+      .filter((x): x is number => typeof x === 'number');
     const last =
       states
         .map((s) => s.lastReviewAt)
@@ -240,7 +245,7 @@ export function buildReadSelection(db: AppDatabase, now: Date): ReadSelection {
       states,
       failCount: failCounts.get(item.id) ?? 0,
       prodWrongStreak: prodWrong,
-      minLevel: activeLevels.length > 0 ? Math.min(...activeLevels) : 0,
+      minStability: activeStability.length > 0 ? Math.min(...activeStability) : 0,
       lastReviewAt: last,
     };
   });
@@ -253,7 +258,7 @@ export function buildReadSelection(db: AppDatabase, now: Date): ReadSelection {
       (a, b) =>
         b.failCount - a.failCount ||
         b.prodWrongStreak - a.prodWrongStreak ||
-        a.minLevel - b.minLevel ||
+        a.minStability - b.minStability ||
         cmpDescNullable(a.lastReviewAt, b.lastReviewAt) ||
         a.item.id.localeCompare(b.item.id),
     )

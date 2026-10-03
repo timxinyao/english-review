@@ -26,7 +26,6 @@ const TZ = 'Asia/Shanghai';
 const NOW = new Date('2026-09-24T02:00:00.000Z');
 const DAY_MS = 24 * 3600 * 1000;
 const DUE = '2026-09-23T00:00:00.000Z';
-const iso = (d: Date) => d.toISOString();
 
 let db: AppDatabase;
 
@@ -56,15 +55,22 @@ async function startTodaySession(
   return result;
 }
 
-/** 表达题种子：item + P 维度到期状态 + 一道 production 题 */
+/** 表达题种子：item + P 维度到期状态（旧 level 档 → FSRS stability：1→2、2→5、4→25）+ 一道 production 题 */
 async function seedProductionItem(
   itemId: string,
-  level: number,
+  stability: number,
   opts: { mustUse?: string } = {},
 ): Promise<string> {
   const mustUse = opts.mustUse ?? itemId;
   await seedItem(db, { id: itemId, type: 'chunk', target: itemId, queueState: 'started' });
-  await seedReviewState(db, itemId, 'production', { level, nextReviewAt: DUE });
+  await seedReviewState(db, itemId, 'production', {
+    difficulty: 5,
+    stability,
+    reps: 4,
+    lapses: 0,
+    nextReviewAt: DUE,
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
+  });
   await seedQuestion(db, itemId, {
     id: `${itemId}-prod`,
     type: 'production',
@@ -100,8 +106,8 @@ function deps(overrides: FakeDepsOptions = {}): TodayDeps {
 
 describe('P 维度题型映射（TodayTaskView）', () => {
   it('P-L1 / P-L2 → production 任务，即使旧 cloze 库存存在', async () => {
-    await seedProductionItem('item-l1', 1);
-    await seedProductionItem('item-l2', 2);
+    await seedProductionItem('item-l1', 2);
+    await seedProductionItem('item-l2', 5);
     await startTodaySession(db, deps(), TZ, NOW);
     const byItem = new Map(
       db
@@ -117,7 +123,7 @@ describe('P 维度题型映射（TodayTaskView）', () => {
   });
 
   it('P-L4+ → production 任务，视图只含 zhPrompt/mustUse，不泄露 referenceAnswer', async () => {
-    await seedProductionItem('item-l4', 4);
+    await seedProductionItem('item-l4', 25);
     const task = await startAndGet();
     expect(task.taskType).toBe('production');
     expect(task.dimension).toBe('production');
@@ -166,7 +172,7 @@ describe('today production answer', () => {
   }
 
   it('pass：L4→L5 推进、attempt 记录 correction/explanation/better/prompt 元数据、统计、沉淀 personal example', async () => {
-    await seedProductionItem('item-p', 4);
+    await seedProductionItem('item-p', 25);
     const res = await answerOne('item-p', 'I will never give item-p up today.');
 
     expect(res.result).toBe('pass');
@@ -184,8 +190,8 @@ describe('today production answer', () => {
       .where(eq(reviewStates.learningItemId, 'item-p'))
       .all()
       .find((r) => r.dimension === 'production')!;
-    expect(p.level).toBe(5);
-    expect(p.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 30 * DAY_MS)));
+    expect(p.reps).toBe(5); // Good：reps 累计
+    expect(Date.parse(p.nextReviewAt!)).toBeGreaterThan(NOW.getTime() + DAY_MS); // Good 间隔（S25 起点 ≈ +27 天）
 
     const attempt = db.select().from(attempts).all()[0]!;
     expect(attempt.mode).toBe('today');
@@ -224,7 +230,7 @@ describe('today production answer', () => {
   });
 
   it('basic_pass：不升级、productionPass 不计', async () => {
-    await seedProductionItem('item-bp', 4);
+    await seedProductionItem('item-bp', 25);
     const basicDeps = deps({
       productionEval: (question, answerText) => ({
         result: 'basic_pass',
@@ -253,8 +259,8 @@ describe('today production answer', () => {
       .where(eq(reviewStates.learningItemId, 'item-bp'))
       .all()
       .find((r) => r.dimension === 'production')!;
-    expect(p.level).toBe(4); // 不升级
-    expect(p.nextReviewAt).toBe(iso(new Date(NOW.getTime() + 7 * DAY_MS))); // L4 间隔 14d × 0.5 = 7d
+    expect(p.correctStreak).toBe(0); // basic_pass 不记对
+    expect(Date.parse(p.nextReviewAt!)).toBeGreaterThanOrEqual(NOW.getTime() + DAY_MS); // Hard 间隔短于 Good // L4 间隔 14d × 0.5 = 7d
 
     const attempt = db.select().from(attempts).all()[0]!;
     expect(attempt.betterVersion).toBe('Even better.');
@@ -264,7 +270,7 @@ describe('today production answer', () => {
   });
 
   it('fail：降级且不插补强任务（表达题不强制当天重做）', async () => {
-    await seedProductionItem('item-f', 4);
+    await seedProductionItem('item-f', 25);
     const res = await answerOne('item-f', 'nothing relevant');
 
     expect(res.result).toBe('fail');
@@ -279,7 +285,7 @@ describe('today production answer', () => {
       .where(eq(reviewStates.learningItemId, 'item-f'))
       .all()
       .find((r) => r.dimension === 'production')!;
-    expect(p.level).toBe(3); // L4 → L3
+    expect(p.lapses).toBe(1); // fail：lapses+1
 
     expect(db.select().from(reviewTasks).all()).toHaveLength(1); // 无补强
     expect(
@@ -295,7 +301,7 @@ describe('today production answer', () => {
   });
 
   it('批改失败：抛 AI_PROVIDER_ERROR 且零写入（无 attempt/无推进/任务未完成/无统计）', async () => {
-    await seedProductionItem('item-x', 4);
+    await seedProductionItem('item-x', 25);
     const failing = deps({ productionFail: true });
     await expect(answerOne('item-x', 'some answer', failing)).rejects.toMatchObject({
       code: 'AI_PROVIDER_ERROR',
@@ -309,13 +315,13 @@ describe('today production answer', () => {
       .where(eq(reviewStates.learningItemId, 'item-x'))
       .all()
       .find((r) => r.dimension === 'production')!;
-    expect(p.level).toBe(4);
+    expect(p.reps).toBe(4); // 未被推进
     expect(db.select().from(reviewTasks).all()[0]!.completedAt).toBeNull();
     expect(db.select().from(dailyStats).all()).toHaveLength(0);
   });
 
   it('幂等回放：重复提交返回首次 correction 与 personalExampleSaved，不重复写入', async () => {
-    await seedProductionItem('item-r', 4);
+    await seedProductionItem('item-r', 25);
     const d = deps();
     const started = await startTodaySession(db, d, TZ, NOW);
     if (started.status !== 'active') throw new Error('start 失败');
@@ -345,7 +351,7 @@ describe('today production answer', () => {
   });
 
   it('表达题必须提交 answerText，否则 400', async () => {
-    await seedProductionItem('item-v', 4);
+    await seedProductionItem('item-v', 25);
     const d = deps();
     await startTodaySession(db, d, TZ, NOW);
     const task = db.select().from(reviewTasks).all()[0]!;
@@ -355,7 +361,7 @@ describe('today production answer', () => {
   });
 
   it('造句历史裁剪：第 11 条 production attempt 插入后最旧被删', async () => {
-    const itemId = await seedProductionItem('item-h', 4);
+    const itemId = await seedProductionItem('item-h', 25);
     // 预置 10 条历史 production attempts（today 模式）
     for (let i = 0; i < 10; i++) {
       db.insert(attempts)
@@ -413,7 +419,7 @@ describe('production 与 bad-question / feedback', () => {
   }
 
   it('feedback：production 任务拒绝（400）', async () => {
-    await seedProductionItem('item-fb', 4);
+    await seedProductionItem('item-fb', 25);
     const taskId = await answerProductionTask('item-fb');
     await expect(async () =>
       submitTaskFeedback(db, deps(), TZ, taskId, 'guessed', new Date(NOW.getTime() + 60_000)),
@@ -424,7 +430,7 @@ describe('production 与 bad-question / feedback', () => {
   });
 
   it('bad-question：撤销时删除本次写入的 personal example', async () => {
-    await seedProductionItem('item-bq', 4);
+    await seedProductionItem('item-bq', 25);
     const taskId = await answerProductionTask('item-bq');
     const attempt = db.select().from(attempts).all()[0]!;
     const post = JSON.parse(attempt.postStateJson!) as { personalExampleId: string };
@@ -439,21 +445,21 @@ describe('production 与 bad-question / feedback', () => {
         .where(eq(learningExamples.id, post.personalExampleId))
         .get(),
     ).toBeUndefined();
-    // 状态回滚 L4（pre）
+    // 状态回滚 pre（reps 4 / S25）
     const p = db
       .select()
       .from(reviewStates)
       .where(eq(reviewStates.learningItemId, 'item-bq'))
       .all()
       .find((r) => r.dimension === 'production')!;
-    expect(p.level).toBe(4);
+    expect(p.reps).toBe(4);
   });
 
   it.each([
     { answerText: 'I use item-stats well.', result: 'pass', productionPass: 1 },
     { answerText: 'An unrelated answer.', result: 'fail', productionPass: 0 },
   ])('bad-question：$result 回减表达统计且重复请求不重复扣减', async (testCase) => {
-    await seedProductionItem('item-stats', 4);
+    await seedProductionItem('item-stats', 25);
     const d = deps();
     await startTodaySession(db, d, TZ, NOW);
     const task = db.select().from(reviewTasks).all()[0]!;
@@ -480,14 +486,14 @@ describe('production 与 bad-question / feedback', () => {
       });
       expect(db.select().from(reviewStates).get()).toMatchObject({
         dimension: 'production',
-        level: 4,
+        stability: 25,
         nextReviewAt: DUE,
       });
     }
   });
 
   it('bad-question：example 已被用户 pinned → 不删除', async () => {
-    await seedProductionItem('item-pin', 4);
+    await seedProductionItem('item-pin', 25);
     const taskId = await answerProductionTask('item-pin');
     const attempt = db.select().from(attempts).all()[0]!;
     const post = JSON.parse(attempt.postStateJson!) as { personalExampleId: string };

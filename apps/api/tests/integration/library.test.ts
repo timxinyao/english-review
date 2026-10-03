@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { LibraryItemDetail, localDateString } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
@@ -60,8 +60,14 @@ async function seedLibrary(db: AppDatabase) {
     'The gravity of the situation surprised me.',
     { qualityScore: 0.9, pinned: 1, sortOrder: 0, createdAt: T.t1 },
   );
-  await seedReviewState(db, gravity, 'understanding', { level: 3, nextReviewAt: T.nextU });
-  await seedReviewState(db, gravity, 'production', { level: 0 });
+  await seedReviewState(db, gravity, 'understanding', {
+    difficulty: 5,
+    stability: 15,
+    reps: 3,
+    nextReviewAt: T.nextU,
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
+  });
+  await seedReviewState(db, gravity, 'production', { difficulty: null, stability: null, reps: 0 });
 
   const wearDown = await seedItem(db, {
     type: 'chunk',
@@ -71,8 +77,14 @@ async function seedLibrary(db: AppDatabase) {
     updatedAt: T.t2,
   });
   await seedExample(db, wearDown, 'source', 'It wears you down.', { createdAt: T.t2 });
-  await seedReviewState(db, wearDown, 'understanding', { level: 7, stable: 1 });
-  await seedReviewState(db, wearDown, 'production', { level: 2, nextReviewAt: T.nextP });
+  await seedReviewState(db, wearDown, 'understanding', { difficulty: 5, stability: 130, reps: 8 });
+  await seedReviewState(db, wearDown, 'production', {
+    difficulty: 5,
+    stability: 5,
+    reps: 2,
+    nextReviewAt: T.nextP,
+    lastReviewAt: '2026-09-20T00:00:00.000Z',
+  });
 
   const raw = await seedItem(db, {
     type: 'word',
@@ -148,20 +160,20 @@ describe('PATCH /api/library/:id 造句目标', () => {
       .where(eq(learningItems.id, ids.gravity))
       .run();
     db.update(reviewStates)
-      .set({ stable: 1, level: 7, nextReviewAt: null })
-      .where(eq(reviewStates.learningItemId, ids.gravity))
+      .set({ difficulty: 5, stability: 130, nextReviewAt: null })
+      .where(
+        and(
+          eq(reviewStates.learningItemId, ids.gravity),
+          eq(reviewStates.dimension, 'understanding'),
+        ),
+      )
       .run();
     db.update(reviewStates)
-      .set({ stable: 0, level: 0, nextReviewAt: null })
+      .set({ difficulty: null, stability: null, reps: 0, lapses: 0, nextReviewAt: null })
       .where(
-        eq(
-          reviewStates.id,
-          db
-            .select()
-            .from(reviewStates)
-            .where(eq(reviewStates.learningItemId, ids.gravity))
-            .all()
-            .find((s) => s.dimension === 'production')!.id,
+        and(
+          eq(reviewStates.learningItemId, ids.gravity),
+          eq(reviewStates.dimension, 'production'),
         ),
       )
       .run();
@@ -179,7 +191,7 @@ describe('PATCH /api/library/:id 造句目标', () => {
       .where(eq(reviewStates.learningItemId, ids.gravity))
       .all()
       .find((s) => s.dimension === 'production')!;
-    expect(p.level).toBe(0);
+    expect(p.stability).toBeNull();
     expect(p.nextReviewAt).not.toBeNull();
     expect(Date.parse(p.nextReviewAt!)).toBeGreaterThan(Date.now());
     expect(Date.parse(p.nextReviewAt!)).toBeLessThanOrEqual(Date.now() + 86_400_000 + 5_000);
@@ -230,7 +242,7 @@ describe('PATCH /api/library/:id 造句目标', () => {
       vi.useRealTimers();
     }
     const p = db.select().from(reviewStates).where(eq(reviewStates.learningItemId, id)).get();
-    expect(p?.level).toBe(0);
+    expect(p?.stability).toBeNull();
     expect(p?.nextReviewAt).toBe('2026-09-30T16:00:00.000Z');
     expect(
       db.select().from(reviewTasks).where(eq(reviewTasks.sessionId, 'evening-session')).all(),
@@ -401,13 +413,13 @@ describe('GET /api/library 列表', () => {
     expect(gravity.target).toBe('gravity');
     expect(gravity.tags).toEqual(['Avatar']);
     expect(gravity.source).toBe('Avatar S01E12');
-    expect(gravity.understandingStage).toBe('练习中'); // level 3
-    expect(gravity.productionStage).toBe('未开始'); // level 0
+    expect(gravity.understandingStage).toBe('巩固'); // S15（7≤S<30）
+    expect(gravity.productionStage).toBe('未开始'); // 未激活
     expect(gravity.nextReviewAt).toBe(T.nextU); // 仅 U 有 next
 
     const wear = byId.get(ids.wearDown)!;
-    expect(wear.understandingStage).toBe('稳定'); // level 7 stable
-    expect(wear.productionStage).toBe('初学'); // level 2
+    expect(wear.understandingStage).toBe('掌握'); // S130
+    expect(wear.productionStage).toBe('新'); // S5
     expect(wear.nextReviewAt).toBe(T.nextP);
   });
 
@@ -534,17 +546,17 @@ describe('GET /api/library/:id 详情', () => {
 
     interface ReviewStateJson {
       dimension: string;
-      level: number;
-      stable: boolean;
+      difficulty: number | null;
+      stability: number | null;
       nextReviewAt: string | null;
     }
     const dims = new Map<string, ReviewStateJson>(
       body.reviewStates.map((s: ReviewStateJson) => [s.dimension, s] as const),
     );
-    expect(dims.get('understanding')!.level).toBe(3);
-    expect(dims.get('understanding')!.stable).toBe(false);
+    expect(dims.get('understanding')!.difficulty).toBe(5);
+    expect(dims.get('understanding')!.stability).toBe(15);
     expect(dims.get('understanding')!.nextReviewAt).toBe(T.nextU);
-    expect(dims.get('production')!.level).toBe(0);
+    expect(dims.get('production')!.stability).toBeNull();
   });
 
   it('productionHistory：该 item 的 production attempts 最新 10 条倒序；PATCH 后同样返回', async () => {
@@ -908,15 +920,18 @@ describe('状态操作端点', () => {
     });
     await seedExample(db, id, 'source', 'Some sentence.');
     await seedReviewState(db, id, 'understanding', {
-      level: 5,
-      stable: 1,
+      difficulty: 5,
+      stability: 130,
+      reps: 5,
       nextReviewAt: T.nextU,
       lastReviewAt: T.t1,
       correctStreak: 3,
       wrongStreak: 1,
     });
     await seedReviewState(db, id, 'production', {
-      level: 4,
+      difficulty: 5,
+      stability: 25,
+      reps: 4,
       nextReviewAt: T.nextP,
       correctStreak: 2,
     });
@@ -932,19 +947,19 @@ describe('状态操作端点', () => {
     expect(body.item.queueState).toBe('new');
     expect(body.item.needsReinforcement).toBe(false);
     for (const state of body.reviewStates) {
-      expect(state.level).toBe(0);
-      expect(state.stable).toBe(false);
+      expect(state.difficulty).toBeNull();
+      expect(state.stability).toBeNull();
       expect(state.nextReviewAt).toBeNull();
       expect(state.lastReviewAt).toBeNull();
     }
   });
 
-  it('master：两维 stable + level 7，status=mastered', async () => {
+  it('master：两维 stability 置于掌握线（S=120），status=mastered', async () => {
     const { app, db, cookie } = await newApp();
     const id = await seedItem(db, { status: 'active' });
     await seedExample(db, id, 'source', 'Some sentence.');
-    await seedReviewState(db, id, 'understanding', { level: 6 });
-    await seedReviewState(db, id, 'production', { level: 2 });
+    await seedReviewState(db, id, 'understanding', { difficulty: 5, stability: 70, reps: 6 });
+    await seedReviewState(db, id, 'production', { difficulty: 5, stability: 5, reps: 2 });
 
     const res = await app.inject({
       method: 'POST',
@@ -955,8 +970,8 @@ describe('状态操作端点', () => {
     const body = res.json();
     expect(body.item.status).toBe('mastered');
     for (const state of body.reviewStates) {
-      expect(state.stable).toBe(true);
-      expect(state.level).toBe(7);
+      expect(state.stability).toBe(120);
+      expect(state.difficulty).toBe(5);
     }
   });
 

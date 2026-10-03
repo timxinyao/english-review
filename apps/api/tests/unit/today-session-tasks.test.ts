@@ -30,7 +30,9 @@ beforeEach(() => {
 async function seedDueChoiceItem(itemId: string): Promise<string> {
   await seedItem(db, { id: itemId, target: itemId, queueState: 'started' });
   await seedReviewState(db, itemId, 'understanding', {
-    level: 3,
+    difficulty: 5,
+    stability: 15,
+    reps: 3,
     nextReviewAt: '2026-09-23T00:00:00.000Z',
   });
   await seedQuestion(db, itemId, {

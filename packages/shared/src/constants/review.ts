@@ -1,23 +1,7 @@
-// 复习机制核心参数（PRODUCT_DESIGN 附录 A + Phase 3 确认的默认值）
+// 复习机制核心参数（FSRS 排期，PRODUCT_DESIGN 附录 A 2026-10 换轨）
 
-export const REVIEW_LEVELS = [1, 2, 3, 4, 5, 6, 7] as const;
-export type ReviewLevel = (typeof REVIEW_LEVELS)[number];
-
-/** 每个级别的成功后续间隔（天）；level N -> INTERVALS_DAYS[N-1] */
-export const INTERVALS_DAYS = [1, 3, 7, 14, 30, 60, 120] as const;
-
-export const LEVEL_MIN = 1;
-export const LEVEL_MAX = 7;
-/** 未激活 */
-export const LEVEL_INACTIVE = 0;
-
-/** basic_pass：当前级别间隔 × 0.5（最少 1 天） */
-export const BASIC_PASS_INTERVAL_FACTOR = 0.5;
-/** fail：降级后间隔 × 0.5（最少 1 天） */
-export const FAIL_INTERVAL_FACTOR = 0.5;
-export const MIN_INTERVAL_DAYS = 1;
-/** too_easy：pass 基础上最多额外 +1 级 */
-export const TOO_EASY_EXTRA_LEVELS = 1;
+/** mastered 谓词阈值：stability ≥ 120 天视为掌握（两维规则见 review/goals） */
+export const MASTERED_STABILITY_DAYS = 120;
 
 /** Production 首次激活：次日 */
 export const PRODUCTION_FIRST_REVIEW_DELAY_DAYS = 1;
@@ -63,12 +47,13 @@ export const MAX_NEW_ITEMS_UNLIMITED = -1;
 /** 同日追加学习（extend）：不限制模式下每批追加数量 */
 export const EXTEND_BATCH_UNLIMITED = 10;
 
-/** 列表展示用的自然语言阶段（PRODUCT_DESIGN §6.1） */
-export type ReviewStageLabel = '未开始' | '初学' | '练习中' | '稳定';
+/** 列表展示用的自然语言阶段（PRODUCT_DESIGN §6.1，按 FSRS stability 分档） */
+export type ReviewStageLabel = '未开始' | '新' | '巩固' | '熟练' | '掌握';
 
-export function reviewStageLabel(level: number, stable: boolean): ReviewStageLabel {
-  if (stable || level >= 7) return '稳定';
-  if (level >= 3) return '练习中';
-  if (level >= 1) return '初学';
-  return '未开始';
+export function stabilityStageLabel(stability: number | null): ReviewStageLabel {
+  if (stability === null) return '未开始';
+  if (stability < 7) return '新';
+  if (stability < 30) return '巩固';
+  if (stability < MASTERED_STABILITY_DAYS) return '熟练';
+  return '掌握';
 }

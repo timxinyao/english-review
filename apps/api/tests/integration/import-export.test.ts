@@ -350,8 +350,10 @@ describe('POST /api/import/commit', () => {
       .where(eq(reviewStates.learningItemId, item!.id));
     expect(states).toHaveLength(2);
     for (const s of states) {
-      expect(s.level).toBe(0);
-      expect(s.stable).toBe(0);
+      expect(s.difficulty).toBeNull();
+      expect(s.stability).toBeNull();
+      expect(s.reps).toBe(0);
+      expect(s.lapses).toBe(0);
       expect(s.nextReviewAt).toBeNull();
     }
   });
@@ -396,12 +398,14 @@ describe('POST /api/import/commit', () => {
     });
     await seedExample(ctx.db, id, 'extra', 'Existing extra.', { sortOrder: 0 });
     await seedReviewState(ctx.db, id, 'understanding', {
-      level: 4,
+      difficulty: 5,
+      stability: 25,
+      reps: 4,
       nextReviewAt: '2026-09-20T00:00:00.000Z',
       lastReviewAt: '2026-09-10T00:00:00.000Z',
       correctStreak: 2,
     });
-    await seedReviewState(ctx.db, id, 'production', { level: 1 });
+    await seedReviewState(ctx.db, id, 'production', { difficulty: 5, stability: 2, reps: 1 });
 
     // decisions 为空在 schema 层即拒绝（min(1)）
     const emptyDecisions = await previewAndCommit(
@@ -446,7 +450,8 @@ describe('POST /api/import/commit', () => {
       .from(reviewStates)
       .where(eq(reviewStates.learningItemId, id));
     const u = states.find((s) => s.dimension === 'understanding')!;
-    expect(u.level).toBe(4);
+    expect(u.stability).toBe(25);
+    expect(u.reps).toBe(4);
     expect(u.nextReviewAt).toBe('2026-09-20T00:00:00.000Z');
     expect(u.lastReviewAt).toBe('2026-09-10T00:00:00.000Z');
     expect(u.correctStreak).toBe(2);

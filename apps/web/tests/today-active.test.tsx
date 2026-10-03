@@ -480,3 +480,60 @@ describe('Today 撤销最近一次作答（卡片右上单图标，PRODUCT §5.1
     await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(2));
   });
 });
+
+describe('进度区交互：整个进度区为弹层入口', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('分段条嵌在入口按钮内：点分段打开弹层；自动发音开关是兄弟节点而非内嵌', async () => {
+    const answered = makeChoiceTask();
+    const pending = makeChoiceTask({
+      taskId: 'task-2',
+      item: {
+        id: 'item-2',
+        type: 'word',
+        target: 'beta',
+        meaning: '乙',
+        ipa: null,
+        notes: null,
+      },
+      question: {
+        questionId: 'q-2',
+        kind: 'direct_meaning',
+        context: null,
+        question: '"beta" 的意思是？',
+        options: [
+          { id: 'b1', text: '乙' },
+          { id: 'b2', text: '甲' },
+        ],
+      },
+    });
+    stubApi({
+      '/api/today': () => makeActive(pending, { completed: 1, total: 2 }),
+      '/api/today/tasks': () =>
+        makeTasksResponse([
+          makeSessionEntry(answered, makeWrongAnswer()),
+          makeSessionEntry(pending, null),
+        ]),
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'beta' });
+
+    // 分段条渲染在入口按钮内部（数字/统计/分段条任意处皆可点）
+    const entry = await screen.findByRole('button', { name: '查看今日学习' });
+    const segs = await waitFor(() => {
+      const found = entry.querySelectorAll('[data-seg]');
+      expect(found).toHaveLength(2);
+      return found;
+    });
+    expect(segs[0]).toHaveAttribute('data-seg', 'fail');
+    expect(segs[1]).toHaveAttribute('data-seg', 'pending');
+
+    // 点分段条（而非按钮文字区）同样打开只读弹层，不改变当前题
+    fireEvent.click(segs[1]!);
+    expect(screen.getByRole('dialog', { name: '今日学习' })).toBeVisible();
+
+    // 自动发音开关不在入口按钮内（button 嵌 button 非法嵌套），是按钮外兄弟节点
+    expect(within(entry).queryByRole('button', { name: '自动发音' })).toBeNull();
+    expect(screen.getByRole('button', { name: '自动发音' })).toBeVisible();
+  });
+});

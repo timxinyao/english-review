@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnswerResponse, SessionTaskEntry, TodayProgress, TodayTaskView } from '@el/shared';
-import { ChevronDown, Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { cn } from '../../../lib/utils';
 import { useKeyboardPhase } from '../../../lib/keyboard-inset';
@@ -55,27 +55,45 @@ function ProgressRow({
   const fail = live.filter((e) => e.result?.result === 'fail').length;
 
   return (
-    <div className="shrink-0 space-y-2 px-0.5">
+    <div className="shrink-0 px-0.5">
       {/* 音量开关与进度按钮为兄弟节点：button 内嵌 button 是非法嵌套
           （React validateDOMNesting 报错，且点击会冒泡误开弹层） */}
       <div className="flex w-full items-center justify-between gap-2">
+        {/* 整个进度区都是弹层入口：数字/统计/分段条任意处点击打开只读弹层
+            （原「今日学习 ▾」文字按钮已删；py-1 补命中区余量） */}
         <button
           type="button"
-          className="min-w-0 flex-1 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="min-w-0 flex-1 rounded-lg py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           onClick={() => setOpen(true)}
           aria-label="查看今日学习"
         >
-          <span className="flex w-full items-center justify-between">
-            <span className="text-sm font-medium tabular-nums text-foreground">
-              {completed} / {total}
-            </span>
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              今日学习 <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-            </span>
+          <span className="block text-sm font-medium tabular-nums text-foreground">
+            {completed} / {total}
           </span>
           {hasEntries && (
             <span className="mt-1 block text-xs text-muted-foreground">
               通过 {pass} · 基础通过 {basicPass} · 未通过 {fail}
+            </span>
+          )}
+          {/* 分布分段按结果着色；当前题段加高亮（颜色之外另有文字计数） */}
+          {hasEntries && (
+            <span className="mt-2 flex items-center gap-1" aria-hidden>
+              {live.map((e) => {
+                const kind = e.result?.result ?? 'pending';
+                const current = e.task.taskId === currentTaskId;
+                return (
+                  <span
+                    key={e.task.taskId}
+                    data-seg={kind}
+                    data-current={current}
+                    className={cn(
+                      'flex-1 rounded-full',
+                      current ? 'h-1.5' : 'h-1',
+                      SEG_CLASS[kind],
+                    )}
+                  />
+                );
+              })}
             </span>
           )}
         </button>
@@ -94,23 +112,6 @@ function ProgressRow({
           )}
         </Button>
       </div>
-      {/* 分布分段按结果着色；当前题段加高亮（颜色之外另有文字计数） */}
-      {hasEntries && (
-        <div className="flex items-center gap-1" aria-hidden>
-          {live.map((e) => {
-            const kind = e.result?.result ?? 'pending';
-            const current = e.task.taskId === currentTaskId;
-            return (
-              <span
-                key={e.task.taskId}
-                data-seg={kind}
-                data-current={current}
-                className={cn('flex-1 rounded-full', current ? 'h-1.5' : 'h-1', SEG_CLASS[kind])}
-              />
-            );
-          })}
-        </div>
-      )}
 
       {/* 弹层不改变当前题：只展示，关闭即回原卡 */}
       {open && entries !== null && (

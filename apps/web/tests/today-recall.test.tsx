@@ -25,7 +25,7 @@ import { speak } from '../src/lib/tts';
 const speakMock = vi.mocked(speak);
 // 保留 ApiError 真类（useAnswer 超时竞态保险按 code instanceof 判别），仅桩 api 函数
 vi.mock('../src/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<ApiModule>()),
+  ...(await importOriginal<typeof ApiModule>()),
   api: vi.fn(),
 }));
 

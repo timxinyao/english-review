@@ -29,7 +29,7 @@ vi.mock('../src/features/library/api', async (importOriginal) => {
 
 // 保留 ApiError 真类（失败弹窗用例要按 code 构造结构化错误），仅桩 api 函数
 vi.mock('../src/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<ApiModule>()),
+  ...(await importOriginal<typeof ApiModule>()),
   api: vi.fn(),
 }));
 

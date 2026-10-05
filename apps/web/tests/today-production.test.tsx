@@ -22,7 +22,7 @@ afterEach(cleanup);
 vi.mock('../src/lib/tts', () => ({ speak: vi.fn(), stopSpeaking: vi.fn() }));
 // 保留 ApiError 真类（失败/超时用例要按 code 构造结构化错误），仅桩 api 函数
 vi.mock('../src/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<ApiModule>()),
+  ...(await importOriginal<typeof ApiModule>()),
   api: vi.fn(),
 }));
 // 提示音（2026-10-05）：mock 合成音模块，组件级只断言调用

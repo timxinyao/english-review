@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api';
+import { playGradingCue } from '../src/lib/sound';
 import {
   apiCalls,
   jsonBodyOf,
@@ -17,6 +18,8 @@ afterEach(cleanup);
 // ActiveSession 切卡会自动 speak：mock 掉真实 tts（jsdom 无 AudioContext，真实调用会产生未处理 rejection）
 vi.mock('../src/lib/tts', () => ({ speak: vi.fn(), stopSpeaking: vi.fn() }));
 vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
+// 提示音（2026-10-05）：mock 合成音模块，组件级只断言调用
+vi.mock('../src/lib/sound', () => ({ playGradingCue: vi.fn() }));
 
 const apiMock = vi.mocked(api);
 
@@ -306,6 +309,19 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     const verdict = await screen.findByText('基本通过');
     expect(verdict.className).toContain('text-warning');
     expect(screen.queryByText('已存入个人例句')).not.toBeInTheDocument();
+  });
+
+  it('答对后播放前台提示音 playGradingCue("done")（PRODUCT §5.1）', async () => {
+    renderTodayApp();
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'The constant stress makes me want to give up.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    await waitFor(() => {
+      expect(vi.mocked(playGradingCue)).toHaveBeenCalledWith('done');
+    });
   });
 
   it('批改失败（AI_PROVIDER_ERROR）：错误提示、输入保留、重试成功', async () => {

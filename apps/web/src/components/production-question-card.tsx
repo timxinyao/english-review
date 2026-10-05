@@ -7,6 +7,7 @@ import { CorrectionDiff } from './correction-diff';
 import { HighlightText } from './highlight-text';
 import { PRODUCTION_VERDICTS, type QuestionAnswerResult } from './question-answer';
 import { positionTodayDockAfterClick, rememberTodayInputTouch } from '../lib/keyboard-inset';
+import { playGradingCue } from '../lib/sound';
 
 export interface ProductionQuestionData {
   questionId: string;
@@ -49,6 +50,16 @@ export function ProductionQuestionCard({
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
+
+  // 前台批改提示音（PRODUCT §5.1）：结果到达（主动不会无批改不响）/ 批改失败各一响；
+  // 取消（abort）不产生 error/result 变化，天然静音。StrictMode 双执行由 sound 内部 200ms 防抖兜底。
+  useEffect(() => {
+    if (result) {
+      if (!result.gaveUp) playGradingCue(result.result === 'fail' ? 'fail' : 'done');
+    } else if (error) {
+      playGradingCue('fail');
+    }
+  }, [result, error]);
 
   async function copyTarget() {
     try {

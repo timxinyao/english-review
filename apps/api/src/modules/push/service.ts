@@ -63,10 +63,81 @@ export function hasPushSubscription(db: AppDatabase): boolean {
 
 // ---------- 发送 ----------
 
+/** 单条订阅的推送目标面（push_subscriptions 行 / subscribe 请求体共形） */
+export interface PushSubscriptionTarget {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
+/** 底层单发：失败原样抛出（web-push 错误带 statusCode/body），处置策略由调用方决定 */
+export async function sendToSubscription(
+  sub: PushSubscriptionTarget,
+  payload: unknown,
+  opts: { vapidDetails: NonNullable<AppConfig['vapid']>; ttl: number },
+): Promise<void> {
+  await webpush.sendNotification(
+    { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+    JSON.stringify(payload),
+    { TTL: opts.ttl, vapidDetails: opts.vapidDetails },
+  );
+}
+
+/** 订阅即自检载荷：test:true → SW 恒弹（绕过前台静默），用户点开可见即证链路通 */
+const SELF_TEST_PAYLOAD = {
+  title: '通知已开启',
+  body: '批改完成时会在这里提醒你',
+  url: '/today',
+  test: true,
+} as const;
+
+/** 从 web-push 抛错提炼「statusCode + 上游 reason」：推送服务 4xx body 形如 {"reason":"BadJwtToken"} */
+function upstreamFailureReason(err: unknown): string {
+  const e = err as { statusCode?: number; body?: string };
+  let detail = e.body?.trim() ?? '';
+  if (detail) {
+    try {
+      detail = String((JSON.parse(detail) as { reason?: unknown }).reason ?? detail);
+    } catch {
+      // 非 JSON body：原样保留
+    }
+  }
+  if (!detail) detail = (err as Error | undefined)?.message ?? String(err);
+  return e.statusCode !== undefined ? `${e.statusCode} ${detail}` : detail;
+}
+
+/**
+ * 订阅即自检：upsert 后立即用新订阅发一条 test 推送——
+ * - 成功 → {ok:true}（弹窗由 SW 的 test 分支绕过前台静默展示，订阅瞬间用户必在前台）；
+ * - 失败 → 回滚删除刚 upsert 的订阅（死订阅会让后续批改推送恒 403/410），HTTP 仍 200
+ *   返回 {ok:false, reason}（statusCode+body reason，如「403 BadJwtToken」）让前端回弹展示；
+ * - VAPID 未配置（功能休眠，前端在公钥 null 时不会走到这里）：保持旧语义只 upsert。
+ */
+export async function subscribeWithSelfTest(
+  db: AppDatabase,
+  config: AppConfig,
+  sub: PushSubscriptionTarget,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  upsertPushSubscription(db, sub);
+  if (!config.vapid) return { ok: true };
+  try {
+    await sendToSubscription(sub, SELF_TEST_PAYLOAD, { vapidDetails: config.vapid, ttl: 0 });
+    return { ok: true };
+  } catch (err) {
+    deletePushSubscription(db, sub.endpoint);
+    const reason = upstreamFailureReason(err);
+    console.warn(
+      `[push] subscribe self-test failed, rolled back: endpoint=${sub.endpoint} reason=${reason}`,
+    );
+    return { ok: false, reason };
+  }
+}
+
 /**
  * 遍历全部订阅发送「造句批改完成」通知（best-effort，永不抛出阻断调用方）：
  * - 404/410 = 订阅已被推送服务注销（浏览器清数据/卸载）→ 删除该行；
- * - 其余错误仅 console.warn（journal 可观测，不重试）。
+ * - 其余错误仅 console.warn（journal 可观测，不重试）；日志带 statusCode 与上游 body
+ *   （Apple 会给 reason 如 BadJwtToken——密钥/订阅问题可秒定位，不再静默失败）。
  * 恒发：由 SW 端判断前台可见性静默（覆盖 iOS 后台冻结——页面冻结连接未断、
  * 客户端无法告知服务端"其实没在等"，服务端无从判断，故一律发）。
  */
@@ -85,19 +156,15 @@ export async function sendGradingPush(
   };
   for (const row of subs) {
     try {
-      await webpush.sendNotification(
-        { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
-        JSON.stringify(payload),
-        { TTL: PUSH_TTL_SECONDS, vapidDetails: config.vapid },
-      );
+      await sendToSubscription(row, payload, { vapidDetails: config.vapid, ttl: PUSH_TTL_SECONDS });
     } catch (err) {
-      const status = (err as { statusCode?: number }).statusCode;
-      if (status === 404 || status === 410) {
+      const e = err as { statusCode?: number; body?: string };
+      if (e.statusCode === 404 || e.statusCode === 410) {
         db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, row.id)).run();
         continue;
       }
       console.warn(
-        `[push] sendNotification failed: endpoint=${row.endpoint} status=${status ?? 'n/a'} message=${(err as Error | undefined)?.message ?? String(err)}`,
+        `[push] sendNotification failed: endpoint=${row.endpoint} status=${e.statusCode ?? 'n/a'} body=${e.body ?? 'n/a'} message=${(err as Error | undefined)?.message ?? String(err)}`,
       );
     }
   }

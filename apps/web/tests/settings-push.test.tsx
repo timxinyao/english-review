@@ -194,6 +194,51 @@ describe('设置页「批改完成通知」开关（Web Push）', () => {
     }
   });
 
+  it('订阅自检失败（ok:false）：开关回弹为「开启」并显示上游 reason（403 BadJwtToken）', async () => {
+    const { api } = await import('../src/lib/api');
+    const original = vi.mocked(api).getMockImplementation();
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === '/api/push/subscribe') return { ok: false, reason: '403 BadJwtToken' };
+      if (path === '/api/push/status') return { subscribed: false };
+      if (path === '/api/push/vapid-public-key') return { publicKey: VAPID_KEY };
+      if (path === '/api/settings') {
+        return {
+          maxNewItemsPerDay: 10,
+          contentLevel: 'B1',
+          preferredTtsVoice: null,
+          updatedAt: '2026-10-05T00:00:00.000Z',
+        };
+      }
+      if (path === '/api/ai/models') {
+        return {
+          provider: 'glm',
+          models: { flash: { model: 'glm-flash', source: 'auto', inList: true, thinking: 'off' } },
+          thinkingOverride: null,
+          taskMapping: [],
+          availableModels: [],
+          checkedAt: '2026-10-05T00:00:00.000Z',
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    try {
+      renderPage();
+      const enableBtn = await screen.findByRole('button', { name: '开启' });
+      await waitFor(() => expect(enableBtn).toBeEnabled());
+      fireEvent.click(enableBtn);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).toContain('推送服务拒绝');
+      expect(alert.textContent).toContain('403 BadJwtToken');
+      // 服务器已回滚订阅：开关不翻转为已开启
+      expect(screen.getByRole('button', { name: '开启' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '已开启' })).not.toBeInTheDocument();
+    } finally {
+      vi.mocked(api).mockImplementation(original!);
+    }
+  });
+
   it('关闭流程：POST unsubscribe + 浏览器 subscription.unsubscribe，开关回到「开启」', async () => {
     pushSubscribed = true;
     renderPage();

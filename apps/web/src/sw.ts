@@ -1,4 +1,5 @@
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
+import { notificationTag, parsePushPayload, shouldShowNotification } from './lib/push-payload';
 
 /**
  * Foxi PWA Service Worker（vite-plugin-pwa injectManifest 手写源码，types 走 tsconfig.sw.json
@@ -9,7 +10,8 @@ import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
  *   （配合 lib/pwa-update.ts 的 controllerchange 自动刷新），cleanupOutdatedCaches 清旧缓存
  * - push：造句批改完成通知。服务端恒发（覆盖 iOS 后台冻结——页面冻结时连接未断、
  *   服务端无从得知客户端已不等结果），前台是否静默由这里兜底：存在可见窗口
- *   （用户正看着结果卡）即跳过 showNotification
+ *   （用户正看着结果卡）即跳过 showNotification；payload.test===true 为订阅即自检，
+ *   恒弹绕过前台静默（tag=push-selftest，不与批改通知互斥替换）
  * - notificationclick：已有窗口 focus + postMessage，否则 openWindow(data.url ?? '/today')
  */
 
@@ -28,32 +30,27 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
   event.waitUntil(self.clients.claim());
 });
 
-// ---------- Web Push：造句批改完成通知 ----------
-
-interface GradingPushPayload {
-  title?: string;
-  body?: string;
-  url?: string;
-}
+// ---------- Web Push：造句批改完成通知 + 订阅自检 ----------
 
 self.addEventListener('push', (event: PushEvent) => {
-  let payload: GradingPushPayload = {};
-  try {
-    payload = event.data ? (JSON.parse(event.data.text()) as GradingPushPayload) : {};
-  } catch {
-    // 非 JSON 载荷：按空载荷处理（默认标题 + /today）
-  }
+  const payload = parsePushPayload(event.data?.text());
   event.waitUntil(
     (async () => {
       const clients = await self.clients.matchAll({ type: 'window' });
-      // 前台静默：任一可见窗口 = 用户正看着结果卡，跳过通知
-      if (clients.some((client) => client.visibilityState === 'visible')) return;
-      await self.registration.showNotification(payload.title ?? '造句批改完成', {
-        body: payload.body,
-        tag: 'grading', // 同 tag 覆盖：连续批改不堆叠
-        data: { url: payload.url ?? '/today' },
-        icon: '/icon-192.png',
-      });
+      // 前台静默（批改通知）：任一可见窗口 = 用户正看着结果卡，跳过通知；
+      // test 自检恒弹绕过静默（订阅瞬间必在前台，静默会吞掉自检弹窗）
+      const hasVisibleWindow = clients.some((client) => client.visibilityState === 'visible');
+      if (!shouldShowNotification(payload, hasVisibleWindow)) return;
+      const tag = notificationTag(payload); // 自检独立 tag：不与批改通知互斥替换
+      await self.registration.showNotification(
+        payload.title ?? (tag === 'push-selftest' ? '通知已开启' : '造句批改完成'),
+        {
+          body: payload.body,
+          tag,
+          data: { url: payload.url ?? '/today' },
+          icon: '/icon-192.png',
+        },
+      );
     })(),
   );
 });

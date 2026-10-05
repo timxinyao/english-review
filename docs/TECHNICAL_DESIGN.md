@@ -298,7 +298,8 @@ Web Push（后台批改完成通知）：
 - 订阅链路：设置页开关「批改完成通知」——GET `/api/push/vapid-public-key`（返回 null = 服务器未配置，提示并保持关）→ `Notification.requestPermission()`（granted 才继续）→ `pushManager.subscribe({userVisibleOnly:true, applicationServerKey})` → POST `/api/push/subscribe`（endpoint upsert，开关状态持久化于服务器订阅表）；关闭走 POST `/api/push/unsubscribe` + 浏览器侧 `subscription.unsubscribe()`。GET `/api/push/status`（=订阅表是否有行）供刷新后初始化开关。iOS 仅「添加到主屏 PWA + HTTPS」下可用，失败给出可读提示。
 - 发送钩子：today answer 路由在 production 作答**结算成功后** `setImmediate` best-effort 调 `sendGradingPush`：遍历订阅 `webpush.sendNotification(sub, {title:'造句批改完成', body:'${target} · ${verdictLabel}', url:'/today'}, {TTL:300})`。**恒发**——iOS 后台冻结页面时 fetch 连接未断、服务端无从得知客户端已不等结果，因此不依赖断连检测；幂等回放（alreadyCompleted）不重复发；VAPID 未配置（env 缺省）直接 return。
 - 前台静默：SW（`apps/web/src/sw.ts`，vite-plugin-pwa `injectManifest`，precache 用 `precacheAndRoute(self.__WB_MANIFEST)`、不注册导航回退即不拦截 /api；skipWaiting+clients.claim 保留 autoUpdate 语义）在 push 事件中 `clients.matchAll({type:'window'})`，存在 visible 窗口（用户正看结果卡）即跳过 showNotification；`notificationclick` 已有窗口 focus + postMessage，否则 `clients.openWindow(data.url ?? '/today')`。
-- 失效与可观测：推送服务返回 404/410（浏览器清数据/卸载）即删除订阅行；其余错误仅 `console.warn`（journal 可见），不重试、不阻断作答响应。
+- 失效与可观测：推送服务返回 404/410（浏览器清数据/卸载）即删除订阅行；其余错误仅 `console.warn`（journal 可见，含 statusCode 与上游 body reason——Apple 会给如 `BadJwtToken`），不重试、不阻断作答响应。
+- 订阅即自检+失败回滚：POST `/api/push/subscribe` upsert 后立即用新订阅发一条 `{title:'通知已开启', body:'批改完成时会在这里提醒你', url:'/today', test:true}` 自检推送（TTL 0）——`test:true` 使 SW 恒弹绕过前台静默（订阅瞬间用户必在前台，静默会吞掉弹窗；tag=`push-selftest` 不与批改通知互斥替换），用户点开可见即证链路通；自检失败回滚删除刚 upsert 的订阅（死订阅不残留），HTTP 仍 200 返回 `{ok:false, reason:'<statusCode> <body reason>'}`（如 `403 BadJwtToken`），前端开关回弹为关并展示 reason。
 - VAPID 身份走环境变量 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`（/etc/english-learning/env，systemd EnvironmentFile 加载），任一缺省 = 功能休眠。
 
 # 8. 复习状态机实现（2026-10-03 起 FSRS）

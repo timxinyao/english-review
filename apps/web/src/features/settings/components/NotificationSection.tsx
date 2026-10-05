@@ -11,6 +11,12 @@ interface PushPublicKeyResponse {
   publicKey: string | null;
 }
 
+/** subscribe 响应：订阅即自检结果（失败时 reason 形如「403 BadJwtToken」= statusCode+上游 reason） */
+interface PushSubscribeResponse {
+  ok: boolean;
+  reason?: string;
+}
+
 /** VAPID applicationServerKey：URL-safe base64 → Uint8Array（pushManager.subscribe 入参格式） */
 export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);
@@ -24,7 +30,8 @@ export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 /**
  * 批改完成通知开关（Web Push，PRODUCT §5.1）：
  * - 开：取 VAPID 公钥（null = 服务器未配置，保持关）→ 请求通知权限 → pushManager.subscribe
- *   → POST /api/push/subscribe（开关状态持久化于服务器订阅表）
+ *   → POST /api/push/subscribe（服务器订阅即自检：立即发一条 test 推送，失败回滚订阅
+ *   并返回 ok:false+reason → 开关回弹为关、展示「推送服务拒绝（403 BadJwtToken）」式提示）
  * - 关：POST /api/push/unsubscribe + 浏览器侧 subscription.unsubscribe()
  * - 初始状态 GET /api/push/status（刷新后开关不回弹）
  * - iOS 注意：requestPermission/pushManager 仅在「添加到主屏的 PWA + HTTPS」下可用，
@@ -108,10 +115,14 @@ async function enablePush(): Promise<void> {
   if (!json.endpoint || !keys.p256dh || !keys.auth) {
     throw new Error('订阅信息不完整，请重试');
   }
-  await api('/api/push/subscribe', {
+  const res = await api<PushSubscribeResponse>('/api/push/subscribe', {
     method: 'POST',
     body: JSON.stringify({ endpoint: json.endpoint, p256dh: keys.p256dh, auth: keys.auth }),
   });
+  // 订阅即自检失败：服务器已回滚删除订阅，开关回弹为关并展示上游 reason（推送链路不通）
+  if (!res.ok) {
+    throw new Error(`推送服务拒绝（${res.reason ?? '未知原因'}）`);
+  }
 }
 
 async function disablePush(): Promise<void> {

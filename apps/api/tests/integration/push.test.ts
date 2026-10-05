@@ -163,6 +163,89 @@ describe('Web Push 订阅路由', () => {
     ).toEqual({ subscribed: true });
   });
 
+  it('POST subscribe：VAPID 未配置（休眠）→ 旧语义只 upsert 不自检，仍 {ok:true}', async () => {
+    const bare = createTestApp();
+    apps.push(bare.app);
+    const cookie = await loginCookie(bare.app);
+
+    const res = await bare.app.inject({
+      method: 'POST',
+      url: '/api/push/subscribe',
+      headers: { cookie },
+      payload: SUB,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    expect(sendNotification).not.toHaveBeenCalled();
+    expect(bare.db.select().from(pushSubscriptions).all()).toHaveLength(1);
+  });
+
+  it('POST subscribe：自检成功 → 立即发 test 推送（test:true + 固定文案），订阅保留，响应 {ok:true}', async () => {
+    const ctx = createPushApp();
+    const cookie = await loginCookie(ctx.app);
+
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/push/subscribe',
+      headers: { cookie },
+      payload: SUB,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    const [subArg, payloadArg, optionsArg] = sendNotification.mock.calls[0]!;
+    expect(subArg).toMatchObject({
+      endpoint: SUB.endpoint,
+      keys: { p256dh: SUB.p256dh, auth: SUB.auth },
+    });
+    expect(JSON.parse(payloadArg as string)).toEqual({
+      title: '通知已开启',
+      body: '批改完成时会在这里提醒你',
+      url: '/today',
+      test: true, // SW 端恒弹标记：绕过前台静默
+    });
+    expect(optionsArg).toMatchObject({
+      vapidDetails: { publicKey: 'B-test-public', subject: 'mailto:notify@english-review.local' },
+    });
+    expect(ctx.db.select().from(pushSubscriptions).all()).toHaveLength(1);
+  });
+
+  it('POST subscribe：自检失败（403 BadJwtToken）→ 回滚删除订阅，{ok:false, reason 含 statusCode+body reason}，warn 日志含上游 reason', async () => {
+    const ctx = createPushApp();
+    const cookie = await loginCookie(ctx.app);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sendNotification.mockRejectedValueOnce(
+      Object.assign(new Error('failed'), {
+        statusCode: 403,
+        body: '{"reason":"BadJwtToken"}',
+      }),
+    );
+    try {
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/push/subscribe',
+        headers: { cookie },
+        payload: SUB,
+      });
+      // HTTP 仍 200：让前端展示 reason 并回弹开关，而非笼统报错
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { ok: boolean; reason: string };
+      expect(body.ok).toBe(false);
+      expect(body.reason).toContain('403');
+      expect(body.reason).toContain('BadJwtToken');
+
+      // 回滚：刚 upsert 的死订阅不残留（否则后续批改推送恒 403/410）
+      expect(ctx.db.select().from(pushSubscriptions).all()).toHaveLength(0);
+
+      const logged = warn.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(logged).toContain('self-test');
+      expect(logged).toContain('BadJwtToken');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('POST unsubscribe：删除订阅；status 回到 false；未订阅 endpoint 也成功（幂等）', async () => {
     const ctx = createPushApp();
     const cookie = await loginCookie(ctx.app);
@@ -275,13 +358,20 @@ describe('sendGradingPush（best-effort 恒发）', () => {
         .values({ id: 'sub-1', ...SUB, createdAt: 't', updatedAt: 't' })
         .run();
       sendNotification.mockRejectedValueOnce(
-        Object.assign(new Error('upstream 502'), { statusCode: 502 }),
+        Object.assign(new Error('upstream 502'), {
+          statusCode: 502,
+          body: '{"reason":"BadJwtToken"}',
+        }),
       );
 
       await expect(
         sendGradingPush(ctx.db, pushConfig(), { target: 'raw', verdictLabel: '通过' }),
       ).resolves.toBeUndefined();
       expect(warn).toHaveBeenCalled();
+      // 日志带 statusCode 与上游 body（Apple reason）：密钥/订阅问题可观测、不静默
+      const logged = warn.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(logged).toContain('status=502');
+      expect(logged).toContain('BadJwtToken');
       expect(ctx.db.select().from(pushSubscriptions).all()).toHaveLength(1);
     } finally {
       warn.mockRestore();

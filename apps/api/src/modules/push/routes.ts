@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AppConfig } from '../../config.js';
 import type { AppDatabase } from '../../db/client.js';
 import { parseBody } from '../../lib/http.js';
-import { deletePushSubscription, hasPushSubscription, upsertPushSubscription } from './service.js';
+import { deletePushSubscription, hasPushSubscription, subscribeWithSelfTest } from './service.js';
 
 // 订阅体 = PushSubscription.toJSON() 的最小面（endpoint + 两把密钥）
 const SubscribeRequest = z.object({
@@ -26,10 +26,11 @@ export function pushRoutes(app: FastifyInstance, db: AppDatabase, config: AppCon
   // 开关初始状态：服务器是否存在订阅（刷新后不回弹到"关"）
   app.get('/api/push/status', async () => ({ subscribed: hasPushSubscription(db) }));
 
+  // 订阅即自检：upsert 后立即发一条 test 推送验证端到端链路（VAPID/JWT/上游拒绝当场暴露）；
+  // 失败回滚删除订阅并返回 {ok:false, reason}（HTTP 仍 200，让前端开关回弹并展示 reason）
   app.post('/api/push/subscribe', async (req) => {
     const sub = parseBody(SubscribeRequest, req.body);
-    upsertPushSubscription(db, sub);
-    return { ok: true };
+    return subscribeWithSelfTest(db, config, sub);
   });
 
   app.post('/api/push/unsubscribe', async (req) => {

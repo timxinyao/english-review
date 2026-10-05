@@ -228,6 +228,7 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
                 pending={answer.isPending}
                 error={productionError}
                 onSubmitText={(text) => submit({ answerText: text })}
+                onCancelGrading={() => answer.cancel()}
                 onAdvance={advance}
               />
             )}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
-import { Textarea } from './ui/textarea';
+import { AutoGrowTextarea, Textarea } from './ui/textarea';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { CorrectionDiff } from './correction-diff';
@@ -21,6 +21,8 @@ interface ProductionQuestionCardProps {
   /** 批改失败的可读信息（如 AI_PROVIDER_ERROR）；输入保留由组件自身状态保证 */
   error: string | null;
   onSubmitText: (text: string) => void;
+  /** 批改中取消（2026-10-05）：掐断请求（服务端未落库则作答作废）并回到可编辑态 */
+  onCancelGrading?: () => void;
   /** 主动不会（Today 专用，§7.6）：缺省=练一下布局，不出该入口 */
   onGiveUp?: () => void;
   onAdvance: () => void;
@@ -29,13 +31,16 @@ interface ProductionQuestionCardProps {
 }
 
 /** 表达题：受控中文提示 + 批改结果（PRODUCT §7.3/§7.4/§7.6）；Today 与练一下共用。
- *  主动不会（gaveUp）揭示参考句/用法说明且无批改，不渲染最小纠错 diff。 */
+ *  主动不会（gaveUp）揭示参考句/用法说明且无批改，不渲染最小纠错 diff。
+ *  批改中（pending）：提交按钮原地替换为「取消」+ 按钮上方 2px 动态进度线；
+ *  取消后输入保留、按钮恢复「提交」可改写重交。 */
 export function ProductionQuestionCard({
   question,
   result,
   pending,
   error,
   onSubmitText,
+  onCancelGrading,
   onGiveUp,
   onAdvance,
   variant,
@@ -56,22 +61,26 @@ export function ProductionQuestionCard({
     }
   }
 
+  const target = (
+    <p className="production-target shrink-0 text-sm text-muted-foreground">
+      必须使用：
+      <span className="font-literary text-2xl text-accent">{question.mustUse}</span>
+      <button
+        type="button"
+        aria-label={copied ? '已复制' : '复制目标词'}
+        onClick={copyTarget}
+        className="-my-1 ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </p>
+  );
+
   const prompt = (
     <div className="space-y-4 break-words pr-8">
       <p className="text-xs text-muted-foreground">用英语表达</p>
       <p className="text-xl leading-relaxed text-foreground">{question.zhPrompt}</p>
-      <p className="text-sm text-muted-foreground">
-        必须使用：
-        <span className="font-literary text-2xl text-accent">{question.mustUse}</span>
-        <button
-          type="button"
-          aria-label={copied ? '已复制' : '复制目标词'}
-          onClick={copyTarget}
-          className="-my-1 ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </button>
-      </p>
+      {target}
     </div>
   );
 
@@ -80,6 +89,20 @@ export function ProductionQuestionCard({
     if (!trimmed || pending) return;
     onSubmitText(trimmed);
   }
+
+  // 批改中状态（quiet）：2px 动态进度线 + 「正在批改…」文案（不与 spinner 堆叠）
+  const gradingBar = pending && (
+    <div
+      aria-hidden
+      data-grading-progress={''}
+      className="h-0.5 w-full animate-pulse rounded-full bg-gradient-to-r from-transparent via-accent to-transparent"
+    />
+  );
+  const gradingLabel = (
+    <span data-grading-label className="text-xs text-muted-foreground">
+      正在批改…
+    </span>
+  );
 
   const errorBlock = error && !result && (
     <p role="alert" className="text-sm text-destructive">
@@ -122,6 +145,7 @@ export function ProductionQuestionCard({
               segments={result.correction.segments}
               correctedSentence={result.correction.correctedSentence}
               betterVersion={result.correction.betterVersion}
+              betterVersionKind={result.correction.betterVersionKind}
             />
           )}
           {result.explanation && (
@@ -137,17 +161,31 @@ export function ProductionQuestionCard({
 
   if (variant === 'today') {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1" data-slot="body">
-          {prompt}
-          {errorBlock}
-          {feedback}
-        </div>
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        data-production-input={!result ? '' : undefined}
+      >
+        {!result ? (
+          <div className="production-context min-h-0 flex-1 break-words pr-8" data-slot="body">
+            <p className="production-label text-xs text-muted-foreground">用英语表达</p>
+            <div className="production-prompt-scroll min-h-0 overflow-y-auto">
+              <p className="production-prompt-text text-xl leading-relaxed text-foreground">
+                {question.zhPrompt}
+              </p>
+              {errorBlock}
+            </div>
+            {target}
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1" data-slot="body">
+            {prompt}
+            {feedback}
+          </div>
+        )}
         {!result ? (
           <div className="study-dock space-y-3" data-slot="dock">
-            <Textarea
+            <AutoGrowTextarea
               aria-label="表达答案"
-              rows={3}
               className="resize-none"
               placeholder="Write your sentence in English…"
               value={text}
@@ -156,17 +194,26 @@ export function ProductionQuestionCard({
               onClick={positionTodayDockAfterClick}
               onChange={(e) => setText(e.target.value)}
             />
+            {gradingBar}
             <div className="flex items-center justify-between gap-2">
-              {onGiveUp ? (
-                <Button variant="ghost" size="sm" disabled={pending} onClick={onGiveUp}>
+              {pending ? (
+                gradingLabel
+              ) : onGiveUp ? (
+                <Button variant="ghost" size="sm" onClick={onGiveUp}>
                   不会表达
                 </Button>
               ) : (
                 <span />
               )}
-              <Button disabled={!text.trim() || pending} onClick={submit}>
-                {pending ? '批改中…' : error ? '重试' : '提交'}
-              </Button>
+              {pending ? (
+                <Button variant="negative" onClick={() => onCancelGrading?.()}>
+                  取消
+                </Button>
+              ) : (
+                <Button disabled={!text.trim()} onClick={submit}>
+                  {error ? '重试' : '提交'}
+                </Button>
+              )}
             </div>
           </div>
         ) : (
@@ -199,10 +246,18 @@ export function ProductionQuestionCard({
               不会表达
             </Button>
           )}
-          <div className="flex justify-end">
-            <Button disabled={!text.trim() || pending} onClick={submit}>
-              {pending ? '批改中…' : error ? '重试' : '提交'}
-            </Button>
+          {gradingBar}
+          <div className="flex items-center justify-end gap-2">
+            {pending && gradingLabel}
+            {pending ? (
+              <Button variant="negative" onClick={() => onCancelGrading?.()}>
+                取消
+              </Button>
+            ) : (
+              <Button disabled={!text.trim()} onClick={submit}>
+                {error ? '重试' : '提交'}
+              </Button>
+            )}
           </div>
         </div>
       )}

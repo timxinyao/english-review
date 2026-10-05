@@ -17,6 +17,21 @@ import {
   undoTodayTask,
 } from './service.js';
 
+/**
+ * 断连判定（纯函数，供测试直接覆盖）：客户端 abort fetch / 关页后传输层连接被销毁。
+ * 注意不能用 raw.destroyed/closed——请求体读完后 Node 即把 IncomingMessage 流
+ * 置 destroyed（complete=true），正常 keep-alive 请求也会误判为断连（e2e 实测）；
+ * 真断连的可靠信号是 socket.destroyed（客户端中止 → TCP 连接销毁）。
+ * app.inject 无真 socket 恒 false——路由接线由本函数单测 + service 注入桩覆盖。
+ */
+export function requestDisconnected(raw: {
+  /** IncomingMessage.destroyed：body 读完即置位，正常请求也为 true——不可用作断连信号，仅收窄类型 */
+  destroyed?: boolean;
+  socket?: { destroyed?: boolean } | null;
+}): boolean {
+  return raw.socket?.destroyed === true;
+}
+
 export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppConfig): void {
   const tz = config.appTimezone;
 
@@ -79,6 +94,7 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
   app.post('/api/today/tasks/:id/answer', async (req) => {
     const { id } = req.params as { id: string };
     const body = parseBody(AnswerRequest, req.body);
+    // 造句批改中取消：结算前读 request.raw 断连态（取消语义见 answerTodayTask 注释）
     return answerTodayTask(
       db,
       await resolveTodayDeps(),
@@ -87,6 +103,7 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
       id,
       body,
       () => new Date(),
+      () => requestDisconnected(req.raw),
     );
   });
 

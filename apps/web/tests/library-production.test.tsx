@@ -112,6 +112,7 @@ describe('Library 详情：造句历史（PRODUCT §7.5）', () => {
         id: 'ph-1',
         result: 'pass',
         betterVersion: 'The constant stress makes me want to give up everything.',
+        betterVersionKind: 'rewrite',
       }),
       makeHistoryEntry({
         id: 'ph-2',
@@ -121,26 +122,41 @@ describe('Library 详情：造句历史（PRODUCT §7.5）', () => {
         result: 'fail',
         mode: 'library_practice',
       }),
+      makeHistoryEntry({
+        id: 'ph-3',
+        originalText: 'A natural legacy sentence.',
+        correctedSentence: 'A natural legacy sentence.',
+        betterVersion: 'Legacy suggestion without a stored kind.',
+        result: 'basic_pass',
+      }),
     ];
     detailApi.mockResolvedValue(detail);
     renderLibraryApp(`/library/${detail.item.id}`);
 
     expect(await screen.findByRole('heading', { name: '造句历史' })).toBeVisible();
+    const history = screen.getByRole('region', { name: '造句历史' });
     // 第 1 条（倒序由服务端保证，按传入顺序渲染）
-    expect(screen.getByText('The constant stress makes me want to give up.')).toBeVisible();
     expect(
-      screen.getByText(
+      within(history).getByText('The constant stress makes me want to give up.'),
+    ).toBeVisible();
+    expect(
+      within(history).getByText(
         (_, el) =>
           el?.tagName === 'P' &&
           el.textContent === '原句：The constant stress make me want to give up.',
       ),
     ).toBeVisible();
-    expect(screen.getByText('通过')).toBeVisible();
+    expect(within(history).getByText('通过')).toBeVisible();
     expect(
-      screen.getByText('更自然：The constant stress makes me want to give up everything.'),
+      within(history).getByText(
+        '参考表达：The constant stress makes me want to give up everything.',
+      ),
+    ).toBeVisible();
+    expect(
+      within(history).getByText('更自然：Legacy suggestion without a stored kind.'),
     ).toBeVisible();
     // 第 2 条：fail 标签
-    expect(screen.getByText('未通过')).toBeVisible();
+    expect(within(history).getByText('未通过')).toBeVisible();
   });
 
   it('造句历史为空：不渲染整个区块', async () => {
@@ -285,6 +301,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
           ],
           correctedSentence: 'He decided to give up smoking.',
           betterVersion: null,
+          betterVersionKind: null,
         },
       }),
     });
@@ -338,6 +355,42 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     fireEvent.click(await screen.findByRole('button', { name: '复制目标词' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('give up'));
     expect(await screen.findByRole('button', { name: '已复制' })).toBeVisible();
+  });
+
+  it('表达题批改中可取消（2026-10-05）：点取消掐断请求、输入保留、按钮恢复「提交」且无错误提示', async () => {
+    renderDetailWithPractice({
+      // 永不 resolve：保持批改 pending
+      '/api/library/item-1/practice/pq-2/answer': () => new Promise(() => {}),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
+
+    // 第 1 题：recall 直判通过 → 第 2 题表达
+    fireEvent.click(await screen.findByRole('button', { name: '良好' }));
+    await screen.findByText('良好');
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'He decided to give up smoke.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    // 批改中：提交按钮原地变「取消」+ 进度线（练一下无正式状态，纯前端掐断）
+    const cancelBtn = await screen.findByRole('button', { name: '取消' });
+    expect(document.querySelector('[data-grading-progress]')).not.toBeNull();
+    const answerCall = apiCalls('/api/library/item-1/practice/pq-2/answer')[0]!;
+    const signal = answerCall.init?.signal as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    fireEvent.click(cancelBtn);
+
+    expect(signal.aborted).toBe(true);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '提交' })).toBeEnabled();
+    });
+    expect(screen.getByLabelText('表达答案')).toHaveValue('He decided to give up smoke.');
+    expect(screen.getByLabelText('表达答案')).toBeEnabled();
+    // 取消不是失败：不弹「批改失败」
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('生成练习失败：显示错误并可返回详情', async () => {

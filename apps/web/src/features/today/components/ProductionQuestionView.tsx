@@ -33,6 +33,7 @@ export function ProductionQuestionView({ task, question, result, onAnswered, onA
       onSubmitText={(answerText) =>
         answer.mutate({ taskId: task.taskId, body: { answerText } }, { onSuccess: onAnswered })
       }
+      onCancelGrading={() => answer.cancel()}
       onGiveUp={() =>
         answer.mutate({ taskId: task.taskId, body: { giveUp: true } }, { onSuccess: onAnswered })
       }

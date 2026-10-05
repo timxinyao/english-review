@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useRef } from 'react';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+} from '@tanstack/react-query';
 import type {
   AnswerRequest,
   AnswerResponse,
@@ -36,10 +42,15 @@ export function startTodaySession(): Promise<TodayActiveResponse> {
   return api<TodayActiveResponse>('/api/today/start', { method: 'POST' });
 }
 
-export function answerTodayTask(taskId: string, body: AnswerRequest): Promise<AnswerResponse> {
+export function answerTodayTask(
+  taskId: string,
+  body: AnswerRequest,
+  signal?: AbortSignal,
+): Promise<AnswerResponse> {
   return api<AnswerResponse>(`/api/today/tasks/${taskId}/answer`, {
     method: 'POST',
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -101,13 +112,39 @@ export function useExtendSession() {
   });
 }
 
-export function useAnswer() {
+/** useAnswer 结果：mutation 全量字段 + cancel（造句批改中取消，2026-10-05） */
+export type AnswerMutation = UseMutationResult<
+  AnswerResponse,
+  Error,
+  { taskId: string; body: AnswerRequest }
+> & { cancel: () => void };
+
+/**
+ * 作答 mutation + 批改中取消：每次 mutate 持有独立 AbortController——
+ * cancel() = abort（掐断 fetch；服务端结算前检测断连则本次作废零写入）
+ * + mutation.reset（清 pending/error，取消不得残留「批改失败」红字）
+ * + invalidate today（覆盖罕见竞态：其实已落库，刷新后直接显示已批结果卡）。
+ */
+export function useAnswer(): AnswerMutation {
   const invalidate = useInvalidateToday();
-  return useMutation({
-    mutationFn: ({ taskId, body }: { taskId: string; body: AnswerRequest }) =>
-      answerTodayTask(taskId, body),
+  const controllerRef = useRef<AbortController | null>(null);
+  const mutation = useMutation({
+    mutationFn: ({ taskId, body }: { taskId: string; body: AnswerRequest }) => {
+      // 串行兜底：新作答先掐断上一次仍在飞的请求（正常流程上一次已结束，此处幂等）
+      controllerRef.current?.abort();
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      return answerTodayTask(taskId, body, controller.signal);
+    },
     onSuccess: invalidate,
   });
+  const { reset } = mutation;
+  const cancel = useCallback(() => {
+    controllerRef.current?.abort();
+    reset();
+    invalidate();
+  }, [reset, invalidate]);
+  return { ...mutation, cancel };
 }
 
 export function usePrepareTask() {

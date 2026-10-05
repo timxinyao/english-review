@@ -93,6 +93,8 @@ export interface StateSnapshot {
   reinforcementTaskIds?: string[];
   /** 仅 post：本次结算写入的 Personal Example id（坏题撤销时删除该例句的依据） */
   personalExampleId?: string | null;
+  /** 仅 post：本次实际插入的文本（撤销时用于精确检测用户是否编辑，旧快照无此字段） */
+  personalExampleText?: string | null;
   /** 仅 post：本次沉淀替换掉的未固定个人例句行快照（普通撤销精确恢复；旧快照无此字段） */
   replacedPersonalExample?: ExampleRowSnapshot | null;
   /** 仅 post：本次结算被裁剪的表达历史 attempt 行快照（普通撤销在 10 条边界恢复；旧快照无此字段） */
@@ -1471,12 +1473,17 @@ function parseCorrectionView(json: string | null): CorrectionView | null {
       segments?: CorrectionView['segments'];
       corrected?: string;
       better?: string | null;
+      betterVersionKind?: string | null;
     };
     if (!Array.isArray(c.segments) || typeof c.corrected !== 'string') return null;
     return {
       segments: c.segments,
       correctedSentence: c.corrected,
       betterVersion: typeof c.better === 'string' ? c.better : null,
+      betterVersionKind:
+        c.betterVersionKind === 'polish' || c.betterVersionKind === 'rewrite'
+          ? c.betterVersionKind
+          : null,
     };
   } catch {
     return null;
@@ -1533,6 +1540,17 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
   };
 }
 
+/**
+ * 断连作废（2026-10-05 造句批改中取消）：isDisconnected 由路由注入（读
+ * request.raw.socket.destroyed；不能用 raw.destroyed——body 读完即误置）。语义——
+ * - 真断开（用户点「取消」掐断 fetch / 关页）：结算事务开启前检测到 → 本次作答零写入作废
+ *   （无 attempt / 无 FSRS 推进 / 无统计），客户端保留输入可改写重交；
+ * - 后台冻结（iOS 切后台）：连接未断，isDisconnected() 恒 false → 照常结算，
+ *   与前端 visibilitychange 回前台刷新的承诺不冲突；
+ * - 罕见竞态（结算事务已开才断）：检查在事务前，落库结果保留，取消无效，
+ *   刷新后由幂等回放显示已批结果。
+ * 仅 production 需要：批改有数秒 AI 等待窗口；recall/选择/填空即时结算无窗口。
+ */
 export async function answerTodayTask(
   db: AppDatabase,
   deps: TodayDeps,
@@ -1541,6 +1559,7 @@ export async function answerTodayTask(
   taskId: string,
   body: AnswerRequest,
   settlementNow: () => Date = () => now,
+  isDisconnected: () => boolean = () => false,
 ): Promise<AnswerResponse> {
   const task = db.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get();
   if (!task) throw appError('NOT_FOUND', '任务不存在');
@@ -1670,6 +1689,12 @@ export async function answerTodayTask(
 
   const nowIso = now.toISOString();
 
+  // 批改等待期间客户端已断连（取消）：作废本次作答，不进结算事务（零写入）。
+  // 客户端已断，响应自然丢弃；错误仅用于服务端日志与测试断言。
+  if (isProduction && isDisconnected()) {
+    throw appError('CONFLICT', '已取消');
+  }
+
   // ---- 同步事务：结算写库（AI 已全部完成，回调严格同步）----
   return db.transaction((tx) => {
     const fresh = tx.select().from(reviewTasks).where(eq(reviewTasks.id, taskId)).get();
@@ -1776,7 +1801,7 @@ export async function answerTodayTask(
     const post = snapshotOf(tx, task.learningItemId);
     post.reinforcementTaskIds = reinforcementIds;
 
-    // 表达题：优质 corrected 句沉淀 Personal Example（PRODUCT §3.2/§7.5），
+    // 表达题：按候选明确选择的 corrected/polish 句沉淀 Personal Example（PRODUCT §3.2/§7.5），
     // post 快照记录本次写入的 exampleId（坏题撤销依据）与被替换例句行（普通撤销恢复）
     let personalSaved: PersonalExampleSaveResult = SKIP_PERSONAL;
     if (isProduction && production) {
@@ -1786,14 +1811,24 @@ export async function answerTodayTask(
         {
           result: production.result,
           eligible: production.candidate.eligible,
+          source: production.candidate.source,
           qualityScore: production.candidate.qualityScore,
           correctedSentence: production.correctedSentence,
           originalText: body.answerText!,
           betterVersion: production.betterVersion,
+          betterVersionKind: production.betterVersionKind,
         },
         now,
       );
-      if (personalSaved.exampleId) post.personalExampleId = personalSaved.exampleId;
+      if (personalSaved.exampleId) {
+        post.personalExampleId = personalSaved.exampleId;
+        post.personalExampleText =
+          tx
+            .select({ text: learningExamples.text })
+            .from(learningExamples)
+            .where(eq(learningExamples.id, personalSaved.exampleId))
+            .get()?.text ?? null;
+      }
       if (personalSaved.replacedExampleSnapshot) {
         post.replacedPersonalExample = personalSaved.replacedExampleSnapshot;
       }
@@ -1835,6 +1870,8 @@ export async function answerTodayTask(
               segments: production.segments,
               corrected: production.correctedSentence,
               better: production.betterVersion,
+              betterVersionKind: production.betterVersionKind,
+              personalExampleSource: production.candidate.source,
             })
           : null,
         explanation,
@@ -1907,6 +1944,7 @@ export async function answerTodayTask(
             segments: production.segments,
             correctedSentence: production.correctedSentence,
             betterVersion: production.betterVersion,
+            betterVersionKind: production.betterVersionKind,
           }
         : null,
       personalExampleSaved: personalSaved.saved,
@@ -2083,12 +2121,28 @@ export function reportBadQuestion(
 // POST /api/today/tasks/:id/undo（普通撤销最近一次作答，TECHNICAL_DESIGN §7.5）
 // ---------------------------------------------------------------------------
 
-/** 本次沉淀写入例句的原始文本（attempt.correction_json.corrected；用于检测用户后续编辑） */
-function insertedExampleTextOf(attempt: AttemptRowSnapshot): string | null {
+/** 识别本次实际插入的文本；旧快照按当时插入/替换两条路径各自的行为回退。 */
+function insertedExampleTextOf(
+  attempt: AttemptRowSnapshot,
+  post: StateSnapshot | null,
+): string | null {
+  if (typeof post?.personalExampleText === 'string') return post.personalExampleText;
   if (!attempt.correctionJson) return null;
   try {
-    const parsed = JSON.parse(attempt.correctionJson) as { corrected?: unknown };
-    return typeof parsed.corrected === 'string' ? parsed.corrected : null;
+    const parsed = JSON.parse(attempt.correctionJson) as {
+      corrected?: unknown;
+      better?: unknown;
+    };
+    if (post?.replacedPersonalExample) {
+      // Oct 3 的历史替换路径保存 corrected。
+      return typeof parsed.corrected === 'string' ? parsed.corrected : null;
+    }
+    // Oct 3 的历史插入路径优先保存 better，缺省 corrected。
+    return typeof parsed.better === 'string'
+      ? parsed.better
+      : typeof parsed.corrected === 'string'
+        ? parsed.corrected
+        : null;
   } catch {
     return null;
   }
@@ -2096,8 +2150,8 @@ function insertedExampleTextOf(attempt: AttemptRowSnapshot): string | null {
 
 /**
  * 普通撤销：只回滚当天 Session 最近一次未撤销的正式作答（PRODUCT §5.1）。
- * 与坏题撤销不同：不改题目状态、不调用 bad-question 逻辑，替代题取不同题目排到队列尾。
- * 替代题在事务外预取（含懒生成）；取不到时抛可重试错误且不改变任何数据。
+ * 与坏题撤销不同：不改题目状态。重答立即回同词；只有造句换题，其余复用原题。
+ * 新造句题在事务外预取；取不到时抛可重试错误且不改变任何数据。
  */
 export async function undoTodayTask(
   db: AppDatabase,
@@ -2126,22 +2180,14 @@ export async function undoTodayTask(
     throw appError('CONFLICT', '已有更新的作答，无法撤销该任务');
   }
 
-  // ---- 事务外预取替代题：同 item/题型，但必须与原题不同 id ----
-  const replacementType: QuestionKind =
-    task.taskType === 'cloze'
-      ? 'cloze'
-      : task.taskType === 'production'
-        ? 'production'
-        : 'understanding';
-  const replacement = await acquireWithGenerate(
-    db,
-    deps,
-    task.learningItemId,
-    replacementType,
-    now,
-    [task.questionId ?? ''],
-  );
-  if (!replacement) {
+  // 只有造句换题；Recall/Learn 及遗留非造句题复用原绑定，不消耗题库或调用 AI。
+  const replacement =
+    task.taskType === 'production'
+      ? await acquireWithGenerate(db, deps, task.learningItemId, 'production', now, [
+          task.questionId ?? '',
+        ])
+      : null;
+  if (task.taskType === 'production' && !replacement) {
     // 没有可用新题：保持原作答与会话不变，提示重试（PRODUCT §5.1）
     throw appError('CONFLICT', '暂时没有可用的新题，请稍后重试');
   }
@@ -2182,7 +2228,7 @@ export async function undoTodayTask(
         .where(eq(learningExamples.id, savedExampleId))
         .get();
       if (saved) {
-        const insertedText = insertedExampleTextOf(attempt);
+        const insertedText = insertedExampleTextOf(attempt, post);
         const edited = insertedText !== null && saved.text !== insertedText;
         if (saved.pinned === 1 || edited) {
           throw appError('CONFLICT', '本次例句已被固定或修改，无法撤销');
@@ -2190,17 +2236,19 @@ export async function undoTodayTask(
       }
     }
     // 替代题仍可用（并发下可能被占用或失效）
-    const replacementRow = tx
-      .select()
-      .from(questions)
-      .where(eq(questions.id, replacement.id))
-      .get();
-    if (
-      !replacementRow ||
-      replacementRow.status === 'bad_question' ||
-      replacementRow.status === 'retired'
-    ) {
-      throw appError('CONFLICT', '替代题目已不可用，请重试');
+    if (replacement) {
+      const replacementRow = tx
+        .select()
+        .from(questions)
+        .where(eq(questions.id, replacement.id))
+        .get();
+      if (
+        !replacementRow ||
+        replacementRow.status === 'bad_question' ||
+        replacementRow.status === 'retired'
+      ) {
+        throw appError('CONFLICT', '替代题目已不可用，请重试');
+      }
     }
 
     // ---- 精确回滚（仅本次 attempt 的变动）----
@@ -2251,24 +2299,29 @@ export async function undoTodayTask(
       .run();
     tx.update(reviewTasks).set({ canceledAt: nowIso }).where(eq(reviewTasks.id, task.id)).run();
 
-    // 6) 替代任务插入队列尾：沿用原 taskType/dimension/origin——补强撤销释放的
+    // 6) 新任务放到剩余待答队列之前，立即回同词；沿用 taskType/dimension/origin。
     //    配额槽位由替代题占用同一槽位（不额外消耗），read_reinforcement 沿用清旗语义
-    const maxSort =
-      tx
-        .select({ m: sql<number>`max(${reviewTasks.sortKey})` })
-        .from(reviewTasks)
-        .where(eq(reviewTasks.sessionId, task.sessionId))
-        .get()?.m ?? 0;
+    const firstPendingSort = tx
+      .select({ m: sql<number | null>`min(${reviewTasks.sortKey})` })
+      .from(reviewTasks)
+      .where(
+        and(
+          eq(reviewTasks.sessionId, task.sessionId),
+          isNull(reviewTasks.completedAt),
+          isNull(reviewTasks.canceledAt),
+        ),
+      )
+      .get()?.m;
     tx.insert(reviewTasks)
       .values({
         id: randomUUID(),
         sessionId: task.sessionId,
         learningItemId: task.learningItemId,
         dimension: task.dimension,
-        questionId: replacement.id,
+        questionId: replacement?.id ?? freshTask.questionId,
         taskType: task.taskType,
         origin: task.origin,
-        sortKey: Number(maxSort) + 1,
+        sortKey: firstPendingSort == null ? freshTask.sortKey : Number(firstPendingSort) - 1,
         deferCount: 0,
         completedAt: null,
         canceledAt: null,

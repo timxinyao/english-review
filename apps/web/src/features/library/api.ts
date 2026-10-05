@@ -15,7 +15,8 @@ import type {
   UpdateLearningItemRequest,
   UpdateLearningItemResponse,
 } from '@el/shared';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useRef } from 'react';
+import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
 // ---------- 常量与 query keys ----------
@@ -173,10 +174,12 @@ export function answerPracticeQuestion(
   itemId: string,
   questionId: string,
   body: PracticeAnswerRequest,
+  signal?: AbortSignal,
 ): Promise<PracticeAnswerResponse> {
   return api<PracticeAnswerResponse>(`/api/library/${itemId}/practice/${questionId}/answer`, {
     method: 'POST',
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -185,14 +188,35 @@ export function usePractice(itemId: string) {
   return useMutation({ mutationFn: () => startPractice(itemId) });
 }
 
-/** 练习作答成功后刷新详情（造句历史/个人例句可能更新） */
-export function usePracticeAnswer(itemId: string) {
+/** usePracticeAnswer 结果：mutation 全量字段 + cancel（批改中取消，2026-10-05） */
+export type PracticeAnswerMutation = UseMutationResult<
+  PracticeAnswerResponse,
+  Error,
+  { questionId: string; body: PracticeAnswerRequest }
+> & { cancel: () => void };
+
+/**
+ * 练习作答 + 批改中取消：练一下无正式状态，cancel 为纯前端掐断
+ * （abort + reset 清 pending/error），无取消后 invalidate 诉求。
+ */
+export function usePracticeAnswer(itemId: string): PracticeAnswerMutation {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ questionId, body }: { questionId: string; body: PracticeAnswerRequest }) =>
-      answerPracticeQuestion(itemId, questionId, body),
+  const controllerRef = useRef<AbortController | null>(null);
+  const mutation = useMutation({
+    mutationFn: ({ questionId, body }: { questionId: string; body: PracticeAnswerRequest }) => {
+      controllerRef.current?.abort();
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      return answerPracticeQuestion(itemId, questionId, body, controller.signal);
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: libraryKeys.all });
     },
   });
+  const { reset } = mutation;
+  const cancel = useCallback(() => {
+    controllerRef.current?.abort();
+    reset();
+  }, [reset]);
+  return { ...mutation, cancel };
 }

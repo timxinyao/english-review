@@ -17,8 +17,11 @@ import {
   reportBadQuestion,
   startTodaySession as startTodaySessionRaw,
   submitTaskFeedback,
+  undoTodayTask,
   type TodayDeps,
 } from '../../src/modules/today/service.js';
+import { requestDisconnected } from '../../src/modules/today/routes.js';
+import type { ProductionEvaluation } from '../../src/modules/questions/service.js';
 import { seedItem, seedQuestion, seedReviewState } from '../helpers/seed';
 import { createFakeDeps, type FakeDepsOptions } from '../helpers/today-fakes';
 
@@ -181,6 +184,7 @@ describe('today production answer', () => {
       segments: [{ text: 'I will never give item-p up today.', type: 'same' }],
       correctedSentence: 'I will never give item-p up today.',
       betterVersion: null,
+      betterVersionKind: null,
     });
     expect(res.personalExampleSaved).toBe(true);
 
@@ -241,7 +245,8 @@ describe('today production answer', () => {
         ],
         explanation: '轻微语法问题。',
         betterVersion: 'Even better.',
-        candidate: { eligible: false, qualityScore: 0.2, reason: 'fake' },
+        betterVersionKind: 'polish',
+        candidate: { eligible: false, source: null, qualityScore: 0.2, reason: 'fake' },
         promptMeta: { key: 'check_production', version: 1, hash: 'fake-hash', model: 'fake' },
       }),
     });
@@ -267,6 +272,57 @@ describe('today production answer', () => {
     const stats = db.select().from(dailyStats).get()!;
     expect(stats.productionAttempts).toBe(1);
     expect(stats.productionPass).toBe(0);
+  });
+
+  it('polish 版本作为实际 personal example 保存，且撤销识别该准确文本', async () => {
+    await seedProductionItem('item-polish', 25);
+    const polishDeps = deps({
+      productionEval: (_question, _answerText) => ({
+        result: 'pass',
+        correctedSentence: 'Daily pressure wears down my resolve.',
+        segments: [
+          { text: 'Daily pressure wear', type: 'delete' },
+          { text: 'Daily pressure wears', type: 'insert' },
+          { text: ' down my resolve.', type: 'same' },
+        ],
+        explanation: '表达自然。',
+        betterVersion: 'Daily pressure is wearing down my resolve.',
+        betterVersionKind: 'polish',
+        candidate: {
+          eligible: true,
+          source: 'better',
+          qualityScore: 0.95,
+          reason: '润色版本自然且具体。',
+        },
+        promptMeta: { key: 'check_production', version: 2, hash: 'fake-hash', model: 'fake' },
+      }),
+    });
+    const res = await answerOne('item-polish', 'Daily pressure wear down my resolve.', polishDeps);
+
+    expect(res.correction).toMatchObject({ betterVersionKind: 'polish' });
+    const saved = db
+      .select()
+      .from(learningExamples)
+      .where(eq(learningExamples.kind, 'personal'))
+      .get();
+    expect(saved?.text).toBe('Daily pressure is wearing down my resolve.');
+    const attempt = db.select().from(attempts).all()[0]!;
+    expect(JSON.parse(attempt.correctionJson!)).toMatchObject({
+      betterVersionKind: 'polish',
+      personalExampleSource: 'better',
+    });
+
+    const taskId = db
+      .select()
+      .from(reviewTasks)
+      .where(eq(reviewTasks.learningItemId, 'item-polish'))
+      .get()!.id;
+    await expect(
+      undoTodayTask(db, polishDeps, TZ, new Date(NOW.getTime() + 60_000), taskId),
+    ).resolves.toMatchObject({ ok: true });
+    expect(
+      db.select().from(learningExamples).where(eq(learningExamples.kind, 'personal')).all(),
+    ).toHaveLength(0);
   });
 
   it('fail：降级且不插补强任务（表达题不强制当天重做）', async () => {
@@ -510,5 +566,162 @@ describe('production 与 bad-question / feedback', () => {
         .where(eq(learningExamples.id, post.personalExampleId))
         .get(),
     ).toBeTruthy();
+  });
+});
+
+describe('批改中取消（断连作废，2026-10-05）', () => {
+  /** 受控批改 promise：evaluateProduction 被调用后挂起，测试决定何时 resolve */
+  function controlledDeps(): {
+    d: TodayDeps;
+    evaluated: Promise<void>;
+    resolve: (v: ProductionEvaluation) => void;
+  } {
+    const base = deps();
+    let releaseEval!: (v: ProductionEvaluation) => void;
+    const gate = new Promise<ProductionEvaluation>((r) => {
+      releaseEval = r;
+    });
+    let signalEval!: () => void;
+    const evaluated = new Promise<void>((r) => {
+      signalEval = r;
+    });
+    return {
+      d: {
+        ...base,
+        async evaluateProduction() {
+          signalEval();
+          return gate;
+        },
+      },
+      evaluated,
+      resolve: releaseEval!,
+    };
+  }
+
+  /** pass 形状的批改结果（与 today-fakes 的 pass 分支一致） */
+  const passEvaluation = (answerText: string): ProductionEvaluation => ({
+    result: 'pass',
+    correctedSentence: answerText,
+    segments: [{ text: answerText, type: 'same' }],
+    explanation: 'fake：目标使用正确。',
+    betterVersion: null,
+    betterVersionKind: null,
+    candidate: { eligible: true, source: 'corrected', qualityScore: 0.9, reason: 'fake' },
+    promptMeta: { key: 'check_production', version: 1, hash: 'fake-hash', model: 'fake' },
+  });
+
+  async function startProductionTask(itemId: string): Promise<string> {
+    await seedProductionItem(itemId, 25);
+    await startTodaySession(db, deps(), TZ, NOW);
+    const task = db
+      .select()
+      .from(reviewTasks)
+      .where(eq(reviewTasks.learningItemId, itemId))
+      .all()[0]!;
+    return task.id;
+  }
+
+  it('断连于结算前：抛 CONFLICT「已取消」且零写入（attempts/review_states/daily_stats/任务未完成）', async () => {
+    const taskId = await startProductionTask('item-cancel');
+    const { d, evaluated, resolve } = controlledDeps();
+    let disconnected = false;
+    const answering = answerTodayTask(
+      db,
+      d,
+      TZ,
+      NOW,
+      taskId,
+      { answerText: 'I give item-cancel up.' },
+      () => NOW,
+      () => disconnected,
+    );
+
+    // 批改已发起、仍在等待窗口内 → 客户端掐断请求
+    await evaluated;
+    disconnected = true;
+    resolve(passEvaluation('I give item-cancel up.'));
+
+    await expect(answering).rejects.toMatchObject({ code: 'CONFLICT', message: '已取消' });
+    expect(db.select().from(attempts).all()).toHaveLength(0);
+    const p = db
+      .select()
+      .from(reviewStates)
+      .where(eq(reviewStates.learningItemId, 'item-cancel'))
+      .all()
+      .find((r) => r.dimension === 'production')!;
+    expect(p.reps).toBe(4); // FSRS 未推进（种子值）
+    expect(db.select().from(reviewTasks).all()[0]!.completedAt).toBeNull();
+    expect(db.select().from(dailyStats).all()).toHaveLength(0);
+    // 个人例句零沉淀
+    expect(db.select().from(learningExamples).all()).toHaveLength(0);
+  });
+
+  it('不断连（后台冻结连接未断）：照常结算（回归）', async () => {
+    const taskId = await startProductionTask('item-frozen');
+    const { d, evaluated, resolve } = controlledDeps();
+    const answering = answerTodayTask(
+      db,
+      d,
+      TZ,
+      NOW,
+      taskId,
+      { answerText: 'I give item-frozen up.' },
+      () => NOW,
+      () => false, // 连接未断：iOS 后台冻结场景，isDisconnected 恒 false
+    );
+
+    await evaluated;
+    resolve(passEvaluation('I give item-frozen up.'));
+
+    const res = await answering;
+    expect(res.result).toBe('pass');
+    expect(db.select().from(attempts).all()).toHaveLength(1);
+    expect(db.select().from(dailyStats).get()!.productionAttempts).toBe(1);
+  });
+
+  it('断连发生于结算事务后：已结算保留，重放幂等返回首次结果（取消无效）', async () => {
+    const taskId = await startProductionTask('item-late');
+    const { d, evaluated, resolve } = controlledDeps();
+    const answering = answerTodayTask(
+      db,
+      d,
+      TZ,
+      NOW,
+      taskId,
+      { answerText: 'I give item-late up.' },
+      () => NOW,
+      () => false, // 结算时刻连接仍在
+    );
+    await evaluated;
+    resolve(passEvaluation('I give item-late up.'));
+    const first = await answering;
+    expect(first.result).toBe('pass');
+
+    // 结算落库后客户端才断（罕见竞态）：重放路径先于断连检查，返回已批结果
+    const replay = await answerTodayTask(
+      db,
+      d,
+      TZ,
+      NOW,
+      taskId,
+      { answerText: 'whatever' },
+      () => NOW,
+      () => true,
+    );
+    expect(replay.alreadyCompleted).toBe(true);
+    expect(replay.result).toBe(first.result);
+    expect(replay.correction).toEqual(first.correction);
+    expect(db.select().from(attempts).all()).toHaveLength(1);
+  });
+
+  it('requestDisconnected（路由接线纯函数）：socket.destroyed 为真即断连；body 读完误置的 raw.destroyed 不算断连', () => {
+    expect(requestDisconnected({ socket: { destroyed: false } })).toBe(false);
+    expect(requestDisconnected({})).toBe(false); // app.inject 无真 socket 的默认形态
+    expect(requestDisconnected({ socket: null })).toBe(false);
+    // 正常 keep-alive 请求：请求体已读完（complete），IncomingMessage 流被 Node 置
+    // destroyed——这是高频误判源，绝不能作为断连信号（e2e 实测踩过）
+    expect(requestDisconnected({ socket: { destroyed: false }, destroyed: true })).toBe(false);
+    // 客户端 abort fetch / 关页：传输层连接销毁
+    expect(requestDisconnected({ socket: { destroyed: true } })).toBe(true);
   });
 });

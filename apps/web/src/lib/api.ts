@@ -23,7 +23,20 @@ const REQUEST_TIMEOUT_MS = 100_000;
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  // 外部 signal（如造句批改「取消」掐断请求）桥接进内部 controller：
+  // 任一先触发都中止 fetch；用 timedOut 区分——只有自身超时才报「请求超时」，
+  // 外部 abort 原样抛 AbortError，由调用方决定文案与状态清理。
+  const external = init?.signal;
+  const onExternalAbort = () => controller.abort();
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener('abort', onExternalAbort);
+  }
   let res: Response;
   try {
     res = await fetch(path, {
@@ -38,12 +51,13 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   } catch (err) {
     // abort 无 status（请求未收到响应），用 status=0 表达；其余网络错误原样抛出。
     // 不用 instanceof Error：jsdom 等环境的 DOMException 不继承 Error
-    if ((err as { name?: string } | null)?.name === 'AbortError') {
+    if ((err as { name?: string } | null)?.name === 'AbortError' && timedOut) {
       throw new ApiError('REQUEST_TIMEOUT', '请求超时，请重试', 0);
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    external?.removeEventListener('abort', onExternalAbort);
   }
   if (!res.ok) {
     let code = 'UNKNOWN';

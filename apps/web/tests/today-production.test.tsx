@@ -79,7 +79,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     });
   });
 
-  it('批改中：按钮显示“批改中…”并禁用，重复点击不产生第二次请求', async () => {
+  it('批改中（2026-10-05 可取消）：提交按钮原地变「取消」，进度线存在且无「批改中…」旧文案', async () => {
     stubApi({
       '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
       // 永不 resolve：保持 pending
@@ -92,10 +92,55 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
 
-    const grading = await screen.findByRole('button', { name: '批改中…' });
-    expect(grading).toBeDisabled();
-    fireEvent.click(grading);
-    expect(apiCalls('/api/today/tasks/task-prod/answer')).toHaveLength(1);
+    // 提交按钮原地替换为「取消」（可点击，不再禁用等待）
+    const cancelBtn = await screen.findByRole('button', { name: '取消' });
+    expect(cancelBtn).toBeEnabled();
+    expect(screen.queryByText('批改中…')).not.toBeInTheDocument();
+    // 按钮上方 2px 动态进度线（quiet：animate-pulse 渐变 accent）+「正在批改…」文案
+    const progressLine = document.querySelector('[data-grading-progress]');
+    expect(progressLine).not.toBeNull();
+    expect(progressLine!.className).toContain('animate-pulse');
+    expect(screen.getByText('正在批改…')).toBeVisible();
+    // 批改等待中不提供「不会表达」入口
+    expect(screen.queryByRole('button', { name: '不会表达' })).not.toBeInTheDocument();
+  });
+
+  it('点取消：请求被 abort、输入保留、按钮恢复「提交」，无错误提示；invalidate 刷新今日状态', async () => {
+    stubApi({
+      '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
+      // 永不 resolve：保持 pending，signal 由 useAnswer 的 AbortController 传入
+      '/api/today/tasks/task-prod/answer': () => new Promise(() => {}),
+    });
+    renderTodayApp();
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'I want to give up.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    await screen.findByRole('button', { name: '取消' });
+
+    const answerCall = apiCalls('/api/today/tasks/task-prod/answer')[0]!;
+    const signal = answerCall.init?.signal as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+    const todayCallsBefore = apiCalls('/api/today').length;
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    // 请求被掐断；textarea 内容保留可改写重交；按钮恢复「提交」
+    expect(signal.aborted).toBe(true);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '提交' })).toBeEnabled();
+    });
+    expect(screen.getByLabelText('表达答案')).toHaveValue('I want to give up.');
+    expect(screen.getByLabelText('表达答案')).toBeEnabled();
+    // 取消不是失败：不得残留「批改失败」红字，进度线随之消失
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-grading-progress]')).toBeNull();
+    // 取消后主动 invalidate today：覆盖「其实已落库」竞态（刷新后显示已批结果卡）
+    await waitFor(() => {
+      expect(apiCalls('/api/today').length).toBeGreaterThan(todayCallsBefore);
+    });
   });
 
   it('通过：判定、diff 文本、解释、已存入个人例句；手动下一题（2 秒不自动）', async () => {
@@ -211,6 +256,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
           ],
           correctedSentence: 'The constant stress makes me want to give up.',
           betterVersion: 'The constant stress makes me want to give up everything.',
+          betterVersionKind: 'rewrite',
         },
       }),
     });
@@ -231,7 +277,8 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(inserted).toBeDefined();
     expect(screen.getByText('纠正后')).toBeVisible();
     expect(screen.getByText('请使用 give up 表达“放弃”。')).toBeVisible();
-    // betterVersion 默认展开（2026-10-03：更自然的说法直接可见）
+    // rewrite 作为参考表达直接显示
+    expect(screen.getByText('参考表达')).toBeVisible();
     const details = screen
       .getByText('The constant stress makes me want to give up everything.')
       .closest('details');

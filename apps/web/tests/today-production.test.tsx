@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../src/lib/api';
+import type * as ApiModule from '../src/lib/api';
+import { api, ApiError } from '../src/lib/api';
 import { playGradingCue } from '../src/lib/sound';
 import {
   apiCalls,
@@ -9,6 +10,8 @@ import {
   makeChoiceTask,
   makeProductionAnswer,
   makeProductionTask,
+  makeSessionEntry,
+  makeTasksResponse,
   renderTodayApp,
   stubApi,
 } from './today-helpers';
@@ -17,7 +20,11 @@ afterEach(cleanup);
 
 // ActiveSession 切卡会自动 speak：mock 掉真实 tts（jsdom 无 AudioContext，真实调用会产生未处理 rejection）
 vi.mock('../src/lib/tts', () => ({ speak: vi.fn(), stopSpeaking: vi.fn() }));
-vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
+// 保留 ApiError 真类（失败/超时用例要按 code 构造结构化错误），仅桩 api 函数
+vi.mock('../src/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<ApiModule>()),
+  api: vi.fn(),
+}));
 // 提示音（2026-10-05）：mock 合成音模块，组件级只断言调用
 vi.mock('../src/lib/sound', () => ({ playGradingCue: vi.fn() }));
 
@@ -324,7 +331,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     });
   });
 
-  it('批改失败（AI_PROVIDER_ERROR）：错误提示、输入保留、重试成功', async () => {
+  it('批改失败（AI_PROVIDER_ERROR）：错误提示、输入保留、弹窗内重试成功', async () => {
     let answerCalls = 0;
     stubApi({
       '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
@@ -343,19 +350,136 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
 
-    // 失败：错误提示出现，textarea 内容保留
-    const alert = await screen.findByRole('alert');
+    // 失败：弹窗（错误原文 + 未计入话术）与卡上红字同时出现，textarea 内容保留
+    const dialog = await screen.findByRole('dialog', { name: '批改未完成' });
+    expect(within(dialog).getByText('AI 批改暂时不可用 本次作答未计入，可重试。')).toBeVisible();
+    const alert = screen.getByRole('alert');
     expect(alert.textContent).toContain('AI 批改暂时不可用');
     expect(screen.getByLabelText('表达答案')).toHaveValue(
       'The constant stress makes me want to give up.',
     );
 
-    // 重试：同一输入再次提交并成功
-    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    // 弹窗重试：同一输入再次提交并成功，弹窗随之消失
+    fireEvent.click(within(dialog).getByRole('button', { name: '重试' }));
     expect(await screen.findByText('通过')).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(apiCalls('/api/today/tasks/task-prod/answer')).toHaveLength(2);
     expect(jsonBodyOf(apiCalls('/api/today/tasks/task-prod/answer')[1])).toEqual({
       answerText: 'The constant stress makes me want to give up.',
     });
+  });
+
+  it('失败弹窗（超时）：「批改未完成」+ 未计入话术；卡上红字保留（2026-10-05）', async () => {
+    stubApi({
+      '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
+      // 前端 100s 超时 → ApiError REQUEST_TIMEOUT；tasks 无该题 result（未结算）→ 正常置错
+      '/api/today/tasks/task-prod/answer': () =>
+        Promise.reject(new ApiError('REQUEST_TIMEOUT', '请求超时，请重试', 0)),
+    });
+    renderTodayApp();
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'The constant stress makes me want to give up.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '批改未完成' });
+    // 超时走固定话术（不含错误原文）
+    expect(within(dialog).getByText('网络或服务超时，本次作答未计入成绩，可重试。')).toBeVisible();
+    within(dialog).getByRole('button', { name: '返回修改' });
+    within(dialog).getByRole('button', { name: '重试' });
+    // 卡上红字保留：弹窗关闭后仍可见失败原因
+    expect(screen.getByRole('alert').textContent).toContain('请求超时');
+  });
+
+  it('失败弹窗 [返回修改]：关弹窗回编辑态、输入保留、同一错误不重复弹（2026-10-05）', async () => {
+    stubApi({
+      '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
+      '/api/today/tasks/task-prod/answer': () =>
+        Promise.reject(new ApiError('REQUEST_TIMEOUT', '请求超时，请重试', 0)),
+    });
+    renderTodayApp();
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'The constant stress makes me want to give up.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '批改未完成' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '返回修改' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    // 回可编辑态：输入保留、textarea 可用、卡上按钮恢复
+    expect(screen.getByLabelText('表达答案')).toHaveValue(
+      'The constant stress makes me want to give up.',
+    );
+    expect(screen.getByLabelText('表达答案')).toBeEnabled();
+    expect(screen.getByRole('button', { name: '重试' })).toBeEnabled();
+    // 同一错误只弹一次：关闭后不再自行弹出
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeVisible();
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('失败弹窗 [重试]：以原句直接重交（第 2 次 POST body 相同，2026-10-05）', async () => {
+    let answerCalls = 0;
+    stubApi({
+      '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
+      '/api/today/tasks/task-prod/answer': () => {
+        answerCalls += 1;
+        return answerCalls === 1
+          ? Promise.reject(new ApiError('REQUEST_TIMEOUT', '请求超时，请重试', 0))
+          : Promise.resolve(makeProductionAnswer());
+      },
+    });
+    renderTodayApp();
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'The constant stress makes me want to give up.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '批改未完成' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '重试' }));
+
+    await waitFor(() => {
+      expect(apiCalls('/api/today/tasks/task-prod/answer')).toHaveLength(2);
+    });
+    expect(jsonBodyOf(apiCalls('/api/today/tasks/task-prod/answer')[1])).toEqual({
+      answerText: 'The constant stress makes me want to give up.',
+    });
+    // 重交成功：弹窗关闭、卡面显示已批结果
+    expect(await screen.findByText('通过')).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('超时竞态保险：REQUEST_TIMEOUT 但 invalidate 后 tasks 已有该任务 result → 不弹窗、卡面显示已批结果（2026-10-05）', async () => {
+    // 服务端其实在断连检测前已结算（前端 100s 超时后才落库）：作答请求被掐断后批量视图已有 result
+    let settled = false;
+    stubApi({
+      '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
+      '/api/today/tasks/task-prod/answer': () => {
+        settled = true;
+        return Promise.reject(new ApiError('REQUEST_TIMEOUT', '请求超时，请重试', 0));
+      },
+      '/api/today/tasks': () =>
+        settled
+          ? makeTasksResponse([makeSessionEntry(makeProductionTask(), makeProductionAnswer())])
+          : makeTasksResponse([makeSessionEntry(makeProductionTask(), null)]),
+    });
+    renderTodayApp();
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'The constant stress makes me want to give up.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    // 回放结果交给组件：卡面显示已批结果，不弹失败弹窗、无红字
+    expect(await screen.findByText('通过')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: '批改未完成' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

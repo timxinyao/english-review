@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PracticeAnswerResponse, PracticeQuestion, PracticeStartResponse } from '@el/shared';
 import type * as LibraryApi from '../src/features/library/api';
 import { fetchLibraryDetail } from '../src/features/library/api';
+import type * as ApiModule from '../src/lib/api';
+import { ApiError } from '../src/lib/api';
 import { apiCalls, jsonBodyOf, stubApi } from './today-helpers';
 import { makeDetail, makeHistoryEntry, renderLibraryApp } from './library-helpers';
 
@@ -25,7 +27,11 @@ vi.mock('../src/features/library/api', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
+// 保留 ApiError 真类（失败弹窗用例要按 code 构造结构化错误），仅桩 api 函数
+vi.mock('../src/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<ApiModule>()),
+  api: vi.fn(),
+}));
 
 afterEach(cleanup);
 
@@ -404,5 +410,37 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(await screen.findByRole('alert')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '返回详情' }));
     expect(await screen.findByRole('button', { name: '编辑' })).toBeVisible();
+  });
+
+  it('表达题批改失败弹窗（2026-10-05）：失败弹「批改未完成」，返回修改回编辑态、输入保留', async () => {
+    renderDetailWithPractice({
+      // 练一下无正式状态（无超时竞态概念）：失败直接置错弹窗
+      '/api/library/item-1/practice/pq-2/answer': () =>
+        Promise.reject(new ApiError('AI_PROVIDER_ERROR', 'AI 批改暂时不可用', 502)),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
+
+    // 第 1 题：recall 直判通过 → 第 2 题表达
+    fireEvent.click(await screen.findByRole('button', { name: '良好' }));
+    await screen.findByText('良好');
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'He decided to give up smoke.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    // 失败弹窗：错误原文 + 未计入话术；卡上红字同在
+    const dialog = await screen.findByRole('dialog', { name: '批改未完成' });
+    expect(within(dialog).getByText('AI 批改暂时不可用 本次作答未计入，可重试。')).toBeVisible();
+    expect(screen.getByRole('alert').textContent).toContain('AI 批改暂时不可用');
+
+    // 返回修改：关弹窗回编辑态，输入保留
+    fireEvent.click(within(dialog).getByRole('button', { name: '返回修改' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('表达答案')).toHaveValue('He decided to give up smoke.');
+    expect(screen.getByLabelText('表达答案')).toBeEnabled();
   });
 });

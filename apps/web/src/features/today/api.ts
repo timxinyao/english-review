@@ -18,7 +18,7 @@ import type {
   TodayStatusResponse,
   UndoResponse,
 } from '@el/shared';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 
 // ---------- query keys ----------
 
@@ -124,17 +124,40 @@ export type AnswerMutation = UseMutationResult<
  * cancel() = abort（掐断 fetch；服务端结算前检测断连则本次作废零写入）
  * + mutation.reset（清 pending/error，取消不得残留「批改失败」红字）
  * + invalidate today（覆盖罕见竞态：其实已落库，刷新后直接显示已批结果卡）。
+ *
+ * 超时竞态保险（2026-10-05）：前端 100s abort（ApiError REQUEST_TIMEOUT）时，
+ * 服务端可能已在断连检测前结算落库。mutationFn 内部捕获超时并回读
+ * GET /api/today/tasks——该任务已有 result 则把它当成功结果返回（onSuccess
+ * 等价路径：error 不置位、不弹失败弹窗，组件回调拿到回放结果直接渲染已批卡面）；
+ * 仍未结算则原样抛错（幂等重交安全）。练一下 usePracticeAnswer 无正式状态，无此保险。
  */
 export function useAnswer(): AnswerMutation {
   const invalidate = useInvalidateToday();
+  const qc = useQueryClient();
   const controllerRef = useRef<AbortController | null>(null);
   const mutation = useMutation({
-    mutationFn: ({ taskId, body }: { taskId: string; body: AnswerRequest }) => {
+    mutationFn: async ({ taskId, body }: { taskId: string; body: AnswerRequest }) => {
       // 串行兜底：新作答先掐断上一次仍在飞的请求（正常流程上一次已结束，此处幂等）
       controllerRef.current?.abort();
       const controller = new AbortController();
       controllerRef.current = controller;
-      return answerTodayTask(taskId, body, controller.signal);
+      try {
+        return await answerTodayTask(taskId, body, controller.signal);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.code === 'REQUEST_TIMEOUT')) throw err;
+        try {
+          const fresh = await qc.fetchQuery({
+            queryKey: todayKeys.tasks,
+            queryFn: fetchSessionTasks,
+          });
+          const replay =
+            fresh.tasks.find((e) => e.task.taskId === taskId && e.result !== null)?.result ?? null;
+          if (replay) return replay;
+        } catch {
+          // 回读失败（网络仍不可用等）：按原超时错误处理
+        }
+        throw err;
+      }
     },
     onSuccess: invalidate,
   });

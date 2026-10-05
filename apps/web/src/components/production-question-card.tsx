@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Copy } from 'lucide-react';
 import { AutoGrowTextarea, Textarea } from './ui/textarea';
 import { Button } from './ui/button';
@@ -21,6 +22,8 @@ interface ProductionQuestionCardProps {
   pending: boolean;
   /** 批改失败的可读信息（如 AI_PROVIDER_ERROR）；输入保留由组件自身状态保证 */
   error: string | null;
+  /** error 的结构化错误码（如 REQUEST_TIMEOUT，lib/api ApiError.code）：决定失败弹窗文案分支 */
+  errorCode?: string | null;
   onSubmitText: (text: string) => void;
   /** 批改中取消（2026-10-05）：掐断请求（服务端未落库则作答作废）并回到可编辑态 */
   onCancelGrading?: () => void;
@@ -34,12 +37,15 @@ interface ProductionQuestionCardProps {
 /** 表达题：受控中文提示 + 批改结果（PRODUCT §7.3/§7.4/§7.6）；Today 与练一下共用。
  *  主动不会（gaveUp）揭示参考句/用法说明且无批改，不渲染最小纠错 diff。
  *  批改中（pending）：提交按钮原地替换为「取消」+ 按钮上方 2px 动态进度线；
- *  取消后输入保留、按钮恢复「提交」可改写重交。 */
+ *  取消后输入保留、按钮恢复「提交」可改写重交。
+ *  批改失败（2026-10-05）：弹「批改未完成」对话框（返回修改/重试原句直接重交），
+ *  同一错误只弹一次（新一轮提交后失败会再弹），卡上红字保留可见原因。 */
 export function ProductionQuestionCard({
   question,
   result,
   pending,
   error,
+  errorCode,
   onSubmitText,
   onCancelGrading,
   onGiveUp,
@@ -50,6 +56,20 @@ export function ProductionQuestionCard({
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
+
+  // 失败弹窗快照（非 null 即弹窗打开）：armed 标记保证同一错误只弹一次，
+  // 新一轮提交（pending=true）重新武装——重试/改写后再失败会再弹。
+  const [failed, setFailed] = useState<{ message: string; timeout: boolean } | null>(null);
+  const failureArmedRef = useRef(true);
+  useEffect(() => {
+    if (pending) {
+      failureArmedRef.current = true;
+      return;
+    }
+    if (!failureArmedRef.current || result || !error) return;
+    failureArmedRef.current = false;
+    setFailed({ message: error, timeout: errorCode === 'REQUEST_TIMEOUT' });
+  }, [error, errorCode, pending, result]);
 
   // 前台批改提示音（PRODUCT §5.1）：结果到达（主动不会无批改不响）/ 批改失败各一响；
   // 取消（abort）不产生 error/result 变化，天然静音。StrictMode 双执行由 sound 内部 200ms 防抖兜底。
@@ -100,6 +120,53 @@ export function ProductionQuestionCard({
     if (!trimmed || pending) return;
     onSubmitText(trimmed);
   }
+
+  /** 弹窗 [返回修改]（默认）：关弹窗回可编辑态——error 仍置位，卡上红字保留可见原因 */
+  function dismissFailure() {
+    setFailed(null);
+  }
+
+  /** 弹窗 [重试]：原句直接重交（组件内 text state 保留，无需用户重新输入） */
+  function retryFromFailure() {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setFailed(null);
+    onSubmitText(trimmed);
+  }
+
+  // 失败弹窗（与撤销/坏题确认层同款 portal 对话框）：遮罩点击等同「返回修改」
+  const failureDialog =
+    failed !== null &&
+    createPortal(
+      <div
+        role="dialog"
+        aria-label="批改未完成"
+        aria-modal="true"
+        className="fixed inset-0 z-overlay flex items-center justify-center bg-foreground/20 p-4"
+        onClick={dismissFailure}
+      >
+        <div
+          className="w-full max-w-[340px] space-y-3 rounded-xl border border-border bg-card p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-sm font-medium text-foreground">批改未完成</p>
+          <p className="text-sm text-foreground">
+            {failed.timeout
+              ? '网络或服务超时，本次作答未计入成绩，可重试。'
+              : `${failed.message} 本次作答未计入，可重试。`}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" autoFocus onClick={dismissFailure}>
+              返回修改
+            </Button>
+            <Button size="sm" disabled={!text.trim()} onClick={retryFromFailure}>
+              重试
+            </Button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
 
   // 批改中状态（quiet）：2px 动态进度线 + 「正在批改…」文案（不与 spinner 堆叠）
   const gradingBar = pending && (
@@ -176,6 +243,7 @@ export function ProductionQuestionCard({
         className="flex min-h-0 flex-1 flex-col"
         data-production-input={!result ? '' : undefined}
       >
+        {failureDialog}
         {!result ? (
           <div className="production-context min-h-0 flex-1 break-words pr-8" data-slot="body">
             <p className="production-label text-xs text-muted-foreground">用英语表达</p>
@@ -238,6 +306,7 @@ export function ProductionQuestionCard({
 
   return (
     <div className="space-y-4">
+      {failureDialog}
       {prompt}
 
       {!result && (

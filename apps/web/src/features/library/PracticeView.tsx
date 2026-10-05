@@ -6,6 +6,7 @@ import { HighlightText } from '../../components/highlight-text';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import { speak } from '../../lib/tts';
+import { ApiError } from '../../lib/api';
 import { usePractice, usePracticeAnswer } from './api';
 
 interface PracticeViewProps {
@@ -168,6 +169,9 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
 
   const productionError =
     answer.isError && !result ? (answer.error?.message ?? '批改失败，请重试。') : null;
+  // 练一下无正式状态（超时无竞态概念）：错误码仅用于失败弹窗文案分支
+  const productionErrorCode =
+    answer.isError && !result && answer.error instanceof ApiError ? answer.error.code : null;
 
   return (
     <section className="space-y-4">
@@ -227,6 +231,7 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
                 result={result}
                 pending={answer.isPending}
                 error={productionError}
+                errorCode={productionErrorCode}
                 onSubmitText={(text) => submit({ answerText: text })}
                 onCancelGrading={() => answer.cancel()}
                 onAdvance={advance}

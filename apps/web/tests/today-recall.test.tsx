@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as ApiModule from '../src/lib/api';
 import { api } from '../src/lib/api';
 import {
   apiCalls,
@@ -22,7 +23,11 @@ afterEach(cleanup);
 vi.mock('../src/lib/tts', () => ({ speak: vi.fn(), stopSpeaking: vi.fn() }));
 import { speak } from '../src/lib/tts';
 const speakMock = vi.mocked(speak);
-vi.mock('../src/lib/api', () => ({ api: vi.fn() }));
+// 保留 ApiError 真类（useAnswer 超时竞态保险按 code instanceof 判别），仅桩 api 函数
+vi.mock('../src/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<ApiModule>()),
+  api: vi.fn(),
+}));
 
 const apiMock = vi.mocked(api);
 

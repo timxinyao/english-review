@@ -235,6 +235,18 @@ PRODUCT_DESIGN 10.3 要求“明细学习日志 60 天；长期只保留聚合�
 
 `key` 是主键，`value` 保存切换时间表述（`foxi_v2` 为 APP_TIMEZONE 本地日期；`fsrs` 为 boot 时刻 UTC ISO），`updated_at` 保存 UTC 时间。`foxi_v2` 标记与旧 P 清零、Read reinforcement 标记清理、状态重算位于同一事务；重复启动只读标记，不再改动 V2 进度。`fsrs` 标记（2026-10-03）与历史 attempts 回放重建 D/S、active/mastered 重算位于同一事务，boot 顺序为迁移 → Prompt Registry 校验 → v2 cutover → fsrs cutover → listen；重复启动只读标记，字节级 no-op。完整备份不包含此数据库级标记：恢复 1.2 备份时每次独立执行旧 P 归一化，恢复 2.0 备份则保留 P 状态；旧格式备份（仅 level/stable）恢复按 V1.2 等级折算 D/S（备份不含 attempts，不回放），含 FSRS 字段的 2.0 备份直接精确保留。
 
+## 11C. push_subscriptions（Web Push 订阅，2026-10-05 migration 0008）
+
+造句批改完成通知（TECHNICAL_DESIGN §7.7）的浏览器推送订阅。单用户应用不区分设备，同一 endpoint 重复 subscribe 走 upsert（密钥轮换时刷新）；推送服务返回 404/410（浏览器清数据/卸载）时由发送钩子删除该行。开关初始状态（GET /api/push/status）= 本表是否存在任意行。不包含在用户备份 payload（设备相关，跨实例无意义）。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | text | PK（uuid） |
+| endpoint | text | UNIQUE NOT NULL；推送服务订阅 endpoint |
+| p256dh | text | NOT NULL；PushSubscription keys.p256dh |
+| auth | text | NOT NULL；PushSubscription keys.auth |
+| created_at / updated_at | text | NOT NULL；UTC ISO |
+
 ## 12. schema 变更规则
 
 1. 所有表结构变更通过 Drizzle migration。

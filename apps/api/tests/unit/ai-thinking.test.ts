@@ -22,6 +22,7 @@ function configWithThinking(thinking: AppConfig['glmThinking']): AppConfig {
     glmMaxTokens: 8192,
     glmThinking: thinking,
     cookieSecure: false,
+    vapid: null,
   };
 }
 

@@ -18,6 +18,7 @@ function config(): AppConfig {
     glmMaxTokens: 8192,
     glmThinking: null,
     cookieSecure: false,
+    vapid: null,
   };
 }
 

@@ -5,6 +5,7 @@ import type { AiModelsResponse, Settings, UpdateSettingsRequest } from '@el/shar
 import { api } from '../../lib/api';
 import { Select } from '../../components/ui/select';
 import { BackupSection } from './components/BackupSection';
+import { NotificationSection } from './components/NotificationSection';
 
 const SOURCE_LABEL: Record<AiModelsResponse['models']['flash']['source'], string> = {
   auto: '自动选择',
@@ -186,6 +187,8 @@ export function SettingsPage() {
       </div>
 
       <AiModelsSection />
+
+      <NotificationSection />
 
       <BackupSection />
 

@@ -288,3 +288,15 @@ export const appMetadata = sqliteTable('app_metadata', {
   value: text('value').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
+
+// ---------- push_subscriptions（§12，Web Push 批改通知）----------
+
+/** endpoint 唯一（同一浏览器重复 subscribe 走 upsert）；p256dh/auth 为 PushSubscription 密钥 */
+export const pushSubscriptions = sqliteTable('push_subscriptions', {
+  id: text('id').primaryKey(),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});

@@ -289,6 +289,18 @@ iOS 键盘状态不得以 `innerHeight - visualViewport.height - visualViewport.
 
 键盘交互回归门禁：组件测试覆盖原位聚焦、锁定与释放；移动端 E2E 必须覆盖完整 `pointerdown → pointerup → click`，并模拟视口在 click 前缩小，断言 click 仍命中输入框且焦点保留。浏览器模拟只能检查事件命中和最终几何，不能证明 iOS 主屏 PWA 的原生滚动与动画平顺。调整 `focus` 时机、输入框命中区域、页面壳定位、`visualViewport` 或 dock 算法后，发布验收还须在已添加到主屏幕的 iPhone 上检查：首次聚焦、输入、收起、再次聚焦，以及填空和表达两种输入；全过程顶栏/题面不跳动、键盘不自行消失、输入框停在键盘上方。遇到「静态位置正确但动画抖动」时，先记录 `innerHeight`、`visualViewport.height/offsetTop`、`scrollY` 与顶栏/卡片/input 矩形，确认是否发生 document 原生滚动，不再直接增加整页逐帧位移补偿。
 
+## 7.7 造句批改通知（前台提示音 + Web Push，2026-10-05）
+
+前台提示音：`apps/web/src/lib/sound.ts` 用 Web Audio 合成（OscillatorNode+GainNode，无素材文件）——done=E5→A5 上行两连音（各 90ms、间隔 60ms）、fail=A3 单低音（约 140ms），总增益约 0.12、音头尾 10ms 淡入淡出。AudioContext 惰性单例，首次调用 suspended 即 resume（iOS 手势链——调用点在提交/结果交互后）；200ms 防抖兜 React StrictMode 双执行。表达题卡以 useEffect 监听 result/error 到达各响一次：判定 fail 或批改失败响 fail，其余响 done；主动不会（无批改）与取消（abort，不产生 error/result）不响。
+
+Web Push（后台批改完成通知）：
+
+- 订阅链路：设置页开关「批改完成通知」——GET `/api/push/vapid-public-key`（返回 null = 服务器未配置，提示并保持关）→ `Notification.requestPermission()`（granted 才继续）→ `pushManager.subscribe({userVisibleOnly:true, applicationServerKey})` → POST `/api/push/subscribe`（endpoint upsert，开关状态持久化于服务器订阅表）；关闭走 POST `/api/push/unsubscribe` + 浏览器侧 `subscription.unsubscribe()`。GET `/api/push/status`（=订阅表是否有行）供刷新后初始化开关。iOS 仅「添加到主屏 PWA + HTTPS」下可用，失败给出可读提示。
+- 发送钩子：today answer 路由在 production 作答**结算成功后** `setImmediate` best-effort 调 `sendGradingPush`：遍历订阅 `webpush.sendNotification(sub, {title:'造句批改完成', body:'${target} · ${verdictLabel}', url:'/today'}, {TTL:300})`。**恒发**——iOS 后台冻结页面时 fetch 连接未断、服务端无从得知客户端已不等结果，因此不依赖断连检测；幂等回放（alreadyCompleted）不重复发；VAPID 未配置（env 缺省）直接 return。
+- 前台静默：SW（`apps/web/src/sw.ts`，vite-plugin-pwa `injectManifest`，precache 用 `precacheAndRoute(self.__WB_MANIFEST)`、不注册导航回退即不拦截 /api；skipWaiting+clients.claim 保留 autoUpdate 语义）在 push 事件中 `clients.matchAll({type:'window'})`，存在 visible 窗口（用户正看结果卡）即跳过 showNotification；`notificationclick` 已有窗口 focus + postMessage，否则 `clients.openWindow(data.url ?? '/today')`。
+- 失效与可观测：推送服务返回 404/410（浏览器清数据/卸载）即删除订阅行；其余错误仅 `console.warn`（journal 可见），不重试、不阻断作答响应。
+- VAPID 身份走环境变量 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`（/etc/english-learning/env，systemd EnvironmentFile 加载），任一缺省 = 功能休眠。
+
 # 8. 复习状态机实现（2026-10-03 起 FSRS）
 
 Understanding 与 Production 使用同一通用状态结构，不共享 FSRS 状态。业务代码只通过 review service 改变状态，其他模块不得直接 update。

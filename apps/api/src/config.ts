@@ -32,6 +32,12 @@ const ConfigSchema = z.object({
     .enum(['', 'true', 'false'])
     .default('')
     .transform((v) => (v === '' ? null : v === 'true')),
+  // Web Push（批改完成通知）VAPID 身份：公钥/私钥/subject。任一留空 = 推送功能休眠
+  // （vapid-public-key 返回 null、发送钩子直接 return）。生成：
+  //   pnpm --filter @el/api exec tsx -e "import webpush from 'web-push'; console.log(JSON.stringify(webpush.generateVAPIDKeys()))"
+  VAPID_PUBLIC_KEY: z.string().default(''),
+  VAPID_PRIVATE_KEY: z.string().default(''),
+  VAPID_SUBJECT: z.string().default(''),
 });
 
 export interface AppConfig {
@@ -52,6 +58,8 @@ export interface AppConfig {
   glmThinking: 'off' | 'low' | 'medium' | 'high' | 'max' | null;
   /** 会话 Cookie 的 Secure 标志（null=按请求协议自适应，默认；true/false 显式覆盖） */
   cookieSecure: boolean | null;
+  /** Web Push VAPID 配置（null = 未配置，推送功能休眠） */
+  vapid: { publicKey: string; privateKey: string; subject: string } | null;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -87,5 +95,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     glmMaxTokens: e.GLM_MAX_TOKENS,
     glmThinking: e.GLM_THINKING,
     cookieSecure: e.COOKIE_SECURE,
+    vapid:
+      e.VAPID_PUBLIC_KEY && e.VAPID_PRIVATE_KEY && e.VAPID_SUBJECT
+        ? {
+            publicKey: e.VAPID_PUBLIC_KEY,
+            privateKey: e.VAPID_PRIVATE_KEY,
+            subject: e.VAPID_SUBJECT,
+          }
+        : null,
   };
 }

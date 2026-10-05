@@ -3,6 +3,7 @@ import { AnswerRequest, TaskFeedbackRequest } from '@el/shared';
 import type { AppConfig } from '../../config.js';
 import type { AppDatabase } from '../../db/client.js';
 import { parseBody } from '../../lib/http.js';
+import { queueGradingPush } from '../push/service.js';
 import {
   answerTodayTask,
   deferTodayTask,
@@ -95,7 +96,7 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
     const { id } = req.params as { id: string };
     const body = parseBody(AnswerRequest, req.body);
     // 造句批改中取消：结算前读 request.raw 断连态（取消语义见 answerTodayTask 注释）
-    return answerTodayTask(
+    const response = await answerTodayTask(
       db,
       await resolveTodayDeps(),
       tz,
@@ -105,6 +106,11 @@ export function todayRoutes(app: FastifyInstance, db: AppDatabase, config: AppCo
       () => new Date(),
       () => requestDisconnected(req.raw),
     );
+    // 造句批改结算成功后：恒发后台通知（setImmediate best-effort，不依赖断连检测，
+    // 覆盖 iOS 后台冻结——页面冻结时连接未断、服务端无从得知客户端已不等结果）。
+    // VAPID 未配置时 queueGradingPush 零开销直返。
+    queueGradingPush(db, config, id, response);
+    return response;
   });
 
   app.post('/api/today/tasks/:id/later', async (req) => {

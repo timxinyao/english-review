@@ -104,6 +104,9 @@ export function createGlmProvider(config: AppConfig, fetcher: typeof fetch = fet
       // 任务级超时（2026-10-03 批改长尾收紧）：仅当失败是超时且是本次 complete 的第一次
       // 尝试时，立即重试一次（全新 AbortController）；非超时错误不重试，总尝试 ≤2——
       // 只重试一次，结构化层面的重试仍由 completeStructured 负责。
+      // 端到端预算（2026-10-04 504 事故）：completeStructured 会按剩余预算减半裁剪
+      // timeoutMs 后传入，因此本方法最坏耗时 2×timeoutMs ≤ 当次 attempt 的剩余预算，
+      // 无需在此感知 deadline；未裁剪的任务行为不变。
       const timeoutMs = req.timeoutMs ?? TIMEOUT_MS;
       for (let attempt = 1; ; attempt++) {
         try {

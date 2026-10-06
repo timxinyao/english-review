@@ -21,6 +21,15 @@ const ConfigSchema = z.object({
   GLM_MODEL_AIR: z.string().default(''),
   GLM_MODEL_MAX: z.string().default(''),
   GLM_MAX_TOKENS: z.coerce.number().int().min(256).default(8192),
+  // 后台 provider 槽（2026-10-06）：批量/速度不敏感任务（预取生成、导入查重）路由到
+  // 此槽——当前指向 GLM 免费套餐；留空 key = 未启用，全部任务走主槽（GLM_*，实时=
+  // DeepSeek）。两个槽都是 Anthropic 兼容协议，glm.ts provider 直接复用。
+  AI_BG_API_KEY: z.string().default(''),
+  AI_BG_API_BASE: z.string().default('https://open.bigmodel.cn/api/anthropic'),
+  // 留空 = 自动发现（GLM 端点 /v1/models 可用）；非空 = 固定型号
+  AI_BG_MODEL_FLASH: z.string().default(''),
+  AI_BG_MODEL_AIR: z.string().default(''),
+  AI_BG_MODEL_MAX: z.string().default(''),
   // 思考强度全局强制：off/low/high/max；留空=按任务策略（判定批改 low、生成 off）
   GLM_THINKING: z
     .enum(['', 'off', 'low', 'medium', 'high', 'max'])
@@ -54,6 +63,10 @@ export interface AppConfig {
   glmApiBase: string;
   glmModels: { flash: string; air: string; max: string };
   glmMaxTokens: number;
+  /** 后台 provider 槽（AI_BG_*；aiBgApiKey 空 = 未启用，任务全走主槽） */
+  aiBgApiKey: string;
+  aiBgApiBase: string;
+  aiBgModels: { flash: string; air: string; max: string };
   /** GLM_THINKING 全局强制（null=按任务策略） */
   glmThinking: 'off' | 'low' | 'medium' | 'high' | 'max' | null;
   /** 会话 Cookie 的 Secure 标志（null=按请求协议自适应，默认；true/false 显式覆盖） */
@@ -93,6 +106,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     glmApiBase: e.GLM_API_BASE,
     glmModels: { flash: e.GLM_MODEL_FLASH, air: e.GLM_MODEL_AIR, max: e.GLM_MODEL_MAX },
     glmMaxTokens: e.GLM_MAX_TOKENS,
+    aiBgApiKey: e.AI_BG_API_KEY,
+    aiBgApiBase: e.AI_BG_API_BASE,
+    aiBgModels: { flash: e.AI_BG_MODEL_FLASH, air: e.AI_BG_MODEL_AIR, max: e.AI_BG_MODEL_MAX },
     glmThinking: e.GLM_THINKING,
     cookieSecure: e.COOKIE_SECURE,
     vapid:

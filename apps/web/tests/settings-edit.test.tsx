@@ -37,6 +37,7 @@ vi.mock('../src/lib/api', () => ({
           air: { model: 'glm-5.3', source: 'auto', inList: true, thinking: 'off' },
           max: { model: 'glm-5.3', source: 'auto', inList: true, thinking: 'medium' },
         },
+        backgroundConfigured: false,
         thinkingOverride: null,
         taskMapping: [
           {
@@ -44,6 +45,7 @@ vi.mock('../src/lib/api', () => ({
             alias: 'flash',
             model: 'glm-5.3-flash',
             thinking: 'off',
+            provider: 'main',
           },
         ],
         availableModels: [],

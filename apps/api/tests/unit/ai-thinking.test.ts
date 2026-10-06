@@ -20,6 +20,9 @@ function configWithThinking(thinking: AppConfig['glmThinking']): AppConfig {
     glmApiBase: 'https://example.test',
     glmModels: { flash: '', air: '', max: '' },
     glmMaxTokens: 8192,
+    aiBgApiKey: '',
+    aiBgApiBase: 'https://open.bigmodel.cn/api/anthropic',
+    aiBgModels: { flash: '', air: '', max: '' },
     glmThinking: thinking,
     cookieSecure: false,
     vapid: null,
@@ -32,9 +35,9 @@ describe('resolveThinking', () => {
     // 批改：flash+max = 42/42=100% · avg 13.8s（budget_tokens 被端点忽略，max 档的真实
     // 作用是抬 max_tokens 上限到 24576，消灭思考打满上限的「缺文本」失败）
     expect(resolveThinking('checkProduction', config)).toBe('max');
-    // 简单判定：cloze off；judge off（DeepSeek flash off 即 9/9=100% · 1.0s，无需思考）
+    // 简单判定：cloze off；judge low（2026-10-06 路由回后台槽 GLM：off 8/9、low 9/9；DeepSeek low 亦 100%）
     expect(resolveThinking('checkCloze', config)).toBe('off');
-    expect(resolveThinking('judgeDuplicateMeaning', config)).toBe('off');
+    expect(resolveThinking('judgeDuplicateMeaning', config)).toBe('low');
     // 生成类全部 off（思考档超时劣化）
     expect(resolveThinking('generateUnderstandingQuestions', config)).toBe('off');
     expect(resolveThinking('generateClozeQuestions', config)).toBe('off');

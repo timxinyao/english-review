@@ -6,6 +6,10 @@ export type ModelAlias = 'flash' | 'air' | 'max';
 
 interface TaskModelPolicy {
   alias: ModelAlias;
+  /** provider 槽路由（2026-10-06）：background=批量/速度不敏感任务走 AI_BG_* 槽
+   *  （GLM 免费套餐），main=实时交互走 GLM_* 槽（DeepSeek）。缺省 main；
+   *  后台槽未配置 key 时自动回落 main（provider 路由与 models 解析同判）。 */
+  provider?: 'main' | 'background';
   temperature: number;
   /** 任务级思考强度默认（GLM_THINKING 未设置时生效） */
   thinking: ThinkingLevel;
@@ -32,10 +36,26 @@ export const THINKING_BUDGET_TOKENS: Record<Exclude<ThinkingLevel, 'off'>, numbe
  * GLM_THINKING 可全局强制 off/low/high。
  */
 export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
-  generateUnderstandingQuestions: { alias: 'flash', temperature: 0.7, thinking: 'off' },
-  generateClozeQuestions: { alias: 'flash', temperature: 0.7, thinking: 'off' },
+  // 生成类走后台槽（GLM 免费套餐，预取/懒生成对速度不敏感；2026-10-06）
+  generateUnderstandingQuestions: {
+    alias: 'flash',
+    provider: 'background',
+    temperature: 0.7,
+    thinking: 'off',
+  },
+  generateClozeQuestions: {
+    alias: 'flash',
+    provider: 'background',
+    temperature: 0.7,
+    thinking: 'off',
+  },
   checkCloze: { alias: 'flash', temperature: 0.1, thinking: 'off' },
-  generateProductionPrompt: { alias: 'flash', temperature: 0.8, thinking: 'off' },
+  generateProductionPrompt: {
+    alias: 'flash',
+    provider: 'background',
+    temperature: 0.8,
+    thinking: 'off',
+  },
   // 批改（2026-10-06 切 DeepSeek flash）：flash+max = 42/42=100% · avg 13.8s · p50 6.3s。
   // DeepSeek 端点忽略 budget_tokens，档位差异只来自 max_tokens 上限（budget+GLM_MAX_TOKENS）：
   // max 档上限 24576，消灭 low/medium/high 思考打满上限的「缺文本」失败（93-95%）。
@@ -51,14 +71,34 @@ export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
     timeoutMs: 60_000,
     totalBudgetMs: 120_000,
   },
+  // generateRead 实时（Read 页点按钮等待）→ 主槽 DeepSeek
   generateRead: { alias: 'flash', temperature: 0.8, thinking: 'off' },
-  // DeepSeek flash off 即 9/9=100% · 1.0s（GLM 时代 off 8/9 才补 low；2026-10-06 基准）
-  judgeDuplicateMeaning: { alias: 'flash', temperature: 0.2, thinking: 'off' },
+  // 导入查重（速度不敏感）→ 后台槽（GLM）。thinking low：GLM off 8/9=89%、low 9/9=100%
+  // （2026-09-25 基准）；回落主槽 DeepSeek 时 low 同为 9/9=100%（2026-10-06），双向安全
+  judgeDuplicateMeaning: {
+    alias: 'flash',
+    provider: 'background',
+    temperature: 0.2,
+    thinking: 'low',
+  },
 };
 
 /** 解析任务最终思考档位：GLM_THINKING 强制值 > 任务策略 */
 export function resolveThinking(task: AiTask, config: AppConfig): ThinkingLevel {
   return config.glmThinking ?? TASK_MODEL_POLICY[task].thinking;
+}
+
+/**
+ * 任务路由到的 provider 槽：background 任务在后台槽配了 key 时走后台，
+ * 否则（含 main 任务）回落主槽。provider 路由与 models 解析共用此判。
+ */
+export function providerSlotForTask(
+  task: AiTask,
+  config: Pick<AppConfig, 'aiBgApiKey'>,
+): 'main' | 'background' {
+  return TASK_MODEL_POLICY[task].provider === 'background' && config.aiBgApiKey
+    ? 'background'
+    : 'main';
 }
 
 export const MAX_STRUCTURED_RETRIES = 2;

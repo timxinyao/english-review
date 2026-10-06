@@ -84,7 +84,7 @@ export function createRuntimeJudge(config: AppConfig): DuplicateJudge {
   return async (existing, candidate) => {
     if (!config.glmApiKey) return null;
     const runtime = getAiRuntime();
-    if (!runtime || runtime.provider.name !== 'glm') return null;
+    if (!runtime || runtime.provider.name === 'mock') return null; // 生产守卫：mock 不得参与语言判定（routed/glm 均为真实 AI）
     try {
       return await runtime.judgeDuplicateMeaning(existing, candidate);
     } catch {

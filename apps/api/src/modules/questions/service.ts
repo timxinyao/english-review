@@ -376,7 +376,7 @@ export interface EvaluateClozeDeps {
 /** 默认 AI 兜底：runtime 为 glm（有 key）时走 checkCloze；mock/未初始化返回 null（不走 AI） */
 function createDefaultClozeAiCheck(deps: EvaluateClozeDeps): ClozeAiCheck | null {
   const { db, runtime } = deps;
-  if (!runtime || runtime.provider.name !== 'glm') return null;
+  if (!runtime || runtime.provider.name === 'mock') return null; // 生产守卫：mock 不得入题库（routed/glm 均为真实 AI）
   return async (question, userAnswer) => {
     const item = db
       .select()

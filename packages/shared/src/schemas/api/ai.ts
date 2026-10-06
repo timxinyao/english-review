@@ -18,6 +18,10 @@ export const AiModelInfo = z.object({
 });
 export type AiModelInfo = z.infer<typeof AiModelInfo>;
 
+/** provider 槽：main=实时（GLM_* 槽）；background=批量/不敏感（AI_BG_* 槽，未配置时回落 main） */
+export const AiProviderSlot = z.enum(['main', 'background']);
+export type AiProviderSlot = z.infer<typeof AiProviderSlot>;
+
 export const AiModelsResponse = z.object({
   provider: z.string(),
   models: z.object({
@@ -25,15 +29,18 @@ export const AiModelsResponse = z.object({
     air: AiModelInfo,
     max: AiModelInfo,
   }),
+  /** 后台槽是否已配置（AI_BG_API_KEY 非空）：false 时所有任务走主槽 */
+  backgroundConfigured: z.boolean(),
   /** 环境变量 GLM_THINKING 的全局强制档位（null=未设置，按任务策略） */
   thinkingOverride: ThinkingLevel.nullable(),
-  /** 每个任务实际使用的别名与模型 */
+  /** 每个任务实际使用的别名、模型与 provider 槽 */
   taskMapping: z.array(
     z.object({
       task: z.string(),
       alias: z.enum(['flash', 'air', 'max']),
       model: z.string(),
       thinking: ThinkingLevel,
+      provider: AiProviderSlot,
     }),
   ),
   /** 发现到的可用模型清单（发现失败为空数组） */

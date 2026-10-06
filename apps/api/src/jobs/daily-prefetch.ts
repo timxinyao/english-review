@@ -99,8 +99,8 @@ async function main(): Promise<void> {
     applyV2Cutover(db, new Date(), config.appTimezone);
     const runtime = initAiRuntime(config);
 
-    // 生产守卫：无 GLM key 时 provider 是 mock，绝不允许 mock 输出进入生产题库
-    if (runtime.provider.name !== 'glm') {
+    // 生产守卫：mock 输出不得进入生产题库（routed/glm 均为真实 AI）
+    if (runtime.provider.name === 'mock') {
       console.error('[daily-prefetch] AI provider 不是 glm（缺 GLM_API_KEY？），拒绝预生成');
       process.exitCode = 1;
       return;

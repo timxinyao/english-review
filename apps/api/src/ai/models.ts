@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import { AI_TASKS, type AiModelsResponse, type AiTask } from '@el/shared';
 import type { AppConfig } from '../config.js';
-import { TASK_MODEL_POLICY, resolveThinking, type ModelAlias } from './taskConfig.js';
+import {
+  TASK_MODEL_POLICY,
+  providerSlotForTask,
+  resolveThinking,
+  type ModelAlias,
+} from './taskConfig.js';
 
 /**
  * 模型自动发现与覆盖（TECHNICAL_DESIGN §10.5）：
@@ -99,8 +104,15 @@ export function resolveModelConfig(
 }
 
 // ---------------------------------------------------------------------------
-// 发现 + 进程内缓存
+// 发现 + 进程内缓存（每 provider 槽一份：主槽 GLM_* / 后台槽 AI_BG_*）
 // ---------------------------------------------------------------------------
+
+/** 一个 provider 槽的连接配置（从 AppConfig 切片，两个槽同构） */
+export interface ProviderSlotConfig {
+  glmApiKey?: string;
+  glmApiBase: string;
+  glmModels: { flash: string; air: string; max: string };
+}
 
 interface ModelsCacheEntry {
   key: string;
@@ -111,7 +123,8 @@ interface ModelsCacheEntry {
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 成功：1 小时
 const FAILURE_TTL_MS = 60 * 1000; // 失败：60 秒后重试
-let cache: ModelsCacheEntry | null = null;
+/** 每槽一条缓存（主槽/后台槽独立发现与失效），key = 槽配置 hash */
+const caches = new Map<string, ModelsCacheEntry>();
 
 interface ModelsEndpointResponse {
   data?: { id?: string }[];
@@ -119,7 +132,7 @@ interface ModelsEndpointResponse {
 
 /** 拉取可用模型清单（失败返回 []；fetcher 可注入供测试） */
 export async function fetchAvailableModels(
-  config: AppConfig,
+  config: ProviderSlotConfig,
   fetcher: typeof fetch = fetch,
 ): Promise<string[]> {
   if (!config.glmApiKey) return [];
@@ -147,36 +160,59 @@ export async function fetchAvailableModels(
   }
 }
 
-/** 解析当前生效模型（带 TTL 缓存；配置变化即失效） */
-export function getResolvedModels(config: AppConfig): Promise<ResolvedModels> {
-  const key = createHash('sha256')
-    .update(`${config.glmApiKey ?? ''}|${config.glmApiBase}|${JSON.stringify(config.glmModels)}`)
+function slotCacheKey(slot: ProviderSlotConfig): string {
+  return createHash('sha256')
+    .update(`${slot.glmApiKey ?? ''}|${slot.glmApiBase}|${JSON.stringify(slot.glmModels)}`)
     .digest('hex');
+}
+
+/** 解析一个槽的生效模型（带 TTL 缓存；配置变化即失效） */
+export function getResolvedModelsFor(slot: ProviderSlotConfig): Promise<ResolvedModels> {
+  const key = slotCacheKey(slot);
   const now = Date.now();
+  const cached = caches.get(key);
   const fresh =
-    cache !== null &&
-    cache.key === key &&
-    now - cache.fetchedAt <
-      (cache.resolved && cache.resolved.availableModels.length > 0 ? CACHE_TTL_MS : FAILURE_TTL_MS);
-  if (fresh && cache) return cache.promise;
+    cached &&
+    now - cached.fetchedAt <
+      (cached.resolved && cached.resolved.availableModels.length > 0
+        ? CACHE_TTL_MS
+        : FAILURE_TTL_MS);
+  if (fresh && cached) return cached.promise;
 
   const entry: ModelsCacheEntry = {
     key,
     fetchedAt: now,
     resolved: null,
-    promise: fetchAvailableModels(config).then((ids) => {
-      const resolved = resolveModelConfig(config.glmModels, ids, ids.length ? new Date() : null);
+    promise: fetchAvailableModels(slot).then((ids) => {
+      const resolved = resolveModelConfig(slot.glmModels, ids, ids.length ? new Date() : null);
       entry.resolved = resolved;
       return resolved;
     }),
   };
-  cache = entry;
+  caches.set(key, entry);
   return entry.promise;
 }
 
-/** 给任务取解析后的模型（completeStructured / eval 使用） */
+/** 主槽配置切片（GLM_*：实时任务，当前指向 DeepSeek） */
+export function mainSlot(config: AppConfig): ProviderSlotConfig {
+  return { glmApiKey: config.glmApiKey, glmApiBase: config.glmApiBase, glmModels: config.glmModels };
+}
+
+/** 后台槽配置切片（AI_BG_*：批量任务，当前指向 GLM 免费套餐） */
+export function backgroundSlot(config: AppConfig): ProviderSlotConfig {
+  return { glmApiKey: config.aiBgApiKey, glmApiBase: config.aiBgApiBase, glmModels: config.aiBgModels };
+}
+
+/** 兼容旧签名：主槽解析（routes /api/ai/models 的 models 字段） */
+export function getResolvedModels(config: AppConfig): Promise<ResolvedModels> {
+  return getResolvedModelsFor(mainSlot(config));
+}
+
+/** 给任务取解析后的模型（completeStructured / eval 使用）：按任务策略路由槽 */
 export async function resolveModelForTask(config: AppConfig, task: AiTask): Promise<string> {
-  const resolved = await getResolvedModels(config);
+  const slot =
+    providerSlotForTask(task, config) === 'background' ? backgroundSlot(config) : mainSlot(config);
+  const resolved = await getResolvedModelsFor(slot);
   return resolved.models[TASK_MODEL_POLICY[task].alias].model;
 }
 
@@ -201,13 +237,17 @@ export async function buildAiModelsResponse(config: AppConfig): Promise<AiModels
       air: withThinking('air'),
       max: withThinking('max'),
     },
+    backgroundConfigured: Boolean(config.aiBgApiKey),
     thinkingOverride: config.glmThinking,
-    taskMapping: AI_TASKS.map((task) => ({
-      task,
-      alias: TASK_MODEL_POLICY[task].alias,
-      model: resolved.models[TASK_MODEL_POLICY[task].alias].model,
-      thinking: resolveThinking(task, config),
-    })),
+    taskMapping: await Promise.all(
+      AI_TASKS.map(async (task) => ({
+        task,
+        alias: TASK_MODEL_POLICY[task].alias,
+        model: await resolveModelForTask(config, task),
+        thinking: resolveThinking(task, config),
+        provider: providerSlotForTask(task, config),
+      })),
+    ),
     availableModels: resolved.availableModels,
     checkedAt: resolved.checkedAt,
   };
@@ -215,5 +255,5 @@ export async function buildAiModelsResponse(config: AppConfig): Promise<AiModels
 
 /** 测试辅助：清空缓存 */
 export function clearModelsCacheForTests(): void {
-  cache = null;
+  caches.clear();
 }

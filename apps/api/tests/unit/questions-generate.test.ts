@@ -61,7 +61,7 @@ describe('generateQuestionsForItem：understanding', () => {
       expect(row.promptKey).toBe('generate_understanding');
       expect(row.promptVersion).toBe(prompt.version);
       expect(row.promptHash).toBe(prompt.hash);
-      expect(row.model).toBe(FALLBACK_MODELS.flash); // 无 key 环境 → fallback 常量（自动发现不可用）
+      expect(row.model).toBe(FALLBACK_MODELS.max) // 生成任务 alias=max（后台槽主模型），无 key → glm-5.3; // 无 key 环境 → fallback 常量（自动发现不可用）
       expect(row.useCount).toBe(0);
       expect(row.correctCount).toBe(0);
       expect(row.lastUsedAt).toBeNull();

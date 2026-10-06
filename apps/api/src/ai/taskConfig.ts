@@ -36,22 +36,24 @@ export const THINKING_BUDGET_TOKENS: Record<Exclude<ThinkingLevel, 'off'>, numbe
  * GLM_THINKING 可全局强制 off/low/high。
  */
 export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
-  // 生成类走后台槽（GLM 免费套餐，预取/懒生成对速度不敏感；2026-10-06）
+  // 生成类走后台槽（GLM 免费套餐，预取/懒生成对速度不敏感；2026-10-06）。后台槽用
+  // glm-5.3 主模型（alias max）：免费额度内对比实测主模型 off 档全线 100% 且最快
+  // （judge 9/9·3.1s、理解题 4/4·7.1s、填空 4/4·4.6s）；flash off 有错、思考档 65-104s 出局
   generateUnderstandingQuestions: {
-    alias: 'flash',
+    alias: 'max',
     provider: 'background',
     temperature: 0.7,
     thinking: 'off',
   },
   generateClozeQuestions: {
-    alias: 'flash',
+    alias: 'max',
     provider: 'background',
     temperature: 0.7,
     thinking: 'off',
   },
   checkCloze: { alias: 'flash', temperature: 0.1, thinking: 'off' },
   generateProductionPrompt: {
-    alias: 'flash',
+    alias: 'max',
     provider: 'background',
     temperature: 0.8,
     thinking: 'off',
@@ -73,13 +75,13 @@ export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
   },
   // generateRead 实时（Read 页点按钮等待）→ 主槽 DeepSeek
   generateRead: { alias: 'flash', temperature: 0.8, thinking: 'off' },
-  // 导入查重（速度不敏感）→ 后台槽（GLM）。thinking low：GLM off 8/9=89%、low 9/9=100%
-  // （2026-09-25 基准）；回落主槽 DeepSeek 时 low 同为 9/9=100%（2026-10-06），双向安全
+  // 导入查重（速度不敏感）→ 后台槽 glm-5.3。off 即 9/9=100% · 3.1s（2026-10-06 实测，
+  // 主模型无需思考；此前 low 是为 flash 补的）；回落 DeepSeek 主槽时 off 亦 9/9=100%
   judgeDuplicateMeaning: {
-    alias: 'flash',
+    alias: 'max',
     provider: 'background',
     temperature: 0.2,
-    thinking: 'low',
+    thinking: 'off',
   },
 };
 

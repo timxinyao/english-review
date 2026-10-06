@@ -6,17 +6,17 @@
 
 ## 1. 当前生效策略（taskConfig，2026-10-06 起 · 双槽路由）
 
-**双 provider 槽（2026-10-06）**：实时任务走主槽 `GLM_*`（= DeepSeek flash，Anthropic 端点）；批量/速度不敏感任务走后台槽 `AI_BG_*`（= GLM 免费套餐 glm-5.3-flash）。后台槽未配 key 时全部回落主槽；路由在 `TASK_MODEL_POLICY.provider`，`/api/ai/models` 的 taskMapping 可查每任务实际槽位。
+**双 provider 槽（2026-10-06）**：实时任务走主槽 `GLM_*`（= DeepSeek flash，Anthropic 端点）；批量/速度不敏感任务走后台槽 `AI_BG_*`（= GLM 免费套餐 **glm-5.3 主模型**，同日对比实测后弃 flash：flash off 有错、思考档 65-104s，主模型 off 档全线 100% 且最快）。后台槽未配 key 时全部回落主槽；路由在 `TASK_MODEL_POLICY.provider`，`/api/ai/models` 的 taskMapping 可查每任务实际槽位。
 
 | 任务 | 槽 · 模型 | 思考档 | 依据 |
 | --- | --- | --- | --- |
 | checkProduction（表达批改） | **主槽 · deepseek-flash** | **max** | 42/42=100% · avg 13.8s · p50 6.3s；端点忽略 budget_tokens，max 档真实作用是 max_tokens 上限 24576（消灭思考打满上限的「缺文本」失败）；off 86% 有系统性判错；prompt v3 思考纪律后疑难句 37-65s，timeoutMs 60s/预算 120s/前端 150s 链路覆盖 |
 | checkCloze（填空兜底判定） | 主槽 · deepseek-flash | off | 沿用（GLM off 已 100%；DeepSeek flash off 更强） |
 | generateRead | 主槽 · deepseek-flash | off | 实时（Read 页点按钮等待 ~10s） |
-| judgeDuplicateMeaning（导入查重） | **后台槽 · glm-5.3-flash** | low | 速度不敏感；GLM off 8/9→low 9/9=100%（2026-09-25），查重由规则预筛仅疑难对走 AI |
-| generateProductionPrompt | **后台槽 · glm-5.3-flash** | off | 预取主量 + 懒生成兜底，均不敏感；GLM off=100% · 4.6s |
-| generateUnderstandingQuestions | 后台槽 · glm-5.3-flash | off | 仅练习懒生成路径使用 |
-| generateClozeQuestions | 后台槽 · glm-5.3-flash | off | V2 不再生成（兼容保留） |
+| judgeDuplicateMeaning（导入查重） | **后台槽 · glm-5.3** | off | 9/9=100% · 3.1s（2026-10-06 实测，主模型无需思考；此前 low 是为 flash 补的） |
+| generateProductionPrompt | **后台槽 · glm-5.3** | off | 预取主量 + 懒生成兜底，均不敏感；main/off=100% · 2.5s（2026-09-25） |
+| generateUnderstandingQuestions | **后台槽 · glm-5.3** | off | 4/4=100% · 7.1s vs flash/off 3/4 · 9.9s（2026-10-06） |
+| generateClozeQuestions | **后台槽 · glm-5.3** | off | 4/4=100% · 4.6s（2026-10-06）；V2 不再生成（兼容保留） |
 
 全局覆盖：`GLM_THINKING=off|low|medium|high|max` 强制所有任务；`GLM_MODEL_FLASH/AIR/MAX` 固定具体型号（留空=按 `/v1/models` 自动选最新）。
 
@@ -71,6 +71,18 @@ v3 变更：Role 后新增「Thinking Discipline」节——四个判断按序�
 | avg / p50（全量） | 13.8s / 6.3s | 12.8s / 6.8s |
 
 配套放宽超时链（否则 v3 收益被 35s 截断吃掉）：checkProduction timeoutMs 35→**60s**、totalBudgetMs 80→**120s**、前端 REQUEST_TIMEOUT 100→**150s**（nginx 180s 不动；attempt1=min(60, 预算/2)=60s 覆盖 cp13 中位，5/6 直接批出）。复现脚本：`apps/api/scripts/cp-discipline-exp.mts`（EXP_ONLY/EXP_RUNS 环境变量过滤用例与轮数）。
+
+### 2026-10-06 追加 · GLM 主模型 vs flash（后台槽选型，免费套餐）
+
+背景：后台槽启用后用户提议弃 flash 用 glm-5.3 主模型（免费、速度不敏感、"感觉 flash 反而慢"）。对比基准（GLM 免费额度，40 分钟预算截断 flash 后半段，judge 单独补跑）：
+
+| 任务 | glm-5.3 / off | glm-5.3-flash / off | 思考档（两模型） |
+| --- | --- | --- | --- |
+| 生成理解题（4例） | **4/4 · 7.1s** | 3/4（JSON 解析错）· 9.9s | 44-104s 全慢，且各有解析错/超时 |
+| 生成填空题（4例） | **4/4 · 4.6s** | 未跑到 | 67-97s |
+| judge 查重（9例） | **9/9 · 3.1s**（off 即最优） | 历史数据 off 8/9 | 全档 9/9 但 5.5-6.5s |
+
+**结论**：后台槽定 **glm-5.3 主模型 + 全线 off**——用户体感正确，GLM flash 思考档 65-104s 是最差组合，主模型 off 又准又快；judge 思考档从 low（为 flash 补的）回落 off。
 
 ### 2026-10-03 · GLM checkProduction 复测（用户反馈批改变慢；部分档位受时间预算截断）
 

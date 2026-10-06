@@ -80,12 +80,12 @@ describe('任务 → provider 槽路由（2026-10-06 双槽）', () => {
     const config = {
       ...configWithBg({
         aiBgApiKey: 'bg-key',
-        aiBgModels: { flash: 'glm-5.3-flash', air: '', max: '' },
+        aiBgModels: { flash: '', air: '', max: 'glm-5.3' },
       }),
       glmApiKey: 'main-key',
       glmModels: { flash: 'deepseek-flash', air: 'deepseek-flash', max: 'deepseek-flash' },
     };
-    expect(await resolveModelForTask(config, 'generateProductionPrompt')).toBe('glm-5.3-flash');
+    expect(await resolveModelForTask(config, 'generateProductionPrompt')).toBe('glm-5.3');
     expect(await resolveModelForTask(config, 'checkProduction')).toBe('deepseek-flash');
     clearModelsCacheForTests();
   });

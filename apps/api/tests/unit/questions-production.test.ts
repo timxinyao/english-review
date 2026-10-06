@@ -57,7 +57,7 @@ describe('generateQuestionsForItem：production（单题结构）', () => {
     expect(row.promptKey).toBe('generate_production_prompt');
     expect(row.promptVersion).toBe(prompt.version);
     expect(row.promptHash).toBe(prompt.hash);
-    expect(row.model).toBe(FALLBACK_MODELS.flash); // 无 key 环境 → fallback 常量（自动发现不可用）
+    expect(row.model).toBe(FALLBACK_MODELS.max) // 生成任务 alias=max（后台槽主模型），无 key → glm-5.3; // 无 key 环境 → fallback 常量（自动发现不可用）
     expect(row.promptText).toBeTruthy(); // zh_prompt
     const payload = JSON.parse(row.payloadJson) as {
       mustUse: string;
@@ -178,7 +178,7 @@ describe('evaluateProduction（check_production 批改）', () => {
       key: 'check_production',
       version: 3,
       hash: loadPromptRegistry(join(process.cwd(), 'prompts')).get('check_production')!.hash,
-      model: FALLBACK_MODELS.flash, // 无 key 环境 → fallback（2026-10-06 起批改走 flash 别名）
+      model: FALLBACK_MODELS.flash, // 无 key 环境 → fallback（checkProduction alias=flash） // 无 key 环境 → fallback（2026-10-06 起批改走 flash 别名）
     });
   });
 

@@ -227,8 +227,8 @@ describe('V2 维度题型映射', () => {
     }
   });
 
-  it('到期预取每个维度只有其对应的一种正式题型', () => {
-    expect(questionTypesForDue('understanding')).toEqual(['understanding']);
+  it('到期预取题型（2026-10-06 起 understanding 不备货：RecallCard 不消费绑定题）', () => {
+    expect(questionTypesForDue('understanding')).toEqual([]);
     expect(questionTypesForDue('production')).toEqual(['production']);
   });
 });

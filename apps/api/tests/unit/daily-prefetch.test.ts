@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import {
-  DEFAULT_APP_TIMEZONE,
-  MAX_NEW_ITEMS_UNLIMITED,
-  QUESTION_TARGET_STOCK,
-  localDateString,
-} from '@el/shared';
+
 import {
   createMockProvider,
   type AiProvider,
@@ -13,16 +8,14 @@ import {
 } from '../../src/ai/provider/index.js';
 import { createDatabase, type AppDatabase } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
-import { dailyStats, jobLocks, settings as settingsTable } from '../../src/db/schema.js';
-import { PREFETCH_NEW_ITEMS_CAP, runPrefetch } from '../../src/jobs/daily-prefetch.js';
+import { jobLocks } from '../../src/db/schema.js';
+import { runPrefetch } from '../../src/jobs/daily-prefetch.js';
 import { countQuestionStock } from '../../src/modules/questions/service.js';
 import { buildMockRuntime, failingForTargetProvider } from '../helpers/ai';
 import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
 
 let db: AppDatabase;
 const NOW = new Date('2026-09-24T08:00:00.000Z');
-/** NOW 在默认时区（Asia/Shanghai）下的本地日期，daily_stats.date 归属用 */
-const TODAY = localDateString(NOW, DEFAULT_APP_TIMEZONE);
 
 beforeEach(() => {
   db = createDatabase(':memory:');
@@ -31,18 +24,6 @@ beforeEach(() => {
 
 function inHours(hours: number): string {
   return new Date(NOW.getTime() + hours * 3_600_000).toISOString();
-}
-
-function setMaxNewItemsPerDay(v: number): void {
-  db.insert(settingsTable)
-    .values({
-      id: 1,
-      maxNewItemsPerDay: v,
-      contentLevel: 'B1',
-      preferredTtsVoice: null,
-      updatedAt: new Date().toISOString(),
-    })
-    .run();
 }
 
 /** 一个 active+new、含 source 例句的新词 item（understanding 库存 0） */
@@ -72,13 +53,12 @@ async function seedDueItem(
 }
 
 describe('runPrefetch（daily-prefetch job 核心）', () => {
-  it('Understanding 维度 48h 内到期且库存不足 → 补足到目标库存', async () => {
+  it('Understanding 维度到期 → 不再备货（RecallCard 三档自评不消费绑定题，2026-10-06 收敛）', async () => {
     const itemId = await seedDueItem('alpha', 'understanding', inHours(24));
     const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
 
-    expect(summary).toMatchObject({ due: 1, processed: 1, failed: 0, generated: 3 });
-    expect(countQuestionStock(db, itemId, 'understanding')).toBe(3);
-    expect(countQuestionStock(db, itemId, 'cloze')).toBe(0);
+    expect(summary).toMatchObject({ due: 1, processed: 0, skipped: 1, failed: 0, generated: 0 });
+    expect(countQuestionStock(db, itemId, 'understanding')).toBe(0);
   });
 
   it('启用的 Production 到期 → 只生成完整造句题', async () => {
@@ -176,9 +156,9 @@ describe('runPrefetch（daily-prefetch job 核心）', () => {
   });
 
   it('已过期（overdue）的维度也在补足范围内', async () => {
-    const itemId = await seedDueItem('gamma', 'understanding', inHours(-24));
+    const itemId = await seedDueItem('gamma', 'production', inHours(-24), { type: 'chunk' });
     await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
-    expect(countQuestionStock(db, itemId, 'understanding')).toBe(3);
+    expect(countQuestionStock(db, itemId, 'production')).toBe(2);
   });
 
   it('超过 48h 的不处理', async () => {
@@ -211,114 +191,37 @@ describe('runPrefetch（daily-prefetch job 核心）', () => {
   });
 
   it('单个 item 失败不中断，其余继续；失败计数汇总', async () => {
-    await seedDueItem('failing-target', 'understanding', inHours(24));
-    const okItem = await seedDueItem('ok-target', 'understanding', inHours(24));
+    await seedDueItem('failing-target', 'production', inHours(24), { type: 'chunk' });
+    const okItem = await seedDueItem('ok-target', 'production', inHours(24), { type: 'chunk' });
     const summary = await runPrefetch(
       { db, runtime: buildMockRuntime(failingForTargetProvider('failing-target')) },
       NOW,
     );
 
-    expect(summary).toMatchObject({ due: 2, processed: 1, failed: 1, generated: 3 });
-    expect(countQuestionStock(db, okItem, 'understanding')).toBe(3);
+    expect(summary).toMatchObject({ due: 2, processed: 1, failed: 1, generated: 2 });
+    expect(countQuestionStock(db, okItem, 'production')).toBe(2);
   });
 
   it('部分库存只补差额', async () => {
-    const itemId = await seedDueItem('iota', 'understanding', inHours(24));
-    await seedQuestion(db, itemId, { id: 'existing', type: 'understanding', status: 'fresh' });
+    const itemId = await seedDueItem('iota', 'production', inHours(24), { type: 'chunk' });
+    await seedQuestion(db, itemId, { id: 'existing', type: 'production', status: 'fresh' });
     const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
-    expect(summary.generated).toBe(2);
-    expect(countQuestionStock(db, itemId, 'understanding')).toBe(3);
+    expect(summary.generated).toBe(1);
+    expect(countQuestionStock(db, itemId, 'production')).toBe(2);
   });
 });
 
-describe('runPrefetch 新词队列补库存（Today Learn 题盲区）', () => {
-  it('新词库存 0 → 按剩余额度补 understanding 至目标库存', async () => {
-    setMaxNewItemsPerDay(10);
+describe('runPrefetch 新词队列（2026-10-06 起不备货）', () => {
+  it('新词不生成 understanding 题目（Learn=RecallCard 不消费绑定题；练一下走懒生成）', async () => {
     const itemId = await seedNewItem('new-a', '2026-09-01T00:00:00.000Z');
     const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
 
-    expect(summary).toMatchObject({ newItems: 1, failed: 0 });
-    expect(summary.newGenerated).toBeGreaterThanOrEqual(1);
-    // 生成调用即 ('understanding', 3)：一次补满 QUESTION_TARGET_STOCK.understanding
-    expect(countQuestionStock(db, itemId, 'understanding')).toBe(
-      QUESTION_TARGET_STOCK.understanding,
-    );
-    expect(countQuestionStock(db, itemId, 'cloze')).toBe(0);
-  });
-
-  it('New Queue 中的 chunk 只预备 understanding，旧 cloze 库存不触发 P', async () => {
-    const itemId = await seedItem(db, {
-      id: 'new-chunk',
-      type: 'chunk',
-      target: 'new-chunk',
-      status: 'active',
-      queueState: 'new',
-    });
-    await seedExample(db, itemId, 'source', 'An example with new-chunk.');
-    await seedQuestion(db, itemId, { id: 'old-cloze', type: 'cloze', status: 'fresh' });
-    const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
-    expect(summary).toMatchObject({ due: 0, newItems: 1, newGenerated: 3 });
-    expect(countQuestionStock(db, itemId, 'understanding')).toBe(3);
-    expect(countQuestionStock(db, itemId, 'production')).toBe(0);
-    expect(countQuestionStock(db, itemId, 'cloze')).toBe(1);
-  });
-
-  it('额度耗尽仍全量备货：额度只影响当天学多少，不影响预生成', async () => {
-    setMaxNewItemsPerDay(10);
-    db.insert(dailyStats)
-      .values({
-        date: TODAY,
-        formalTasksCompleted: 0,
-        newItemsStarted: 10,
-        productionAttempts: 0,
-        productionPass: 0,
-        updatedAt: NOW.toISOString(),
-      })
-      .run();
-    const itemId = await seedNewItem('new-full', '2026-09-01T00:00:00.000Z');
-    const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
-
-    expect(summary).toMatchObject({ newItems: 1, failed: 0 });
-    expect(summary.newGenerated).toBeGreaterThanOrEqual(1);
-    // 生成调用即 ('understanding', 3)：一次补满 QUESTION_TARGET_STOCK.understanding
-    expect(countQuestionStock(db, itemId, 'understanding')).toBe(
-      QUESTION_TARGET_STOCK.understanding,
-    );
-    expect(countQuestionStock(db, itemId, 'cloze')).toBe(0);
-  });
-
-  it('大队列按 createdAt,id 全量处理，病态上界 100', async () => {
-    // >100 场景 seed 成本高，不做真实 101 个：病态上界以 PREFETCH_NEW_ITEMS_CAP 常量引用断言为准
-    setMaxNewItemsPerDay(MAX_NEW_ITEMS_UNLIMITED);
-    const ids: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const id = `full-${String(i).padStart(2, '0')}`;
-      ids.push(await seedNewItem(id, `2026-09-01T00:00:${String(i).padStart(2, '0')}.000Z`));
-    }
-    // 首次见到的 target 顺序 = 生成顺序
-    const seen: string[] = [];
-    const inner = createMockProvider();
-    const provider: AiProvider = {
-      name: inner.name,
-      async complete(req: ProviderRequest) {
-        const target = String(req.vars.target);
-        if (!seen.includes(target)) seen.push(target);
-        return inner.complete(req);
-      },
-    };
-    const summary = await runPrefetch({ db, runtime: buildMockRuntime(provider) }, NOW);
-
-    expect(PREFETCH_NEW_ITEMS_CAP).toBe(100);
-    expect(summary.newItems).toBe(ids.length); // 全量备货，不受额度影响
-    expect(seen).toEqual(ids); // 处理顺序按 createdAt,id
-    for (const id of ids) {
-      expect(countQuestionStock(db, id, 'understanding')).toBe(QUESTION_TARGET_STOCK.understanding);
-    }
+    expect(summary).toMatchObject({ due: 0, processed: 0, skipped: 0, failed: 0, generated: 0 });
+    expect(countQuestionStock(db, itemId, 'understanding')).toBe(0);
   });
 
   it('runPrefetch 整体持 question-generation 锁：执行期间锁行存在，结束后 job_locks 清空', async () => {
-    setMaxNewItemsPerDay(10);
-    await seedNewItem('lock-new', '2026-09-01T00:00:00.000Z');
+    await seedDueItem('lock-new', 'production', inHours(24), { type: 'chunk' });
     const inner = createMockProvider();
     // 首次 AI 调用时探针：执行期间锁行必须存在且租约未过期
     let during: { holder: string; leaseUntil: string } | undefined;
@@ -338,7 +241,7 @@ describe('runPrefetch 新词队列补库存（Today Learn 题盲区）', () => {
     };
     const summary = await runPrefetch({ db, runtime: buildMockRuntime(provider) }, NOW);
 
-    expect(summary.newItems).toBe(1); // 确保探针真的跑过
+    expect(summary.processed).toBe(1); // 确保探针真的跑过
     expect(during).toBeDefined();
     expect(during?.holder).toContain(String(process.pid));
     expect(during && during.leaseUntil > new Date().toISOString()).toBe(true);

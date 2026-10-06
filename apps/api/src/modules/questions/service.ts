@@ -585,9 +585,11 @@ export function productionQuestionTypeFor(_itemId: string, _level: number): 'pro
   return 'production';
 }
 
-/** 到期维度只预取其对应的一种正式题型。 */
-export function questionTypesForDue(
-  dimension: ReviewDimension,
-): ['understanding'] | ['production'] {
-  return dimension === 'understanding' ? ['understanding'] : ['production'];
+/**
+ * 到期维度需要预取的题型。V2 Recall 化后 understanding 的复习/新学/补强全都不消费
+ * 绑定题（三档自评，卡面来自 item；练一下走懒生成），2026-10-06 起到期备货仅
+ * production——原先给每词备的 3 道 understanding 题从未被 UI 展示，纯 token 浪费。
+ */
+export function questionTypesForDue(dimension: ReviewDimension): [] | ['production'] {
+  return dimension === 'production' ? ['production'] : [];
 }

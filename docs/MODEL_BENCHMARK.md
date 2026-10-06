@@ -4,17 +4,19 @@
 >
 > 当前生效策略与最近一次结论见 §1；历史数据按日期倒序在 §3。
 
-## 1. 当前生效策略（taskConfig，2026-09-25 起）
+## 1. 当前生效策略（taskConfig，2026-10-06 起 · DeepSeek）
 
-| 任务 | 模型 | 思考档 | 依据（2026-09-25 基准） |
+全线 `deepseek-flash`（用户指定不用 v4-pro），Anthropic 兼容端点（§3 2026-10-06 节）：
+
+| 任务 | 模型 | 思考档 | 依据（2026-10-06 基准） |
 | --- | --- | --- | --- |
-| checkProduction（表达批改） | **glm-5.3（主模型）** | medium(4096) | 18/18=100% · 14s；flash 各思考档最高 16/18=89% 且 25s+；两模型 off 档均 12/18=67%（思考是批改刚需） |
-| checkCloze（填空兜底判定） | glm-5.3-flash | off | 12/12=100% · 2.3s |
-| judgeDuplicateMeaning（导入重复） | glm-5.3-flash | low(2048) | 9/9=100% · 7.2s（off 8/9） |
-| generateUnderstandingQuestions | glm-5.3-flash | off | off 即 100%（main）/~75%+重试兜底（flash）；思考档纯增延迟 |
-| generateClozeQuestions | glm-5.3-flash | off | off=100% · 5.4s；思考档超时劣化（flash/high 仅 50%） |
-| generateProductionPrompt | glm-5.3-flash | off | 100% · 4.6s |
-| generateRead | glm-5.3-flash | off | 100% · 16.9s（2 样本，坏文由 coverage 不变式重试兜底） |
+| checkProduction（表达批改） | deepseek-flash | **max** | 42/42=100% · avg 13.8s · p50 6.3s；端点忽略 budget_tokens，max 档真实作用是 max_tokens 上限 24576（消灭思考打满上限的「缺文本」失败）；off 86% 有系统性判错 |
+| checkCloze（填空兜底判定） | deepseek-flash | off | 沿用（GLM off 已 100%；DeepSeek flash off 更强） |
+| judgeDuplicateMeaning（导入重复） | deepseek-flash | off | 9/9=100% · 1.0s（GLM 时代 off 8/9 才补 low，DeepSeek off 即满过） |
+| generateUnderstandingQuestions | deepseek-flash | off | 沿用（生成类 off 即最优） |
+| generateClozeQuestions | deepseek-flash | off | 沿用 |
+| generateProductionPrompt | deepseek-flash | off | 沿用 |
+| generateRead | deepseek-flash | off | 沿用 |
 
 全局覆盖：`GLM_THINKING=off|low|medium|high|max` 强制所有任务；`GLM_MODEL_FLASH/AIR/MAX` 固定具体型号（留空=按 `/v1/models` 自动选最新）。
 
@@ -34,6 +36,26 @@ pnpm exec tsx scripts/ai-bench.ts --models flash=glm-5.3-flash,ds=deepseek-chat
 - 判定类任务的期望标签来自 `tests/ai/eval/fixtures/*.sample.json` 的 `expected` 字段——新模型若判错，先核对是不是 fixture 该更新。
 
 ## 3. 历史结果
+
+### 2026-10-06 · DeepSeek 切换（deepseek-flash，Anthropic 兼容端点，全线唯一模型）
+
+**端点事实（实测）**：`GLM_API_BASE=https://api.deepseek.com/anthropic` + x-api-key 协议全兼容，provider 代码零改动。①**budget_tokens 被忽略**——thinking 档位只起"开/关"作用，档间差异仅来自 max_tokens 上限（budget + GLM_MAX_TOKENS）；②`/v1/models` 404 → `GLM_MODEL_*` 必须显式指定；③不传 thinking 默认开思考，off 必须显式 disabled（glm.ts 原有逻辑直接适用）。价格（每百万 token，人民币）：输入 1/2 元（空闲/高峰）、输出 4/8 元，thinking 按输出计价；v4-pro 4.5/9 与 13.5/27（未用）。
+
+**checkProduction**（14 例 × 3 轮 = 42 次/档，无重试）：
+
+| 档位（=max_tokens 上限） | 首过率 | avg | p50 | max | 失败模式 |
+| --- | --- | --- | --- | --- | --- |
+| off | 36/42=86% | **1.2s** | — | 1.6s | cp06/cp12 系统性判错（各 3/3 重复，重试救不回） |
+| low（10240） | 39/42=93% | 12.6s | — | 53.4s | cp13 思考打满上限「缺文本」×3 |
+| medium（12288） | 40/42=95% | 12.9s | — | 63.3s | cp13 缺文本 ×1 + cp07 invariant ×1（偶发） |
+| high（14336） | 40/42=95% | 12.7s | — | 66.2s | cp13 缺文本 ×2 |
+| **max（24576）** | **42/42=100%** | 13.8s | **6.3s** | 78.6s | 0 |
+
+延迟分布（max 档）：<5s 31% · <15s 74% · <35s **90.5%** · >35s 9.5%（几乎全为 cp13 疑难句 65-79s，生产 35s 超时截断+单次重试兜底）。
+
+**judgeDuplicateMeaning**（3 例 × 3 轮）：**off/low/medium/high/max 全部 9/9=100%**，off 仅 1.0s——判定 off 即最优，策略从 GLM 时代的 low 回落到 off。
+
+**本轮结论**：① checkProduction 定档 **flash+max**（100% · 13.8s，胜 GLM main+medium 的 94% · 15s）；② DeepSeek flash off 底子远强于 GLM flash off（批改 86% vs 67%，judge 100% vs 89%）；③ cp13 型疑难句思考跑飞（34-79s）是思考模式固有长尾，靠 max_tokens 大上限保成功、靠超时重试保体验；④ v4-pro 按用户指定不启用（bench 首轮已跑即停）。
 
 ### 2026-10-03 · GLM checkProduction 复测（用户反馈批改变慢；部分档位受时间预算截断）
 
@@ -69,16 +91,17 @@ pnpm exec tsx scripts/ai-bench.ts --models flash=glm-5.3-flash,ds=deepseek-chat
 
 **附带发现（已修复）**：GLM Anthropic 端点**不传 thinking 参数时模型会自发思考**（实测 flash 单次自发 ~10k 字符 → 65s+ 延迟）。off 档必须显式 `thinking: {type:'disabled'}`（65s→9s）。换任何 Anthropic 兼容端点时都要复核此行为。
 
-### （未来模型对比在此追加，如：2026-XX-XX · DeepSeek）
+### （未来模型对比在此追加）
 
-## 4. 换模型对比指南（DeepSeek 等）
+## 4. 换模型对比指南（2026-10-06 DeepSeek 切换实操版）
 
-provider 走 Anthropic Messages 兼容协议，换模型**只需配置**：
+provider 走 Anthropic Messages 兼容协议，换模型**只需配置**（本次实证：代码零改动）：
 
-1. DeepSeek 的 Anthropic 兼容端点：`GLM_API_BASE=https://api.deepseek.com/anthropic`、`GLM_API_KEY=<ds key>`（env 注入，勿提交）
-2. 跑基准：`pnpm exec tsx scripts/ai-bench.ts --models ds=deepseek-chat,ds-r=deepseek-reasoner --max-minutes 90`
-   - DeepSeek 的思考模型（reasoner）自带推理：thinking 档对它传 budget 可能无效/报错——若报错，用 `--models` 单测 off 档即可，把"自带思考"记入对比结论
-3. 结果追加到 §3（同表格式），与 GLM 行对比通过率/延迟
-4. 若某任务新模型胜出且要切换：改 `taskConfig` 的 alias 指向（或 `GLM_MODEL_*` env 固定型号）→ 跑 `pnpm ai:eval -- --all` → 更新 §1 并在本文件留档
+1. DeepSeek 的 Anthropic 兼容端点：`GLM_API_BASE=https://api.deepseek.com/anthropic`、`GLM_API_KEY=<ds key>`（env 注入，勿提交）。模型名：`deepseek-flash` / `deepseek-v4-pro`
+2. 跑基准：`pnpm exec tsx scripts/ai-bench.ts --only <task> --models flash=deepseek-flash --max-minutes 50`
+   - **budget_tokens 被该端点忽略**：thinking 档位间唯一差异是 max_tokens 上限（budget+GLM_MAX_TOKENS）；思考打满上限会「缺文本」失败，档位越高越免疫
+   - 思考模式有固有长尾（疑难句 60s+），评估时要看 p50/max 分布而非只看 avg
+3. 结果追加到 §3（同表格式），与旧行对比通过率/延迟
+4. 若某任务新模型胜出且要切换：改 `taskConfig` 的 alias/thinking → 跑 `pnpm ai:eval -- --all` → 更新 §1 并在本文件留档
 
-注意：模型自动发现（`/v1/models`）目前按 `glm-*` 命名规则解析；非 GLM 端点请用 `GLM_MODEL_FLASH/AIR/MAX` 显式指定型号（自动发现会回退到 fallback 常量）。
+注意：模型自动发现（`/v1/models`）在该端点 404 且解析规则按 `glm-*` 命名——非 GLM 端点必须用 `GLM_MODEL_FLASH/AIR/MAX` 显式指定型号。

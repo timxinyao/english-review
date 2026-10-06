@@ -27,13 +27,14 @@ function configWithThinking(thinking: AppConfig['glmThinking']): AppConfig {
 }
 
 describe('resolveThinking', () => {
-  it('未设置全局 → 按任务策略（2026-09-25 基准矩阵）', () => {
+  it('未设置全局 → 按任务策略（2026-10-06 DeepSeek flash 基准）', () => {
     const config = configWithThinking(null);
-    // 批改：唯一 main+思考的组合（100% 首过 · 14s）
-    expect(resolveThinking('checkProduction', config)).toBe('medium');
-    // 简单判定：cloze off（100%·2.3s）；judge low（89%→100%）
+    // 批改：flash+max = 42/42=100% · avg 13.8s（budget_tokens 被端点忽略，max 档的真实
+    // 作用是抬 max_tokens 上限到 24576，消灭思考打满上限的「缺文本」失败）
+    expect(resolveThinking('checkProduction', config)).toBe('max');
+    // 简单判定：cloze off；judge off（DeepSeek flash off 即 9/9=100% · 1.0s，无需思考）
     expect(resolveThinking('checkCloze', config)).toBe('off');
-    expect(resolveThinking('judgeDuplicateMeaning', config)).toBe('low');
+    expect(resolveThinking('judgeDuplicateMeaning', config)).toBe('off');
     // 生成类全部 off（思考档超时劣化）
     expect(resolveThinking('generateUnderstandingQuestions', config)).toBe('off');
     expect(resolveThinking('generateClozeQuestions', config)).toBe('off');

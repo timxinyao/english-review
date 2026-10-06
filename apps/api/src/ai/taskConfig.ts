@@ -36,21 +36,22 @@ export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
   generateClozeQuestions: { alias: 'flash', temperature: 0.7, thinking: 'off' },
   checkCloze: { alias: 'flash', temperature: 0.1, thinking: 'off' },
   generateProductionPrompt: { alias: 'flash', temperature: 0.8, thinking: 'off' },
-  // 批改是唯一 main+思考组合：基准实测 main+medium=100%·14s，flash 各档最高 89% 且更慢，
-  // off 档两模型均 67%（docs/MODEL_BENCHMARK.md）
-  // timeoutMs：2026-10-03 基准 avg 15s 但长尾 max 37s、偶发 120s provider 超时——
-  // 收紧到 35s，超时仅重试一次（防长尾干等、防无限重试）
-  // totalBudgetMs：2026-10-04 事故——35s×2（provider 内重试）×3（结构化重试）≈210s 最坏路径
-  // 超 nginx 180s → 504 且零写入。端到端预算 80s 必须保持 < nginx 180s 与前端 100s 中止。
+  // 批改（2026-10-06 切 DeepSeek flash）：flash+max = 42/42=100% · avg 13.8s · p50 6.3s。
+  // DeepSeek 端点忽略 budget_tokens，档位差异只来自 max_tokens 上限（budget+GLM_MAX_TOKENS）：
+  // max 档上限 24576，消灭 low/medium/high 思考打满上限的「缺文本」失败（93-95%）。
+  // timeoutMs：p50 6.3s、90.5% 调用 <35s；超时仅重试一次。cp13 型疑难句思考跑飞
+  // （65-79s）会被 35s 截断——重试仍超则用户手动重试，与 GLM 时代长尾行为一致。
+  // totalBudgetMs：2026-10-04 事故——最坏重试路径必须 < nginx 180s 与前端 100s 中止。
   checkProduction: {
-    alias: 'max',
+    alias: 'flash',
     temperature: 0.2,
-    thinking: 'medium',
+    thinking: 'max',
     timeoutMs: 35_000,
     totalBudgetMs: 80_000,
   },
   generateRead: { alias: 'flash', temperature: 0.8, thinking: 'off' },
-  judgeDuplicateMeaning: { alias: 'flash', temperature: 0.2, thinking: 'low' },
+  // DeepSeek flash off 即 9/9=100% · 1.0s（GLM 时代 off 8/9 才补 low；2026-10-06 基准）
+  judgeDuplicateMeaning: { alias: 'flash', temperature: 0.2, thinking: 'off' },
 };
 
 /** 解析任务最终思考档位：GLM_THINKING 强制值 > 任务策略 */

@@ -369,9 +369,9 @@ describe('answer：理解题（understanding 复习）', () => {
     expect(answer.result).toBe('fail');
     expect(answer.outcomeSource).toBe('forgot');
     expect(answer.reinforcementAdded).toBe(true);
-    // 补强任务绑定新取的题（未绑题路径无排除列表）
+    // 补强任务=RecallCard 不消费绑定题（2026-10-06）：不再生成题目，插入未绑题任务
     const rf = tasks().find((t) => t.origin === 'reinforcement')!;
-    expect(rf.questionId).not.toBeNull();
+    expect(rf.questionId).toBeNull();
     // 选项提交（hint 旧契约）在未绑题下仍拒绝：无题可判
     await expect(
       answerTodayTask(db, deps, TZ, NOW, taskByItem('item-b')!.id, {
@@ -662,43 +662,30 @@ describe('answer：补强上限与降级', () => {
     });
     expect(r1.reinforcementAdded).toBe(true);
 
-    // 补强 1 再 fail → 补强 2
+    // 补强 1 再 fail → 补强 2（补强卡=RecallCard，三档自评作答）
     const rf1 = taskByItem('item-a', { origin: 'reinforcement', pending: true })!;
     const r2 = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 60_000), rf1.id, {
-      selectedOptionId: 'o2',
+      recall: 'forgot',
     });
     expect(r2.reinforcementAdded).toBe(true);
 
     // 补强 2 再 fail → 无补强 3
     const rf2 = taskByItem('item-a', { origin: 'reinforcement', pending: true })!;
     const r3 = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 120_000), rf2.id, {
-      selectedOptionId: 'o2',
+      recall: 'forgot',
     });
     expect(r3.reinforcementAdded).toBe(false);
     expect(tasks().filter((t) => t.origin === 'reinforcement')).toHaveLength(2);
     expect(r3.completed).not.toBeNull(); // 全部完成 → 摘要
   });
 
-  it('补强题生成失败 → 跳过补强，不影响结算', async () => {
-    await seedItem(db, { id: 'item-a', target: 'item-a', queueState: 'started' });
-    await seedReviewState(db, 'item-a', 'understanding', {
-      difficulty: 5,
-      stability: 15,
-      reps: 3,
-      nextReviewAt: '2026-09-23T00:00:00.000Z',
-      lastReviewAt: '2026-09-20T00:00:00.000Z',
-    });
-    // 只有一道题（将被答错的那道），且生成失败
-    await seedQuestion(db, 'item-a', {
-      type: 'understanding',
-      payloadJson: choicePayload(DEFAULT_OPTIONS),
-      correctOptionId: 'o1',
-    });
-    const failing = createFakeDeps({ generateFailFor: new Set(['item-a:understanding']) });
+  it('cloze 补强题生成失败 → 跳过补强，不影响结算（understanding 补强无题目不生成）', async () => {
+    await seedDueClozeItem('item-a', ['raw']);
+    const failing = createFakeDeps({ generateFailFor: new Set(['item-a:cloze']) });
     await startTodaySession(db, failing, TZ, NOW);
     const task = taskByItem('item-a')!;
 
-    const res = await answerTodayTask(db, failing, TZ, NOW, task.id, { selectedOptionId: 'o2' });
+    const res = await answerTodayTask(db, failing, TZ, NOW, task.id, { answerText: 'wrong' });
     expect(res.result).toBe('fail');
     expect(res.reinforcementAdded).toBe(false);
     expect(tasks().filter((t) => t.origin === 'reinforcement')).toHaveLength(0);

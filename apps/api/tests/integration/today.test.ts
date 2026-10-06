@@ -387,11 +387,11 @@ describe('POST /api/today/tasks/:id/answer 契约', () => {
     expect(status2.progress).toEqual({ completed: 1, total: 2 });
 
     const rf = await post(ctx, `/api/today/tasks/${status2.currentTask!.taskId}/answer`, {
-      selectedOptionId: 'g1', // fake generate 产题的正确项
+      recall: 'recalled', // 补强卡=RecallCard 三档自评（2026-10-06 起不再生成未使用的绑定题）
     });
     const rfBody = AnswerResponse.parse(rf.json());
-    expect(rfBody.result).toBe('basic_pass'); // 提交选项 = hint 语义 → basic_pass
-    expect(rfBody.outcomeSource).toBe('assisted');
+    expect(rfBody.result).toBe('pass');
+    expect(rfBody.outcomeSource).toBe('recalled');
     expect(rfBody.completed).not.toBeNull();
     expect(rfBody.completed?.recommendRead).toBe(true);
   });

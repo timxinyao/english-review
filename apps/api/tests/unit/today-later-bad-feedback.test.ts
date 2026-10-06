@@ -276,7 +276,7 @@ describe('bad-question（坏题撤销）', () => {
     const a = taskByItem('item-a')!;
     await answerTodayTask(db, deps, TZ, NOW, a.id, { selectedOptionId: 'o2' }); // fail → 补强
     const rf = tasks().find((t) => t.origin === 'reinforcement')!;
-    await answerTodayTask(db, deps, TZ, T1, rf.id, { selectedOptionId: 'o1' }); // 后续作答
+    await answerTodayTask(db, deps, TZ, T1, rf.id, { recall: 'recalled' }); // 后续作答
 
     await expect(async () => reportBadQuestion(db, a.id, T2, TZ)).rejects.toMatchObject({
       code: 'CONFLICT',
@@ -984,7 +984,7 @@ describe('undo（回滚覆盖）', () => {
     const base = taskByItem('qt-1')!;
     await answerTodayTask(db, deps, TZ, NOW, base.id, { selectedOptionId: 'o2' }); // fail → rf1（1/2）
     const rf1 = tasks().find((x) => x.origin === 'reinforcement')!;
-    await answerTodayTask(db, deps, TZ, T1, rf1.id, { selectedOptionId: 'o2' }); // 再 fail → rf2（2/2，配额用尽）
+    await answerTodayTask(db, deps, TZ, T1, rf1.id, { recall: 'forgot' }); // 再 fail → rf2（2/2，配额用尽）
     const liveReinforcements = () =>
       tasks().filter((x) => x.origin === 'reinforcement' && x.canceledAt === null);
     expect(liveReinforcements()).toHaveLength(2);
@@ -1007,7 +1007,7 @@ describe('undo（回滚覆盖）', () => {
 
     // 槽位语义：撤销释放的槽位可用——替代题再 fail 仍可插 1 道补强（共 2 = 上限）
     await answerTodayTask(db, deps, TZ, new Date('2026-09-24T02:03:00.000Z'), replacement.id, {
-      selectedOptionId: 'o2',
+      recall: 'forgot',
     });
     expect(liveReinforcements()).toHaveLength(2); // 替代 + 新插补强 = 上限 2
   });

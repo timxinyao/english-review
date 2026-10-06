@@ -1669,9 +1669,14 @@ export async function answerTodayTask(
 
   // ---- 事务外：补强题预取（仅复习选择题/填空题；表达题不强制当天重做，PRODUCT §7.6；
   // learn fail 不补强——reveal 已教学，方案 A）----
+  // understanding 补强卡 = RecallCard：卡面全部来自 item、三档自评判定（2026-10-03 起
+  // 不消费绑定题）→ 无需生成题目，插未绑题任务即可；原同步 AI 生成是旧选择题时代遗产，
+  // 从未被 UI 展示，却让 fail 应答多等数秒（2026-10-06 用户实测"点重来要等很久"）。
+  // cloze 补强卡渲染题面，保留同步生成。
   const reinforceType: QuestionKind = task.taskType === 'cloze' ? 'cloze' : 'understanding';
   let reinforcementQuestion: QuestionRow | null = null;
   if (
+    reinforceType === 'cloze' &&
     !isProduction &&
     task.taskType !== 'learn' &&
     result === 'fail' &&
@@ -1771,9 +1776,16 @@ export async function answerTodayTask(
         .run();
     }
 
-    // 补强任务插入（fail；题目已事务外预取；配额事务内复核；learn fail 不插——reveal 已教学）
+    // 补强任务插入（fail；配额事务内复核；表达题不强制当天重做、learn fail 不插——reveal 已教学）。
+    // understanding 补强无绑定题（RecallCard 不消费）；cloze 补强需题面，
+    // 生成失败（null）不插（维持原 fail-fast 语义）。
     let reinforcementAdded = false;
-    if (result === 'fail' && task.taskType !== 'learn' && reinforcementQuestion) {
+    const mayInsertReinforcement =
+      result === 'fail' &&
+      !isProduction &&
+      task.taskType !== 'learn' &&
+      (reinforceType === 'understanding' || reinforcementQuestion !== null);
+    if (mayInsertReinforcement) {
       if (reinforcementQuotaLeft(tx, task.sessionId, task.learningItemId) > 0) {
         const reinforcementId = randomUUID();
         tx.insert(reviewTasks)
@@ -1782,7 +1794,7 @@ export async function answerTodayTask(
             sessionId: task.sessionId,
             learningItemId: task.learningItemId,
             dimension: task.dimension,
-            questionId: reinforcementQuestion.id,
+            questionId: reinforcementQuestion ? reinforcementQuestion.id : null,
             taskType: reinforceType,
             origin: 'reinforcement',
             sortKey: reinforcementSortKey(tx, fresh),

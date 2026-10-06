@@ -111,6 +111,8 @@ interface Props {
   /** 卡片右上角插槽：撤销最近一次作答的单图标（PRODUCT §5.1；无可撤销作答时不传入） */
   undoControl?: ReactNode;
   onAnswered?: (result: AnswerResponse, opts?: { autoAdvance?: boolean }) => void;
+  /** 造句提交即回调（不等批改结果；见 TodayPage.unseenGradingRef 后台补看） */
+  onSubmitted?: (taskId: string) => void;
   onAdvance?: () => void;
 }
 
@@ -119,7 +121,7 @@ interface Props {
  * 「今日学习」的具体作答记录上标记（PRODUCT §4.2/§6.5）；顺序回看已删除，
  * 历史作答一律进只读弹层。卡片右上角为撤销最近一次作答的单图标（区别于坏题）。
  */
-export function TaskCard({ task, result, undoControl, onAnswered, onAdvance }: Props) {
+export function TaskCard({ task, result, undoControl, onAnswered, onSubmitted, onAdvance }: Props) {
   const question = task.question;
 
   return (
@@ -181,6 +183,7 @@ export function TaskCard({ task, result, undoControl, onAnswered, onAdvance }: P
           question={question}
           result={result}
           onAnswered={onAnswered ?? (() => {})}
+          onSubmitted={onSubmitted}
           onAdvance={onAdvance ?? (() => {})}
         />
       ) : null}

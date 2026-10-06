@@ -56,7 +56,7 @@ function ProgressRow({
   const fail = live.filter((e) => e.result?.result === 'fail').length;
 
   return (
-    <div className="shrink-0 px-0.5">
+    <div className="shrink-0 px-0.5" data-today-progress>
       {/* 音量开关与进度按钮为兄弟节点：button 内嵌 button 是非法嵌套
           （React validateDOMNesting 报错，且点击会冒泡误开弹层） */}
       <div className="flex w-full items-center justify-between gap-2">
@@ -135,6 +135,9 @@ interface ActiveSessionProps {
   /** 评分即前进的刷新窗口（autoAdvance 且刷新未失败）：true 时乐观渲染预取队列的下一题 */
   advancing?: boolean;
   onAnswered: (frozen: FrozenAnswer) => void;
+  /** 造句提交即回调（不等批改 onSuccess：切后台 fetch 被冻结时 TodayPage 仍可挂账，
+   *  回前台刷新后补看该题反馈；见 TodayPage.unseenGradingRef） */
+  onSubmitted?: (taskId: string) => void;
   onAdvance: () => void;
   /** 撤销成功回调（TodayPage 按撤销目标决定是否清冻结反馈；见 TodayPage.handleUndone） */
   onUndone?: (taskId: string) => void;
@@ -146,6 +149,7 @@ export function ActiveSession({
   frozen,
   advancing,
   onAnswered,
+  onSubmitted,
   onAdvance,
   onUndone,
 }: ActiveSessionProps) {
@@ -278,6 +282,7 @@ export function ActiveSession({
             />
           }
           onAnswered={(result, opts) => handleAnswered(shownTask, result, opts)}
+          onSubmitted={onSubmitted}
           onAdvance={onAdvance}
         />
       ) : (

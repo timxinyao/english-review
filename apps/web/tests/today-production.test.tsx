@@ -482,4 +482,79 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(screen.queryByRole('dialog', { name: '批改未完成' })).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+
+  it('切后台批改完成后回前台：先看该题反馈卡（判语/diff/下一题），而非直接跳下一题（2026-10-05）', async () => {
+    // 提交后切后台：answer fetch 挂起不归（模拟 iOS 冻结/掐断连接），
+    // 服务端在后台完成结算——回前台时批量视图已带 result
+    let settled = false;
+    stubApi({
+      '/api/today': () =>
+        makeActive(settled ? nextTask() : makeProductionTask(), {
+          completed: settled ? 2 : 1,
+          total: 6,
+        }),
+      '/api/today/tasks/task-prod/answer': () => new Promise(() => {}),
+      '/api/today/tasks': () =>
+        makeTasksResponse([
+          makeSessionEntry(makeProductionTask(), settled ? makeProductionAnswer() : null),
+        ]),
+    });
+    renderTodayApp();
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'The constant stress makes me want to give up.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    // 批改请求在途（提交按钮已变「取消」）时切后台，服务端结算完毕
+    expect(await screen.findByRole('button', { name: '取消' })).toBeEnabled();
+    settled = true;
+
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    try {
+      visibility.mockReturnValue('visible');
+      fireEvent(document, new Event('visibilitychange'));
+    } finally {
+      visibility.mockRestore();
+    }
+
+    // 回前台先补看该题批改反馈：判语 + 解释 + 「下一题」，不是下一题的题面
+    expect(await screen.findByText('通过')).toBeVisible();
+    expect(screen.getByText('目标表达使用正确。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '下一题' })).toBeEnabled();
+    expect(screen.queryByRole('heading', { name: 'stable' })).not.toBeInTheDocument();
+
+    // 看完点「下一题」才前进到下一条目
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
+  });
+
+  it('切后台批改未结算回前台：保持批改等待（现有行为），不误展示反馈卡（2026-10-05）', async () => {
+    stubApi({
+      '/api/today': () => makeActive(makeProductionTask(), { completed: 1, total: 6 }),
+      '/api/today/tasks/task-prod/answer': () => new Promise(() => {}),
+      '/api/today/tasks': () => makeTasksResponse([makeSessionEntry(makeProductionTask(), null)]),
+    });
+    renderTodayApp();
+
+    fireEvent.change(await screen.findByLabelText('表达答案'), {
+      target: { value: 'I want to give up.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    expect(await screen.findByRole('button', { name: '取消' })).toBeEnabled();
+
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    try {
+      visibility.mockReturnValue('visible');
+      fireEvent(document, new Event('visibilitychange'));
+    } finally {
+      visibility.mockRestore();
+    }
+
+    // 任务仍未结算：无反馈卡，维持「正在批改…」等待态
+    await waitFor(() => {
+      expect(screen.getByText('正在批改…')).toBeVisible();
+    });
+    expect(screen.queryByText('通过')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();
+  });
 });

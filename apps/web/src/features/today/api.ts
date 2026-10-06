@@ -94,8 +94,10 @@ export function useTodayStatus() {
   return useQuery({ queryKey: todayKeys.status, queryFn: fetchTodayStatus });
 }
 
-export function useSessionTasks() {
-  return useQuery({ queryKey: todayKeys.tasks, queryFn: fetchSessionTasks });
+/** 批量任务视图（GET /api/today/tasks）：无会话（idle）时服务端 409，
+ *  需要时以 enabled=false 关闭（页面级挂载时按今日状态门控） */
+export function useSessionTasks(enabled = true) {
+  return useQuery({ queryKey: todayKeys.tasks, queryFn: fetchSessionTasks, enabled });
 }
 
 export function useStartSession() {

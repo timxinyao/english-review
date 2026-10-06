@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Settings } from '@el/shared';
+import { api } from '../src/lib/api';
 import { urlBase64ToUint8Array } from '../src/features/settings/components/NotificationSection';
 
 // ---------- api mock：按 path 桩（push 状态可变，供 invalidate 后回读） ----------
@@ -107,6 +108,7 @@ function renderPage() {
 beforeEach(() => {
   pushSubscribed = false;
   calls.length = 0;
+  vi.mocked(api).mockClear();
   pushManagerSubscribe.mockClear();
   pushManagerGetSubscription.mockClear();
   requestPermission.mockClear();
@@ -253,5 +255,99 @@ describe('设置页「批改完成通知」开关（Web Push）', () => {
       expect(unsubscribeBrowser).toHaveBeenCalledTimes(1);
     });
     expect(await screen.findByRole('button', { name: '开启' })).toBeInTheDocument();
+  });
+
+  // ---------- 失败分支可见反馈（2026-10-05「点了没反应」修复） ----------
+
+  /** api mock 只按实现签名记录 path；这里取指定 path 首次调用的 body */
+  function bodyOf(path: string): unknown {
+    const call = (vi.mocked(api).mock.calls as unknown as [string, RequestInit | undefined][]).find(
+      ([p]) => p === path,
+    );
+    return JSON.parse(call?.[1]?.body as string);
+  }
+
+  it('残留旧订阅（绑旧 VAPID 钥）：先退订浏览器旧订阅 + POST 旧 endpoint，再新钥订阅', async () => {
+    // 新订阅 endpoint 不同于残留的 sub/1：证明 POST subscribe 用的是新订阅
+    const newSubscription = {
+      endpoint: 'https://push.example.dev/sub/2',
+      unsubscribe: vi.fn(async () => true),
+      toJSON: () => ({
+        endpoint: 'https://push.example.dev/sub/2',
+        keys: { p256dh: 'BP256DH-NEW', auth: 'AUTHKEY-NEW' },
+      }),
+    };
+    pushManagerSubscribe.mockResolvedValueOnce(newSubscription);
+
+    renderPage();
+    const enableBtn = await screen.findByRole('button', { name: '开启' });
+    await waitFor(() => expect(enableBtn).toBeEnabled());
+    fireEvent.click(enableBtn);
+
+    await waitFor(() => {
+      expect(calls).toContain('/api/push/subscribe');
+    });
+    // 顺序断言：浏览器先退旧订阅，再 subscribe 新钥（残留不退会被钥不匹配 reject）
+    expect(unsubscribeBrowser.mock.invocationCallOrder[0]).toBeLessThan(
+      pushManagerSubscribe.mock.invocationCallOrder[0],
+    );
+    // 服务器侧也先收到旧 endpoint 的 unsubscribe，之后才是新订阅的 subscribe
+    const unsubAt = calls.indexOf('/api/push/unsubscribe');
+    expect(unsubAt).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf('/api/push/subscribe')).toBeGreaterThan(unsubAt);
+    expect(bodyOf('/api/push/unsubscribe')).toEqual({ endpoint: 'https://push.example.dev/sub/1' });
+    expect(bodyOf('/api/push/subscribe')).toEqual({
+      endpoint: 'https://push.example.dev/sub/2',
+      p256dh: 'BP256DH-NEW',
+      auth: 'AUTHKEY-NEW',
+    });
+    expect(await screen.findByRole('button', { name: '已开启' })).toBeInTheDocument();
+  });
+
+  it('系统权限 denied（曾被拒不再弹框）：错误文案指向 iOS 设置，开关保持关', async () => {
+    requestPermission.mockResolvedValueOnce('denied');
+
+    renderPage();
+    const enableBtn = await screen.findByRole('button', { name: '开启' });
+    await waitFor(() => expect(enableBtn).toBeEnabled());
+    fireEvent.click(enableBtn);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('iOS 设置');
+    expect(alert.textContent).toContain('允许通知');
+    expect(pushManagerSubscribe).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '开启' })).toBeInTheDocument();
+  });
+
+  it('浏览器标签页（serviceWorker 缺失）：提示需从主屏打开的 Foxi 开启，开关保持关', async () => {
+    delete (navigator as { serviceWorker?: unknown }).serviceWorker;
+
+    renderPage();
+    const enableBtn = await screen.findByRole('button', { name: '开启' });
+    await waitFor(() => expect(enableBtn).toBeEnabled());
+    fireEvent.click(enableBtn);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('需要从主屏打开的 Foxi 应用里开启通知');
+    expect(pushManagerSubscribe).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '开启' })).toBeInTheDocument();
+  });
+
+  it('subscribe 其他异常：透出浏览器 error.message，开关保持关', async () => {
+    pushManagerSubscribe.mockRejectedValueOnce(
+      new Error('Registration failed - permission denied'),
+    );
+
+    renderPage();
+    const enableBtn = await screen.findByRole('button', { name: '开启' });
+    await waitFor(() => expect(enableBtn).toBeEnabled());
+    fireEvent.click(enableBtn);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Registration failed - permission denied');
+    // 残留订阅仍先被清理（顺序在 subscribe 之前）
+    expect(unsubscribeBrowser).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '开启' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '已开启' })).not.toBeInTheDocument();
   });
 });

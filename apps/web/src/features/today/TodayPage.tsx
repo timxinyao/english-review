@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '../../lib/utils';
 import { Button } from '../../components/ui/button';
-import { useTodayStatus } from './api';
+import { useSessionTasks, useTodayStatus } from './api';
 import { ActiveSession, type FrozenAnswer } from './components/ActiveSession';
 import { CompletedToday } from './components/CompletedToday';
 import { IdleToday } from './components/IdleToday';
@@ -15,8 +15,42 @@ import { IdleToday } from './components/IdleToday';
  */
 export function TodayPage() {
   const { data, isLoading, isError, isFetching, refetch } = useTodayStatus();
+  // 与 ActiveSession 共享同一 react-query 缓存（按 key 去重，不产生额外请求）；
+  // idle 无会话（/api/today/tasks 会 409）故按状态门控
+  const { data: sessionTasks } = useSessionTasks(
+    data?.status === 'active' || data?.status === 'completed',
+  );
   const [frozen, setFrozen] = useState<FrozenAnswer | null>(null);
   const advance = useCallback(() => setFrozen(null), []);
+
+  /**
+   * 后台批改完成回 App 先看结果（2026-10-05）：造句提交后若页面不在场
+   * （onSuccess 展示反馈的正常路径未走到），记录 taskId；之后任一批量视图
+   * 刷新（主场景：回前台 visibilitychange invalidate）落地时该任务已有
+   * result，则组装 FrozenAnswer（无 autoAdvance）交给现有冻结反馈渲染——
+   * 用户先看判分/diff/更自然说法，点「下一题」才前进。任务仍未结算时保持
+   * pending 等待（现有行为）。仅内存态：刷新页面不追（结果永远可在
+   * 「今日学习」只读弹层回看）。
+   */
+  const unseenGradingRef = useRef<string | null>(null);
+  useEffect(() => {
+    const taskId = unseenGradingRef.current;
+    if (!taskId) return;
+    const entry = sessionTasks?.tasks.find((e) => e.task.taskId === taskId);
+    if (!entry || entry.canceled || entry.result === null) return;
+    unseenGradingRef.current = null;
+    setFrozen({ task: entry.task, result: entry.result });
+  }, [sessionTasks]);
+
+  /** 造句提交即挂账（不等 onSuccess：切后台后 fetch 可能被冻结/掐断） */
+  const handleSubmitted = useCallback((taskId: string) => {
+    unseenGradingRef.current = taskId;
+  }, []);
+  /** 反馈已展示（页面在场的正常路径）：清除挂账 */
+  const handleAnswered = useCallback((f: FrozenAnswer) => {
+    unseenGradingRef.current = null;
+    setFrozen(f);
+  }, []);
 
   // Recall 评分即前进：自评后等状态刷新成功再 advance；失败停留反馈页人工兜底。
   // useAnswer 的 onSuccess invalidate 已触发 /api/today 刷新，这里只消费其结果，
@@ -62,7 +96,8 @@ export function TodayPage() {
           currentTask={isActive ? data.currentTask : null}
           frozen={frozen}
           advancing={advancing}
-          onAnswered={setFrozen}
+          onAnswered={handleAnswered}
+          onSubmitted={handleSubmitted}
           onAdvance={advance}
           onUndone={handleUndone}
         />

@@ -27,7 +27,7 @@ describe('api 全局请求超时（iOS 后台冻结 fetch 兜底）', () => {
     vi.restoreAllMocks();
   });
 
-  it('fetch 永挂：100s 后 abort 并抛「请求超时，请重试」（ApiError，status=0）', async () => {
+  it('fetch 永挂：150s 后 abort 并抛「请求超时，请重试」（ApiError，status=0）', async () => {
     globalThis.fetch = vi.fn(hangingFetch());
     const promise = api('/api/today/start', { method: 'POST', body: '{}' });
     const assertion = expect(promise).rejects.toMatchObject({
@@ -36,11 +36,11 @@ describe('api 全局请求超时（iOS 后台冻结 fetch 兜底）', () => {
       message: '请求超时，请重试',
       status: 0,
     });
-    await vi.advanceTimersByTimeAsync(100_000);
+    await vi.advanceTimersByTimeAsync(150_000);
     await assertion;
   });
 
-  it('100s 内正常返回：不触发超时，且 resolve 后清理定时器（无泄漏）', async () => {
+  it('150s 内正常返回：不触发超时，且 resolve 后清理定时器（无泄漏）', async () => {
     globalThis.fetch = vi.fn(
       async () =>
         new Response(JSON.stringify({ ok: 1 }), {
@@ -50,7 +50,7 @@ describe('api 全局请求超时（iOS 后台冻结 fetch 兜底）', () => {
     ) as unknown as typeof fetch;
     await expect(api('/api/health')).resolves.toEqual({ ok: 1 });
     expect(vi.getTimerCount()).toBe(0);
-    // 此后推进远超 100s，不应有任何延迟 abort 副作用
+    // 此后推进远超 150s，不应有任何延迟 abort 副作用
     await vi.advanceTimersByTimeAsync(300_000);
   });
 
@@ -91,7 +91,7 @@ describe('api 全局请求超时（iOS 后台冻结 fetch 兜底）', () => {
     });
   });
 
-  it('外部 signal 存在时自身 100s 超时仍生效（两路互不削弱）', async () => {
+  it('外部 signal 存在时自身 150s 超时仍生效（两路互不削弱）', async () => {
     globalThis.fetch = vi.fn(hangingFetch());
     const external = new AbortController();
     const promise = api('/api/today/start', {
@@ -105,7 +105,7 @@ describe('api 全局请求超时（iOS 后台冻结 fetch 兜底）', () => {
       message: '请求超时，请重试',
       status: 0,
     });
-    await vi.advanceTimersByTimeAsync(100_000);
+    await vi.advanceTimersByTimeAsync(150_000);
     await assertion;
   });
 

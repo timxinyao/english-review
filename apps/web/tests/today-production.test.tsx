@@ -372,7 +372,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
   it('失败弹窗（超时）：「批改未完成」+ 未计入话术；卡上红字保留（2026-10-05）', async () => {
     stubApi({
       '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
-      // 前端 100s 超时 → ApiError REQUEST_TIMEOUT；tasks 无该题 result（未结算）→ 正常置错
+      // 前端 150s 超时 → ApiError REQUEST_TIMEOUT；tasks 无该题 result（未结算）→ 正常置错
       '/api/today/tasks/task-prod/answer': () =>
         Promise.reject(new ApiError('REQUEST_TIMEOUT', '请求超时，请重试', 0)),
     });
@@ -457,7 +457,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
   });
 
   it('超时竞态保险：REQUEST_TIMEOUT 但 invalidate 后 tasks 已有该任务 result → 不弹窗、卡面显示已批结果（2026-10-05）', async () => {
-    // 服务端其实在断连检测前已结算（前端 100s 超时后才落库）：作答请求被掐断后批量视图已有 result
+    // 服务端其实在断连检测前已结算（前端 150s 超时后才落库）：作答请求被掐断后批量视图已有 result
     let settled = false;
     stubApi({
       '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),

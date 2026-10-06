@@ -43,14 +43,14 @@ describe('completeStructured 端到端预算（2026-10-04 批改 504 事故）',
     vi.useRealTimers();
   });
 
-  it('checkProduction 声明 80s 预算，且 < nginx 180s 与前端 100s 中止', () => {
+  it('checkProduction 声明 120s 预算，且 < nginx 180s 与前端 150s 中止', () => {
     const policy = TASK_MODEL_POLICY.checkProduction;
-    expect(policy.totalBudgetMs).toBe(80_000);
+    expect(policy.totalBudgetMs).toBe(120_000);
     expect(policy.totalBudgetMs!).toBeLessThan(180_000);
-    expect(policy.totalBudgetMs!).toBeLessThan(100_000);
+    expect(policy.totalBudgetMs!).toBeLessThan(150_000);
   });
 
-  it('预算内多次 attempt 的 timeoutMs 被按剩余预算裁剪（剩余/2，不超任务 35s）', async () => {
+  it('预算内多次 attempt 的 timeoutMs 被按剩余预算裁剪（剩余/2，不超任务 60s）', async () => {
     const { provider, timeoutMsLog } = budgetBurningProvider();
     const start = Date.now();
     await expect(
@@ -64,20 +64,19 @@ describe('completeStructured 端到端预算（2026-10-04 批改 504 事故）',
         PRODUCTION_VARS,
       ),
     ).rejects.toBeInstanceOf(AiStructuredError);
-    // attempt1：剩余 80s → min(35s, 40s)=35s；attempt2：剩余 10s → min(35s, 5s)=5s
-    expect(timeoutMsLog).toEqual([35_000, 5_000]);
-    // 两次 attempt 各消耗 2×timeoutMs → 总 mock 时间恰 80s ≤ 预算+ε
-    expect(Date.now() - start).toBeLessThanOrEqual(80_000 + 5_000);
+    // attempt1：剩余 120s → min(60s, 60s)=60s；消耗 2×60s 后剩余 0 → 停止
+    expect(timeoutMsLog).toEqual([60_000]);
+    expect(Date.now() - start).toBeLessThanOrEqual(120_000 + 5_000);
   });
 
   it('预算耗尽停止重试并按失败路径返回错误（attempt 少于上限，错误信息含预算标记）', async () => {
-    // 每次固定消耗 38s（首 attempt 35s 超时 + 内部重试语义无关，仅推进时钟）
+    // 每次固定消耗 58s：attempt1 后剩 62s，attempt2 后剩 4s < 5s 停止
     const timeoutMsLog: number[] = [];
     const provider: AiProvider = {
       name: 'glm',
       async complete(req: ProviderRequest) {
         timeoutMsLog.push(req.timeoutMs ?? -1);
-        await vi.advanceTimersByTimeAsync(38_000);
+        await vi.advanceTimersByTimeAsync(58_000);
         throw new Error('模拟长尾失败');
       },
     };
@@ -91,10 +90,10 @@ describe('completeStructured 端到端预算（2026-10-04 批改 504 事故）',
       'checkProduction',
       PRODUCTION_VARS,
     );
-    await expect(promise).rejects.toThrow(/端到端预算 80000ms 耗尽/);
-    // attempt1 剩余 80s→35s；attempt2 剩余 42s→21s；attempt3 剩余 4s < 5s 停止
-    expect(timeoutMsLog).toEqual([35_000, 21_000]);
-    expect(Date.now() - start).toBeLessThanOrEqual(80_000 + 5_000);
+    await expect(promise).rejects.toThrow(/端到端预算 120000ms 耗尽/);
+    // attempt1 剩余 120s→60s；attempt2 剩余 62s→31s；attempt3 剩余 4s < 5s 停止
+    expect(timeoutMsLog).toEqual([60_000, 31_000]);
+    expect(Date.now() - start).toBeLessThanOrEqual(120_000 + 5_000);
   });
 
   it('无预算任务行为不变：不裁剪 timeoutMs，重试满 MAX_STRUCTURED_RETRIES 次', async () => {

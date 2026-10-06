@@ -59,7 +59,7 @@ const MIN_BUDGET_REMAINING_MS = 5_000;
  * 任务策略声明 totalBudgetMs 时（2026-10-04 批改 504 事故）：所有 attempt 的总耗时
  * 硬限在该预算内——剩余不足 MIN_BUDGET_REMAINING_MS 停止重试，且每次传给 provider 的
  * timeoutMs 按剩余预算减半裁剪（provider 内部还会超时重试一次，最坏 2×timeoutMs），
- * 保证端到端 ≤ 预算+ε，不撞 nginx 180s / 前端 100s 中止。
+ * 保证端到端 ≤ 预算+ε，不撞 nginx 180s / 前端 150s 中止。
  */
 export async function completeStructured<T>(
   deps: CompleteDeps,

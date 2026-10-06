@@ -13,7 +13,7 @@ interface TaskModelPolicy {
   timeoutMs?: number;
   /**
    * 任务级端到端预算：completeStructured 全部 attempt（含 provider 内部超时重试）的总耗时上限，
-   * 耗尽即停止重试按失败返回。必须 < nginx proxy_read_timeout 180s 与前端 api() 100s 请求中止
+   * 耗尽即停止重试按失败返回。必须 < nginx proxy_read_timeout 180s 与前端 api() 150s 请求中止
    * （apps/web/src/lib/api.ts），防 504 / 客户端挂死；缺省不设（行为不变）。
    */
   totalBudgetMs?: number;
@@ -39,15 +39,17 @@ export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
   // 批改（2026-10-06 切 DeepSeek flash）：flash+max = 42/42=100% · avg 13.8s · p50 6.3s。
   // DeepSeek 端点忽略 budget_tokens，档位差异只来自 max_tokens 上限（budget+GLM_MAX_TOKENS）：
   // max 档上限 24576，消灭 low/medium/high 思考打满上限的「缺文本」失败（93-95%）。
-  // timeoutMs：p50 6.3s、90.5% 调用 <35s；超时仅重试一次。cp13 型疑难句思考跑飞
-  // （65-79s）会被 35s 截断——重试仍超则用户手动重试，与 GLM 时代长尾行为一致。
-  // totalBudgetMs：2026-10-04 事故——最坏重试路径必须 < nginx 180s 与前端 100s 中止。
+  // prompt v3 加思考纪律（一次定案）后疑难句尾巴 65-79s→37-65s（中位 ~48s）——
+  // timeoutMs 60s：attempt1=min(60, 预算/2)=60s 覆盖中位，cp13 型 5/6 直接批出；
+  // 35s 旧值会把此类句子判死（手动重试同样被截断，永远无法批改）。
+  // totalBudgetMs 120s：2026-10-04 504 事故约束最坏重试路径 < nginx 180s；
+  // 前端中止已同步放宽到 150s（apps/web/src/lib/api.ts），预算仍留 30s 余量。
   checkProduction: {
     alias: 'flash',
     temperature: 0.2,
     thinking: 'max',
-    timeoutMs: 35_000,
-    totalBudgetMs: 80_000,
+    timeoutMs: 60_000,
+    totalBudgetMs: 120_000,
   },
   generateRead: { alias: 'flash', temperature: 0.8, thinking: 'off' },
   // DeepSeek flash off 即 9/9=100% · 1.0s（GLM 时代 off 8/9 才补 low；2026-10-06 基准）

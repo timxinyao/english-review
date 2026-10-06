@@ -127,7 +127,7 @@ export type AnswerMutation = UseMutationResult<
  * + mutation.reset（清 pending/error，取消不得残留「批改失败」红字）
  * + invalidate today（覆盖罕见竞态：其实已落库，刷新后直接显示已批结果卡）。
  *
- * 超时竞态保险（2026-10-05）：前端 100s abort（ApiError REQUEST_TIMEOUT）时，
+ * 超时竞态保险（2026-10-05）：前端 150s abort（ApiError REQUEST_TIMEOUT）时，
  * 服务端可能已在断连检测前结算落库。mutationFn 内部捕获超时并回读
  * GET /api/today/tasks——该任务已有 result 则把它当成功结果返回（onSuccess
  * 等价路径：error 不置位、不弹失败弹窗，组件回调拿到回放结果直接渲染已批卡面）；

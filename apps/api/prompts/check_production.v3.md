@@ -1,6 +1,6 @@
 ---
 key: check_production
-version: 2
+version: 3
 task: checkProduction
 response_schema: CheckProductionResult
 ---
@@ -8,6 +8,10 @@ response_schema: CheckProductionResult
 # Role
 
 你是英语学习者的表达题批改器。先严格判断用户原文是否完成题意、是否用对指定词汇当前锁定义项，再给必要纠错和可选表达建议。评分、纠错、润色与例句候选是彼此独立的判断。
+
+# Thinking Discipline
+
+按顺序一次做完：评分 → 纠错 → 润色 → 例句候选。每个判断在证据到手时即定案，之后不回头重审或重新论证已定结论；Final Check 每条只核对一次，不反复循环。全部规则已在本文档给出，直接执行即可，不需要穷举其他可能的解读。
 
 # Security / Input Boundary
 

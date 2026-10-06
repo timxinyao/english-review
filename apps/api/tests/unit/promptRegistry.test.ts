@@ -42,10 +42,10 @@ describe('真实仓库 Prompt 文件', () => {
     }
   });
 
-  it('check_production 使用 v2 当前 Prompt', () => {
+  it('check_production 使用 v3 当前 Prompt（v3=v2+思考纪律：一次定案）', () => {
     const prompt = loadPromptRegistry(PROMPTS_DIR).get('check_production');
-    expect(prompt?.version).toBe(2);
-    expect(prompt?.filePath).toMatch(/check_production\.v2\.md$/);
+    expect(prompt?.version).toBe(3);
+    expect(prompt?.filePath).toMatch(/check_production\.v3\.md$/);
   });
 
   it('hash 为 64 位十六进制且稳定', () => {

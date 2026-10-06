@@ -16,10 +16,11 @@ export class ApiError extends Error {
 
 /**
  * 全局请求超时：iOS 切后台会冻结进行中的 fetch Promise，回前台若不中止则永远
- * "批改中…"。100s > 批改端到端预算 80s+ε（apps/api taskConfig totalBudgetMs），
- * 不误伤慢批改；回前台时被冻结的定时器恢复并立即触发 abort。
+ * "批改中…"。150s > 批改端到端预算 120s+ε（apps/api taskConfig totalBudgetMs，
+ * 2026-10-06 思考纪律 v3 后疑难句中位 ~48s、单次上限 60s），不误伤慢批改；
+ * 回前台时被冻结的定时器恢复并立即触发 abort。
  */
-const REQUEST_TIMEOUT_MS = 100_000;
+const REQUEST_TIMEOUT_MS = 150_000;
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();

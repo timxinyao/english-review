@@ -10,7 +10,7 @@
 
 | 任务 | 模型 | 思考档 | 依据（2026-10-06 基准） |
 | --- | --- | --- | --- |
-| checkProduction（表达批改） | deepseek-flash | **max** | 42/42=100% · avg 13.8s · p50 6.3s；端点忽略 budget_tokens，max 档真实作用是 max_tokens 上限 24576（消灭思考打满上限的「缺文本」失败）；off 86% 有系统性判错 |
+| checkProduction（表达批改） | deepseek-flash | **max** | 42/42=100% · avg 13.8s · p50 6.3s；端点忽略 budget_tokens，max 档真实作用是 max_tokens 上限 24576（消灭思考打满上限的「缺文本」失败）；off 86% 有系统性判错；prompt v3 思考纪律后疑难句 37-65s，timeoutMs 60s/预算 120s/前端 150s 链路覆盖 |
 | checkCloze（填空兜底判定） | deepseek-flash | off | 沿用（GLM off 已 100%；DeepSeek flash off 更强） |
 | judgeDuplicateMeaning（导入重复） | deepseek-flash | off | 9/9=100% · 1.0s（GLM 时代 off 8/9 才补 low，DeepSeek off 即满过） |
 | generateUnderstandingQuestions | deepseek-flash | off | 沿用（生成类 off 即最优） |
@@ -56,6 +56,20 @@ pnpm exec tsx scripts/ai-bench.ts --models flash=glm-5.3-flash,ds=deepseek-chat
 **judgeDuplicateMeaning**（3 例 × 3 轮）：**off/low/medium/high/max 全部 9/9=100%**，off 仅 1.0s——判定 off 即最优，策略从 GLM 时代的 low 回落到 off。
 
 **本轮结论**：① checkProduction 定档 **flash+max**（100% · 13.8s，胜 GLM main+medium 的 94% · 15s）；② DeepSeek flash off 底子远强于 GLM flash off（批改 86% vs 67%，judge 100% vs 89%）；③ cp13 型疑难句思考跑飞（34-79s）是思考模式固有长尾，靠 max_tokens 大上限保成功、靠超时重试保体验；④ v4-pro 按用户指定不启用（bench 首轮已跑即停）。
+
+**2026-10-06 追加 · 思考纪律实验（prompt v2→v3）**
+
+背景：cp13 型疑难句（`wlecome` 拼写 + `every`+复数双陷阱）思考跑飞 65-79s，35s 超时下**永远无法批改**（手动重试同样被截断）。抓思考原文（39k 字符）发现：核心判断开头几百字已完成，后半全是 Final Check 8 条清单触发的重复自审循环。
+
+v3 变更：Role 后新增「Thinking Discipline」节——四个判断按序一次做完、每个判断一次定案不回头重审、Final Check 每条只核对一次、规则已给全不穷举其他解读。
+
+| 指标 | v2 | v3 |
+| --- | --- | --- |
+| 通过率（thinking max） | 42/42（bench） | 35/36（cp12 一例 invariant 失败为噪声：聚焦复测 4/4 清白） |
+| cp13 延迟 | 65-79s | 37-65s（6 样本中位 ~48s） |
+| avg / p50（全量） | 13.8s / 6.3s | 12.8s / 6.8s |
+
+配套放宽超时链（否则 v3 收益被 35s 截断吃掉）：checkProduction timeoutMs 35→**60s**、totalBudgetMs 80→**120s**、前端 REQUEST_TIMEOUT 100→**150s**（nginx 180s 不动；attempt1=min(60, 预算/2)=60s 覆盖 cp13 中位，5/6 直接批出）。复现脚本：`apps/api/scripts/cp-discipline-exp.mts`（EXP_ONLY/EXP_RUNS 环境变量过滤用例与轮数）。
 
 ### 2026-10-03 · GLM checkProduction 复测（用户反馈批改变慢；部分档位受时间预算截断）
 

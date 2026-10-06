@@ -176,7 +176,7 @@ describe('evaluateProduction（check_production 批改）', () => {
     expect(evaluation.candidate.eligible).toBe(false); // mock 固定 eligible=false
     expect(evaluation.promptMeta).toEqual({
       key: 'check_production',
-      version: 2,
+      version: 3,
       hash: loadPromptRegistry(join(process.cwd(), 'prompts')).get('check_production')!.hash,
       model: FALLBACK_MODELS.flash, // 无 key 环境 → fallback（2026-10-06 起批改走 flash 别名）
     });

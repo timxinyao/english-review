@@ -86,6 +86,27 @@ async function main() {
     AUTH_PASSWORD: process.env.AUTH_PASSWORD ?? 'bench-placeholder',
   });
   if (!baseConfig.glmApiKey) throw new Error('需要 GLM_API_KEY');
+
+  // 成本防误触（2026-10-06）：按 token 计费后全矩阵一次 ≈700+ 次真实调用（数元）。
+  // 阈值 300：单任务×单模型（如 checkProduction flash-only=210 次，几毛钱）直接放行，
+  // 更大范围须显式 --yes；日常调参用 --only <task> 缩小范围。
+  const models = parseModels(args);
+  let estimated = 0;
+  for (const task of Object.keys(AI_TASK_CATALOG) as AiTask[]) {
+    if (!wantTask(task)) continue;
+    const spec = AI_TASK_CATALOG[task];
+    const fixture = JSON.parse(
+      readFileSync(`${FIXTURES_DIR}/${spec.promptKey}.sample.json`, 'utf8'),
+    ) as { cases: unknown[] };
+    const isJudgment =
+      task === 'checkProduction' || task === 'checkCloze' || task === 'judgeDuplicateMeaning';
+    estimated += fixture.cases.length * (isJudgment ? 5 : 4) * (isJudgment ? 3 : 2) * models.length;
+  }
+  console.log(`预计 ${estimated} 次真实 API 调用`);
+  if (estimated > 300 && !args.includes('--yes')) {
+    throw new Error(`预计 ${estimated} 次调用（成本可观）：确认全量请加 --yes，日常调参用 --only <task>`);
+  }
+
   const registry = loadPromptRegistry(fileURLToPath(new URL('../prompts', import.meta.url)));
   validateRegistry(registry);
   const provider = createGlmProvider(baseConfig);

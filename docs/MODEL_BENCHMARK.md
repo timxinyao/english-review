@@ -25,8 +25,9 @@
 ```bash
 cd apps/api
 # 全矩阵（7 任务 × 2 模型 × 4-5 档，判定类 3 轮 / 生成类 2 轮独立调用，间隔 1.5s，无重试）
-pnpm exec tsx scripts/ai-bench.ts --max-minutes 90
-# 只跑部分任务 / 自定义模型列表（label=id 逗号分隔）
+# ⚠ 成本防误触：全矩阵 ≈742 次真实调用（按 token 计费数元），脚本预估 >300 次要求显式 --yes
+pnpm exec tsx scripts/ai-bench.ts --yes --max-minutes 90
+# 只跑部分任务 / 自定义模型列表（label=id 逗号分隔）——日常调参用这个，单任务×单模型仅几毛钱
 pnpm exec tsx scripts/ai-bench.ts --only checkProduction,judgeDuplicateMeaning --max-minutes 55
 pnpm exec tsx scripts/ai-bench.ts --models flash=glm-5.3-flash,ds=deepseek-chat
 ```

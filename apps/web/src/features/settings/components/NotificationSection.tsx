@@ -95,7 +95,10 @@ async function enablePush(): Promise<void> {
     // Safari 标签页内两者直接缺失：只有主屏 PWA + HTTPS 才支持 Web Push
     throw new Error('需要从主屏打开的 Foxi 应用里开启通知');
   }
-  const { publicKey } = await api<PushPublicKeyResponse>('/api/push/vapid-public-key');
+  // cache:'no-store'：公钥被 HTTP 缓存会导致用旧钥订阅、新私钥签发被 Apple 403（与端 no-store 双保险）
+  const { publicKey } = await api<PushPublicKeyResponse>('/api/push/vapid-public-key', {
+    cache: 'no-store',
+  });
   if (!publicKey) {
     throw new Error('服务器未配置推送通知，暂不可开启');
   }

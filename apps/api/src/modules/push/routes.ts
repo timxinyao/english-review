@@ -18,10 +18,13 @@ const UnsubscribeRequest = z.object({
 
 /** Web Push（批改完成通知，TECHNICAL §push）：均需登录会话（app.ts preHandler 统一校验） */
 export function pushRoutes(app: FastifyInstance, db: AppDatabase, config: AppConfig): void {
-  // 前端开启通知前先取公钥；未配置返回 null（客户端提示"服务器未配置"并保持关）
-  app.get('/api/push/vapid-public-key', async () => ({
-    publicKey: config.vapid?.publicKey ?? null,
-  }));
+  // 前端开启通知前先取公钥；未配置返回 null（客户端提示"服务器未配置"并保持关）。
+  // no-store：换钥后旧公钥若被 HTTP 缓存，手机会用旧钥订阅而服务端用新私钥签 JWT，
+  // Apple 恒 403 BadJwtToken（2026-10-06 实证）——公钥永不允许缓存。
+  app.get('/api/push/vapid-public-key', async (_req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return { publicKey: config.vapid?.publicKey ?? null };
+  });
 
   // 开关初始状态：服务器是否存在订阅（刷新后不回弹到"关"）
   app.get('/api/push/status', async () => ({ subscribed: hasPushSubscription(db) }));

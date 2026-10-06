@@ -294,6 +294,7 @@ export function makeProductionAnswer(overrides: Partial<AnswerResponse> = {}): A
       segments: [{ text: 'The constant stress makes me want to give up.', type: 'same' }],
       correctedSentence: 'The constant stress makes me want to give up.',
       betterVersion: null,
+      betterVersionKind: null,
     },
     personalExampleSaved: true,
     reinforcementAdded: false,

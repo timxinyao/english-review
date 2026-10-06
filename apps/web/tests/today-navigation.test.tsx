@@ -6,6 +6,7 @@ import {
   makeChoiceTask,
   makeCorrectAnswer,
   makeProductionTask,
+  makeProductionAnswer,
   makeSessionEntry,
   makeTasksResponse,
   makeWrongAnswer,
@@ -226,6 +227,47 @@ describe('Today「今日学习」只读列表（PRODUCT §5.1/§6.5）', () => {
     fireEvent.click(dialog);
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '今日学习' })).toBeNull());
     expect(screen.getByRole('heading', { name: 'delta' })).toBeVisible();
+  });
+
+  it('作答历史按 betterVersionKind 标记 rewrite 为参考表达', async () => {
+    const prod = makeProductionTask({
+      taskId: 'task-honored-guests',
+      item: {
+        id: 'i-honored-guests',
+        type: 'chunk',
+        target: 'honored guests',
+        meaning: '尊贵来宾',
+        ipa: null,
+        notes: null,
+      },
+    });
+    const answer = makeProductionAnswer({
+      result: 'basic_pass',
+      submittedAnswerText: 'I am honored guests.',
+      correction: {
+        segments: [{ text: 'I am honored guests.', type: 'same' }],
+        correctedSentence: 'I am honored guests.',
+        betterVersion: 'Welcome to our wedding, honored guests!',
+        betterVersionKind: 'rewrite',
+      },
+    });
+    stubApi({
+      '/api/today': makeActive(t4, { completed: 1, total: 2 }),
+      '/api/today/tasks': makeTasksResponse([
+        makeSessionEntry(prod, answer),
+        makeSessionEntry(t4, null),
+      ]),
+    });
+    renderTodayApp();
+    await screen.findByText('通过 0 · 基础通过 1 · 未通过 0');
+
+    fireEvent.click(screen.getByRole('button', { name: '查看今日学习' }));
+    const dialog = screen.getByRole('dialog', { name: '今日学习' });
+    const item = within(dialog).getByRole('button', { name: /honored guests/ });
+    fireEvent.click(item);
+
+    expect(within(dialog).getByText('参考表达')).toBeVisible();
+    expect(within(dialog).getByText('Welcome to our wedding, honored guests!')).toBeVisible();
   });
 
   it('按学习项去重：同 item 多题只一组；记录含题面/作答/正确答案/解释，含「不会」', async () => {

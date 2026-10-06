@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { LearningItemType } from '../learning-item.js';
 import { TaskOrigin, TaskType } from '../session.js';
-import { CorrectionSegment } from '../ai/index.js';
+import { BetterVersionKind, CorrectionSegment } from '../ai/index.js';
 
 // ---------- 任务视图（不含正确答案；选择题由前端 shuffle 后提交 option id）----------
 
@@ -58,6 +58,8 @@ export const CorrectionView = z.object({
   segments: z.array(CorrectionSegment),
   correctedSentence: z.string(),
   betterVersion: z.string().nullable(),
+  /** 旧作答缺少 kind 时为 null/缺省，前端保留旧标签语义，不推断类型。 */
+  betterVersionKind: BetterVersionKind.nullable(),
 });
 export type CorrectionView = z.infer<typeof CorrectionView>;
 

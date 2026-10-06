@@ -19,6 +19,7 @@ interface UndoTarget {
   word: string | null;
   typeLabel: string | null;
   resultLabel: string | null;
+  taskType: SessionTaskEntry['task']['taskType'] | null;
 }
 
 /**
@@ -61,8 +62,15 @@ export function UndoAnswerControl({
             word: entry.task.item.target,
             typeLabel: TYPE_LABEL[entry.task.taskType],
             resultLabel: entry.result ? RESULT_LABEL[entry.result.result] : null,
+            taskType: entry.task.taskType,
           }
-        : { taskId: serverUndoableId, word: null, typeLabel: null, resultLabel: null },
+        : {
+            taskId: serverUndoableId,
+            word: null,
+            typeLabel: null,
+            resultLabel: null,
+            taskType: null,
+          },
     );
   }
 
@@ -114,7 +122,9 @@ export function UndoAnswerControl({
                 <p className="text-sm text-foreground">将撤销最近一次作答</p>
               )}
               <p className="text-xs text-muted-foreground">
-                撤销后本题会另排一道不同的新题重练；与标记坏题互不影响。
+                {target.taskType === 'production'
+                  ? '撤销后立即回到这个词，换一道造句题重新作答。'
+                  : '撤销后立即回到这个词重新作答。'}
               </p>
               {undo.isError && (
                 <p className="text-xs text-destructive" role="alert">

@@ -64,6 +64,20 @@ describe('CorrectionDiff（表达题批改 diff，PRODUCT §7.4/§12.2）', () =
     expect(screen.queryByText('更自然的说法')).not.toBeInTheDocument();
   });
 
+  it('rewrite 作为参考表达显示，不能称为更自然说法', () => {
+    render(
+      <CorrectionDiff
+        segments={SEGMENTS}
+        betterVersion="Our team welcomed the honored guests at the entrance."
+        betterVersionKind="rewrite"
+      />,
+    );
+
+    expect(screen.getByText('参考表达')).toBeVisible();
+    expect(screen.queryByText('更自然的说法')).not.toBeInTheDocument();
+    expect(screen.getByText('Our team welcomed the honored guests at the entrance.')).toBeVisible();
+  });
+
   it('有修改时展示“纠正后”干净行；全 same（通过）时不渲染', () => {
     const { rerender } = render(
       <CorrectionDiff

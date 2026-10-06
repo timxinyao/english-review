@@ -112,7 +112,13 @@ export function makeDetail(overrides: Partial<LibraryItemDetail['item']> = {}): 
         nextReviewAt: '2026-09-25T10:00:00.000Z',
         lastReviewAt: '2026-09-24T10:00:00.000Z',
       },
-      { dimension: 'production', difficulty: null, stability: null, nextReviewAt: null, lastReviewAt: null },
+      {
+        dimension: 'production',
+        difficulty: null,
+        stability: null,
+        nextReviewAt: null,
+        lastReviewAt: null,
+      },
     ],
     productionHistory: [],
   };
@@ -128,6 +134,7 @@ export function makeHistoryEntry(
     originalText: 'The constant stress make me want to give up.',
     correctedSentence: 'The constant stress makes me want to give up.',
     betterVersion: null,
+    betterVersionKind: null,
     result: 'pass',
     mode: 'today',
     ...overrides,

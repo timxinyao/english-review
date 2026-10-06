@@ -253,28 +253,19 @@ describe('Today 撤销最近一次作答（卡片右上单图标，PRODUCT §5.1
       ],
     },
   });
-  /** 撤销后的替换题：同 item 不同题面（排在队尾） */
+  /** Recall 撤销后的重答：同 item/原题，新任务实例立即呈现。 */
   const taskAReplacement = makeChoiceTask({
     taskId: 'task-repl',
-    question: {
-      questionId: 'q-repl',
-      kind: 'direct_meaning',
-      context: null,
-      question: '"stable" 更接近的意思是？',
-      options: [
-        { id: 'o1', text: '稳定的' },
-        { id: 'o2', text: '摇晃的' },
-      ],
-    },
+    question: taskA.question,
   });
 
-  it('反馈态指向本题：取消不发请求；确认恰好一次；成功回活动队列且不重开原题', async () => {
+  it('反馈态指向本题：取消不发请求；确认恰好一次；成功立即回原词并清除揭示', async () => {
     let answered = false;
     let undone = false;
     stubApi({
       '/api/today': () =>
         undone
-          ? makeActive(taskB, { completed: 0, total: 2 })
+          ? makeActive(taskAReplacement, { completed: 0, total: 2 })
           : answered
             ? makeActive(taskB, { completed: 1, total: 2 })
             : makeActive(taskA, { completed: 0, total: 2 }),
@@ -316,6 +307,7 @@ describe('Today 撤销最近一次作答（卡片右上单图标，PRODUCT §5.1
     expect(within(dialog).getByText('stable')).toBeVisible();
     expect(within(dialog).getByText(/理解题/)).toBeVisible();
     expect(within(dialog).getByText(/未通过/)).toBeVisible();
+    expect(within(dialog).getByText('撤销后立即回到这个词重新作答。')).toBeVisible();
 
     // 取消：不发任何请求
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
@@ -335,9 +327,11 @@ describe('Today 撤销最近一次作答（卡片右上单图标，PRODUCT §5.1
     await waitFor(() => expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(1));
     expect(apiCalls('/api/today/tasks/task-1/undo')[0].init).toMatchObject({ method: 'POST' });
 
-    // 成功：清除冻结反馈回到活动队列（下一题卡），原题不重开
-    expect(await screen.findByRole('heading', { name: 'beta' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'stable' })).toBeNull();
+    // 成功：同词新的任务实例，不带旧揭示或评分。
+    expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'beta' })).toBeNull();
+    expect(screen.getByRole('button', { name: '显示答案' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '重来' })).toBeNull();
     expect(screen.queryByText('"stable" 的意思是？')).toBeNull();
     await new Promise((r) => setTimeout(r, 50));
     expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(1); // 仍只有一次

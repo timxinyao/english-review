@@ -587,13 +587,18 @@ export async function fakeEvaluateProduction(
     // 种子题 payload 固定合法；保底用默认 reference/mustUse
   }
   if (e2eNorm(userAnswer).includes(e2eNorm(mustUse))) {
+    // 固定的 UI 契约样例：可见 rewrite 参考表达，但候选明确仍选择 corrected 原句。
+    const rewriteLabelCase =
+      e2eNorm(mustUse) === 'give up' &&
+      e2eNorm(userAnswer) === 'the constant stress makes me want to give up.';
     return {
       result: 'pass',
       correctedSentence: userAnswer,
       segments: [{ text: userAnswer, type: 'same' }],
       explanation: '目标表达使用正确。',
-      betterVersion: null,
-      candidate: { eligible: true, qualityScore: 0.9, reason: 'seed' },
+      betterVersion: rewriteLabelCase ? 'Constant stress is making me feel like giving up.' : null,
+      betterVersionKind: rewriteLabelCase ? 'rewrite' : null,
+      candidate: { eligible: true, source: 'corrected', qualityScore: 0.9, reason: 'seed' },
       promptMeta: SEED_PROMPT_META,
     };
   }
@@ -606,7 +611,8 @@ export async function fakeEvaluateProduction(
     ],
     explanation: '未使用目标表达。',
     betterVersion: null,
-    candidate: { eligible: false, qualityScore: 0, reason: 'seed' },
+    betterVersionKind: null,
+    candidate: { eligible: false, source: null, qualityScore: 0, reason: 'seed' },
     promptMeta: SEED_PROMPT_META,
   };
 }

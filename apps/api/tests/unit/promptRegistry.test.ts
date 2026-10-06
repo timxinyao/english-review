@@ -42,6 +42,12 @@ describe('真实仓库 Prompt 文件', () => {
     }
   });
 
+  it('check_production 使用 v2 当前 Prompt', () => {
+    const prompt = loadPromptRegistry(PROMPTS_DIR).get('check_production');
+    expect(prompt?.version).toBe(2);
+    expect(prompt?.filePath).toMatch(/check_production\.v2\.md$/);
+  });
+
   it('hash 为 64 位十六进制且稳定', () => {
     const r1 = loadPromptRegistry(PROMPTS_DIR);
     const r2 = loadPromptRegistry(PROMPTS_DIR);

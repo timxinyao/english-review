@@ -23,10 +23,12 @@ function input(overrides: Partial<PersonalExampleInput> = {}): PersonalExampleIn
   return {
     result: 'pass',
     eligible: true,
+    source: 'corrected',
     qualityScore: 0.8,
     correctedSentence: 'The constant stress is wearing me down.',
     originalText: 'The constant stress wear me down.',
     betterVersion: null,
+    betterVersionKind: null,
     ...overrides,
   };
 }
@@ -74,7 +76,7 @@ describe('maybeSavePersonalExample', () => {
     })();
   });
 
-  it('当前 <3 条 → 插入（text 取 betterVersion 优先，缺省 corrected；original/better/quality/pinned=0）', () => {
+  it('明确选择 better 时，插入版本与评估版本一致并保留原句和两种纠正文本', () => {
     return (async () => {
       const itemId = 'it-2';
       await seedItem(db, { id: itemId });
@@ -83,7 +85,12 @@ describe('maybeSavePersonalExample', () => {
       const r = maybeSavePersonalExample(
         db,
         itemId,
-        input({ qualityScore: 0.9, betterVersion: 'A better one.' }),
+        input({
+          source: 'better',
+          betterVersionKind: 'polish',
+          qualityScore: 0.9,
+          betterVersion: 'A better one.',
+        }),
         NOW,
       );
       expect(r.saved).toBe(true);
@@ -93,19 +100,83 @@ describe('maybeSavePersonalExample', () => {
       const rows = personal(itemId);
       expect(rows).toHaveLength(2);
       const saved = rows.find((e) => e.id === r.exampleId)!;
-      // 2026-10-03 契约：后续学习看更自然版本——text 取 betterVersion 优先，originalText 保留用户原句
       expect(saved.text).toBe('A better one.');
       expect(saved.originalText).toBe('The constant stress wear me down.');
       expect(saved.betterText).toBe('A better one.');
       expect(saved.qualityScore).toBe(0.9);
       expect(saved.pinned).toBe(0);
 
-      // 无 betterVersion 时回退 corrected 版本
+      // 候选明确选择 corrected 时，即使存在润色句也保存被实际评分的 corrected 版本。
       const fallbackId = 'it-2-fallback';
       await seedItem(db, { id: fallbackId });
-      maybeSavePersonalExample(db, fallbackId, input({ betterVersion: null }), NOW);
+      maybeSavePersonalExample(
+        db,
+        fallbackId,
+        input({
+          source: 'corrected',
+          betterVersionKind: 'polish',
+          betterVersion: 'A better one.',
+        }),
+        NOW,
+      );
       const [fallback] = personal(fallbackId);
       expect(fallback.text).toBe('The constant stress is wearing me down.');
+    })();
+  });
+
+  it('满 3 条替换沿用 source 选择；rewrite 参考表达不入库但合格 corrected 仍可入库', () => {
+    return (async () => {
+      const itemId = 'it-replace-better';
+      await seedItem(db, { id: itemId });
+      await seedPersonal(itemId, [
+        { qualityScore: 0.9, text: 'High one.' },
+        { qualityScore: 0.5, text: 'Worst one.' },
+        { qualityScore: 0.7, text: 'Mid one.' },
+      ]);
+
+      const replaced = maybeSavePersonalExample(
+        db,
+        itemId,
+        input({
+          source: 'better',
+          betterVersionKind: 'polish',
+          qualityScore: 0.8,
+          betterVersion: 'A polished sentence.',
+        }),
+        NOW,
+      );
+      expect(replaced.saved).toBe(true);
+      expect(personal(itemId).find((row) => row.id === replaced.exampleId)?.text).toBe(
+        'A polished sentence.',
+      );
+
+      const rewriteItem = 'it-rewrite';
+      await seedItem(db, { id: rewriteItem });
+      const rewriteFallback = maybeSavePersonalExample(
+        db,
+        rewriteItem,
+        input({
+          source: 'corrected',
+          betterVersionKind: 'rewrite',
+          betterVersion: 'A reference rewrite.',
+        }),
+        NOW,
+      );
+      expect(rewriteFallback.saved).toBe(true);
+      expect(personal(rewriteItem)[0]?.text).toBe('The constant stress is wearing me down.');
+
+      const rewriteChosen = maybeSavePersonalExample(
+        db,
+        rewriteItem,
+        input({
+          source: 'better',
+          betterVersionKind: 'rewrite',
+          betterVersion: 'A reference rewrite.',
+        }),
+        NOW,
+      );
+      expect(rewriteChosen.saved).toBe(false);
+      expect(personal(rewriteItem)).toHaveLength(1);
     })();
   });
 

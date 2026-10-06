@@ -102,6 +102,198 @@
       "expected": {
         "result": "pass"
       }
+    },
+    {
+      "id": "cp07-honored-guests-spelling-correction",
+      "input": {
+        "type": "chunk",
+        "target": "welcome",
+        "meaning": "欢迎某人到场或来到某地",
+        "zh_prompt": "向尊贵来宾表达欢迎。",
+        "reference_answer": "We are delighted to welcome our honored guests.",
+        "acceptance_notes": "允许自然句式变化；只把明确的拼写错误修正为 welcome。",
+        "source_example": "We welcomed the guests at the door.",
+        "extra_examples": [],
+        "user_answer": "We are glad to welcom our honored guests."
+      },
+      "expected": {
+        "result": "basic_pass",
+        "better_version": null,
+        "better_version_kind": null,
+        "personal_example_candidate": {
+          "eligible": true,
+          "source": "corrected"
+        }
+      },
+      "expected_invariants": [
+        "corrected sentence fixes spelling without changing the greeting's intent"
+      ]
+    },
+    {
+      "id": "cp08-natural-answer-no-better-version",
+      "input": {
+        "type": "chunk",
+        "target": "make sense",
+        "meaning": "有道理；讲得通",
+        "zh_prompt": "说明这个解释讲得通。",
+        "reference_answer": "This explanation makes sense.",
+        "acceptance_notes": "允许语序自然变化。",
+        "source_example": "That makes sense.",
+        "extra_examples": [],
+        "user_answer": "This explanation makes sense."
+      },
+      "expected": {
+        "result": "pass",
+        "better_version": null,
+        "better_version_kind": null
+      }
+    },
+    {
+      "id": "cp09-polish-preserves-people-and-event",
+      "input": {
+        "type": "chunk",
+        "target": "look forward to",
+        "meaning": "期待某事",
+        "zh_prompt": "表达我和同事都期待下周的项目启动会议。",
+        "reference_answer": "My coworkers and I are looking forward to next week's project kickoff.",
+        "acceptance_notes": "表达对同一个会议的期待，不要更换参与者或时间。",
+        "source_example": "I look forward to hearing from you.",
+        "extra_examples": [],
+        "user_answer": "My colleagues are looking forward to next week's project kickoff. I'm looking forward to it too."
+      },
+      "expected": {
+        "result": "pass",
+        "better_version": null,
+        "better_version_kind": null,
+        "personal_example_candidate": {
+          "eligible": true,
+          "source": "corrected"
+        }
+      },
+      "expected_invariants": [
+        "original answer preserves both the colleagues and the speaker",
+        "original answer preserves the project kickoff next week"
+      ]
+    },
+    {
+      "id": "cp10-missing-core-prompt-meaning-fails-despite-target",
+      "input": {
+        "type": "chunk",
+        "target": "make sense",
+        "meaning": "有道理；讲得通",
+        "zh_prompt": "说明这个计划为什么同时节省时间和成本，所以是个合理安排。",
+        "reference_answer": "The plan makes sense because it saves both time and money.",
+        "acceptance_notes": "需要说明题目要求的原因；只写结论不算完成题意。",
+        "source_example": "That makes sense.",
+        "extra_examples": [],
+        "user_answer": "The plan makes sense."
+      },
+      "expected": {
+        "result": "fail",
+        "better_version_kind": "rewrite",
+        "personal_example_candidate": {
+          "eligible": false,
+          "source": null
+        }
+      },
+      "expected_invariants": [
+        "a suggested reference must not change the score for the user's original answer"
+      ]
+    },
+    {
+      "id": "cp11-fail-is-never-a-personal-example",
+      "input": {
+        "type": "chunk",
+        "target": "wear down",
+        "meaning": "逐渐使……疲惫；消耗",
+        "zh_prompt": "长期的压力让我越来越疲惫。",
+        "reference_answer": "The constant stress is wearing me down.",
+        "acceptance_notes": "wear down 必须表达逐渐消耗。",
+        "source_example": "It wears you down.",
+        "extra_examples": [],
+        "user_answer": "The quiet morning wore my stress down."
+      },
+      "expected": {
+        "result": "fail",
+        "personal_example_candidate": {
+          "eligible": false,
+          "source": null
+        }
+      }
+    },
+    {
+      "id": "cp12-rewrite-reference-falls-back-to-corrected-candidate",
+      "input": {
+        "type": "chunk",
+        "target": "look forward to",
+        "meaning": "期待某事",
+        "zh_prompt": "表达我和同事期待下周一起启动这个项目。",
+        "reference_answer": "My coworkers and I are looking forward to kicking off the project next week.",
+        "acceptance_notes": "必须表达我和同事共同期待下周启动这个项目。",
+        "source_example": "I look forward to hearing from you.",
+        "extra_examples": [],
+        "user_answer": "Me and my coworkers look forward to kickoff project next week."
+      },
+      "expected": {
+        "result": "basic_pass"
+      },
+      "expected_invariants": [
+        "the corrected sentence should remain independently useful if a rewrite is offered"
+      ]
+    },
+    {
+      "id": "cp13-honored-guests-original-welcome-typo",
+      "input": {
+        "type": "chunk",
+        "target": "honored guests",
+        "meaning": "尊贵的来宾；贵宾",
+        "zh_prompt": "在我们的婚礼上欢迎尊贵来宾。",
+        "reference_answer": "Welcome all our honored guests to our wedding.",
+        "acceptance_notes": "保留欢迎贵宾的原意；允许使用 all 修正 every 与复数名词的搭配。",
+        "source_example": "The honored guests arrived just before dinner.",
+        "extra_examples": [],
+        "user_answer": "wlecome to every honored guests in our wedding."
+      },
+      "expected": {
+        "result": "basic_pass",
+        "better_version_kind": "polish",
+        "personal_example_candidate": {
+          "eligible": true,
+          "source": "better"
+        }
+      },
+      "expected_invariants": [
+        "corrected sentence preserves the welcome intent and wedding context",
+        "corrected sentence makes only local spelling, number, and preposition repairs",
+        "the polish preserves the welcome intent, honored guests, and wedding context"
+      ]
+    },
+    {
+      "id": "cp14-stilted-grammar-polish-preserves-facts",
+      "input": {
+        "type": "chunk",
+        "target": "look forward to",
+        "meaning": "期待某事",
+        "zh_prompt": "表达我和同事都期待下周的项目启动会议。",
+        "reference_answer": "My colleagues and I are looking forward to next week's project kickoff meeting.",
+        "acceptance_notes": "保留我和同事、下周以及项目启动会议，不要增加或替换事实。",
+        "source_example": "I look forward to hearing from you.",
+        "extra_examples": [],
+        "user_answer": "My colleagues and I are looking forward to next week's meeting for the start of our project."
+      },
+      "expected": {
+        "result": "pass",
+        "better_version_kind": "polish",
+        "personal_example_candidate": {
+          "eligible": true,
+          "source": "better"
+        }
+      },
+      "expected_invariants": [
+        "polish preserves the speaker and colleagues",
+        "polish preserves that the project starts at the meeting next week",
+        "candidate quality_score evaluates the exact polish sentence selected as source better"
+      ]
     }
   ]
 }

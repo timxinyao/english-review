@@ -63,6 +63,10 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
         await expect(page.getByText('通过', { exact: true })).toBeVisible();
         // pass 时 corrected = 原句（diff 全 same）
         await expect(page.getByText('The constant stress makes me want to give up.')).toBeVisible();
+        await expect(page.getByText('参考表达', { exact: true })).toBeVisible();
+        await expect(
+          page.getByText('Constant stress is making me feel like giving up.'),
+        ).toBeVisible();
         await expect(page.getByText('已存入个人例句')).toBeVisible();
         // 表达题手动下一题
         await page.getByRole('button', { name: '下一题' }).click();
@@ -141,6 +145,24 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
     await expect(
       historyItems.getByText('The constant stress makes me want to give up.'),
     ).toBeVisible();
+    await expect(
+      historyItems.getByText('参考表达：Constant stress is making me feel like giving up.'),
+    ).toBeVisible();
+
+    const itemId = page.url().match(/\/library\/([^/]+)$/)?.[1];
+    expect(itemId).toBeTruthy();
+    const detail = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/library/${id}`, { credentials: 'include' });
+      return (await response.json()) as {
+        personalExamples: Array<{ text: string }>;
+      };
+    }, itemId);
+    expect(detail.personalExamples.map((example) => example.text)).toContain(
+      'The constant stress makes me want to give up.',
+    );
+    expect(detail.personalExamples.map((example) => example.text)).not.toContain(
+      'Constant stress is making me feel like giving up.',
+    );
 
     // 个人例句 1 条且未固定（未固定展示“收藏”，固定后为“取消收藏”）
     await expect(

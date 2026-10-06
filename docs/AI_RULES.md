@@ -31,7 +31,7 @@ AI + Prompt 决定：题目怎么写、英语怎么判断、Read 怎么生成
 ```markdown
 ---
 key: check_production
-version: 1
+version: 2
 task: checkProduction
 response_schema: CheckProductionResult
 ---
@@ -224,10 +224,12 @@ V1.2 不增加单独的 `evaluate_personal_example` 调用；Personal Example �
   ],
   "explanation": "stress 是单数主语，动词需使用第三人称单数。",
   "better_version": "The constant stress is wearing me down.",
+  "better_version_kind": "polish",
   "personal_example_candidate": {
     "eligible": true,
+    "source": "better",
     "quality_score": 0.82,
-    "reason": "目标表达使用典型，纠正后句子完整且可复用。"
+    "reason": "目标表达自然；所选润色句完整且可复用。"
   }
 }
 ```
@@ -242,15 +244,22 @@ V1.2 不增加单独的 `evaluate_personal_example` 调用；Personal Example �
 
 ### Correction 规则
 
-- 只做必要修改，不因为“还有更地道说法”而改写整句。
+- `result` 只依据用户原文是否使用目标词/锁定义项并完成题意；纠正句或建议句不能补足缺失题意后改变评分。
+- `corrected_sentence` 只做必要的语法、拼写及明显错误搭配修正，优先局部词形/拼写/介词替换，保留原句骨架与意图；不为自然度移动短语或换量词，也不补入缺少的核心语义。
 - `segments` 必须能重建从原句到 `corrected_sentence` 的 diff。
-- `better_version` 只有明显改善自然度时出现；否则为 `null`。
-- 不因为存在 better version 就降低 result。
+- `better_version` 先沿原句做局部润色，必要时再调整结构；保留人物、事实、语气与目标表达，但不要求逐字照搬 corrected 的措辞和语序。为自然表达可以做语义等价的量词、名词数、语序和称呼调整，例如自然地向一群来宾致辞时使用复数称呼，不要机械沿用 corrected 中的 `every + 单数名词`。对自然但遗漏题干要求而判 fail 的原文，可以参考表达形式补足题干明确写出的要求，但不能把遗漏信息补进 corrected 或改变评分，也不能编造原文和题干都没有的信息。
+- 原句已自然且完成题意时 `better_version` 与 `better_version_kind` 均为 `null`，不追求高级词汇。
+- `better_version_kind` 必须为 `polish` / `rewrite`，并与 better 是否存在一致；rewrite 在 UI 显示“参考表达”，polish 显示“更自然的说法”。
+- 不因为存在 better version 就降低或提升 result。
 
 ### Personal Example 候选
 
-- 只有 corrected sentence 可以进入 Personal Example。
-- `eligible` 主要看：目标用法典型、句子完整、具体、可独立复用。
+- 仅 `pass` / `basic_pass` 且 eligible 才能沉淀；fail 必须 `eligible=false` 且 `source=null`。
+- `source` 必须明确为 `corrected`、`better` 或 `null`；eligible 与非空 source 一致，质量分和理由评价 source 指定的最终保存句。
+- corrected 可作为候选；better 仅当 kind=`polish` 时可选。rewrite 永不自动保存，但 corrected 若独立合格仍可选择。
+- 用户授权的存量人工校对沿用以上语言边界，但不是模型调用：原模型与 Prompt 元数据保留，人工判定／规则版本另存 `correction_json.manualRevision`。默认不回改历史评分或排期，不能根据改写后的句子补记用户答对。
+- corrected 与合格 polish 都适合长期学习时，优先 source=`better`；否则选择合格 corrected。
+- `eligible` 主要看：目标用法典型、句子完整、具体、可独立复用。例句无需是自传；“个人”指学习者表达。
 - `quality_score` 范围 0–1，仅作为后端自动替换参考，不直接展示。
 - pinned / 替换上限由后端决定，模型无权删除现有 Personal Example。
 

@@ -286,7 +286,12 @@ describe('E2E fake 批改（fakeEvaluateProduction）', () => {
     expect(r.segments).toEqual([{ text: answer, type: 'same' }]);
     expect(r.explanation).toBe('目标表达使用正确。');
     expect(r.betterVersion).toBeNull();
-    expect(r.candidate).toEqual({ eligible: true, qualityScore: 0.9, reason: 'seed' });
+    expect(r.candidate).toEqual({
+      eligible: true,
+      source: 'corrected',
+      qualityScore: 0.9,
+      reason: 'seed',
+    });
     expect(r.promptMeta).toEqual({ key: 'seed', version: 1, hash: 'seed', model: 'seed' });
   });
 
@@ -300,7 +305,7 @@ describe('E2E fake 批改（fakeEvaluateProduction）', () => {
       { text: 'The constant stress makes me want to give up.', type: 'insert' },
     ]);
     expect(r.explanation).toBe('未使用目标表达。');
-    expect(r.candidate).toEqual({ eligible: false, qualityScore: 0, reason: 'seed' });
+    expect(r.candidate).toEqual({ eligible: false, source: null, qualityScore: 0, reason: 'seed' });
   });
 
   it('按 payload.mustUse 泛化：make sense / set off 种子题同规则判定', async () => {

@@ -3,11 +3,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { MASTERED_STABILITY_DAYS } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
 import { learningItems, questions, reviewStates } from '../../src/db/schema.js';
-import {
-  advanceCard,
-  cardFromSnapshot,
-  ratingOf,
-} from '../../src/modules/review/fsrs-engine.js';
+import { advanceCard, cardFromSnapshot, ratingOf } from '../../src/modules/review/fsrs-engine.js';
 import type {
   DbExecutor,
   DbTx,
@@ -154,7 +150,9 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
         .all();
       if (
         states.length === 2 &&
-        states.every((s) => typeof s.stability === 'number' && s.stability >= MASTERED_STABILITY_DAYS)
+        states.every(
+          (s) => typeof s.stability === 'number' && s.stability >= MASTERED_STABILITY_DAYS,
+        )
       ) {
         tx.update(learningItems)
           .set({ status: 'mastered', updatedAt: nowIso })
@@ -329,7 +327,8 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
           segments: [{ text: answerText, type: 'same' }],
           explanation: 'fake：目标使用正确。',
           betterVersion: null,
-          candidate: { eligible: true, qualityScore: 0.9, reason: 'fake' },
+          betterVersionKind: null,
+          candidate: { eligible: true, source: 'corrected', qualityScore: 0.9, reason: 'fake' },
           promptMeta: FAKE_PROMPT_META,
         };
       }
@@ -342,7 +341,8 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
         ],
         explanation: 'fake：未使用目标表达。',
         betterVersion: null,
-        candidate: { eligible: false, qualityScore: 0, reason: 'fake' },
+        betterVersionKind: null,
+        candidate: { eligible: false, source: null, qualityScore: 0, reason: 'fake' },
         promptMeta: FAKE_PROMPT_META,
       };
     },

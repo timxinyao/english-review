@@ -81,18 +81,66 @@ export type CorrectionSegment = z.infer<typeof CorrectionSegment>;
 
 export const PersonalExampleCandidate = z.object({
   eligible: z.boolean(),
+  source: z.enum(['corrected', 'better']).nullable(),
   quality_score: z.number().min(0).max(1),
   reason: z.string(),
 });
 
-export const CheckProductionResult = z.object({
-  result: z.enum(['pass', 'basic_pass', 'fail']),
-  corrected_sentence: z.string(),
-  segments: z.array(CorrectionSegment),
-  explanation: z.string(),
-  better_version: z.string().nullable(),
-  personal_example_candidate: PersonalExampleCandidate,
-});
+export const BetterVersionKind = z.enum(['polish', 'rewrite']);
+export type BetterVersionKind = z.infer<typeof BetterVersionKind>;
+
+export const CheckProductionResult = z
+  .object({
+    result: z.enum(['pass', 'basic_pass', 'fail']),
+    corrected_sentence: z.string(),
+    segments: z.array(CorrectionSegment),
+    explanation: z.string(),
+    better_version: z
+      .string()
+      .refine((value) => value.trim().length > 0, 'better_version 不能为空白')
+      .nullable(),
+    better_version_kind: BetterVersionKind.nullable(),
+    personal_example_candidate: PersonalExampleCandidate,
+  })
+  .superRefine((result, ctx) => {
+    if ((result.better_version === null) !== (result.better_version_kind === null)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['better_version_kind'],
+        message: 'better_version 与 better_version_kind 必须同时存在或同时为 null',
+      });
+    }
+
+    const candidate = result.personal_example_candidate;
+    if (candidate.eligible !== (candidate.source !== null)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['personal_example_candidate', 'source'],
+        message: 'eligible=true 时必须明确选择来源，否则 source 必须为 null',
+      });
+    }
+    if (result.result === 'fail' && candidate.eligible) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['personal_example_candidate', 'eligible'],
+        message: 'fail 结果不能成为 Personal Example 候选',
+      });
+    }
+    if (candidate.source === 'corrected' && result.corrected_sentence.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['corrected_sentence'],
+        message: 'corrected 作为候选时必须包含可保存句子',
+      });
+    }
+    if (candidate.source === 'better' && result.better_version_kind !== 'polish') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['personal_example_candidate', 'source'],
+        message: '只有 polish 版本可以作为 Personal Example',
+      });
+    }
+  });
 export type CheckProductionResult = z.infer<typeof CheckProductionResult>;
 
 /** 从 segments 重建原句（same+delete 依序拼接）与纠错句（same+insert） */

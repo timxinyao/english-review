@@ -124,7 +124,7 @@ english-learning/
 │       │   ├── generate_cloze.v1.md
 │       │   ├── check_cloze.v1.md
 │       │   ├── generate_production_prompt.v1.md
-│       │   ├── check_production.v1.md
+│       │   ├── check_production.v2.md
 │       │   ├── generate_read.v2.md
 │       │   └── judge_duplicate_meaning.v1.md
 │       └── tests/
@@ -241,7 +241,7 @@ GET  /api/health
 - `POST /api/library/:id/master`：PRODUCT_DESIGN 5.2 的“标记已掌握”显式操作。
 - `GET /api/health`：未认证存活检查，供部署 smoke test 与 Playwright webServer 探活。
 - `POST /api/today/tasks/:id/feedback`：保留已有答题后反馈契约；新版 Today 不再展示“其实蒙的”二次操作，“太简单”仅在适用的正确作答后提供。
-- `POST /api/today/tasks/:id/undo`：只接受当天 Session 最近一次未撤销的正式作答；恢复 attempt 的 pre-state、回减统计、取消其补强并将不同题目的替代任务排入后部。GET `/api/today/tasks` 返回可撤销 taskId 供前端显示图标；服务端仍必须再次校验以防多设备竞态。
+- `POST /api/today/tasks/:id/undo`：只接受当天 Session 最近一次未撤销的正式作答；恢复 attempt 的 pre-state、回减统计、取消其补强，并将同学习项重答任务置于待答队首；仅造句换题，其余复用原题。GET `/api/today/tasks` 返回可撤销 taskId 供前端显示图标；服务端仍必须再次校验以防多设备竞态。
 - `GET /api/ai/models`：只读展示当前各用途（生成/判定）解析到的模型、来源（auto/config/fallback）、任务映射与可用模型清单（2026-09-25 新增，配套 §10.5 自动发现；不暴露 endpoint 与密钥）。
 - Personal example 的 pin/unpin 并入 `PATCH /api/library/:id`，不单开端点。
 
@@ -277,7 +277,7 @@ bad-question 必须在事务中执行：将 question 标记 bad_question；如�
 
 `answer` 请求允许 `giveUp: true`，与选项、文本、自评互斥。Today service 不调用语言判定或批改，直接按 fail 结算并从已绑定题目的 payload 生成反馈：选择题正确选项和 explanation、填空完整句/可接受答案/explanation、表达题 referenceAnswer/acceptanceNotes。生产题 referenceAnswer 仅在作答后返回，未作答视图仍不泄漏。
 
-普通撤销不调用 bad-question 路由，不更改题目状态。替代题的获取/必要生成在事务外完成；事务内按 attempt 实际插入顺序校验 task 仍是最近一次作答，回滚快照和全部计数、void attempt、取消旧任务及其补强、插入替代任务，并清除 Session completed_at。无法取得另一道题时不改变原作答。若造句沉淀替换了既有未固定个人例句或裁剪了表达历史，普通撤销需一并恢复；若新例句随后被固定或编辑，则拒绝普通撤销，避免丢失用户修改。替代任务沿用原 origin：撤销补强题释放原配额槽位，再由替代题占用同一槽位；不会额外消耗 reinforcement 配额。Read 补强题沿用清旗语义。
+普通撤销不调用 bad-question 路由，不更改题目状态。仅 production 在事务外获取/必要生成同学习项不同 id 的造句题；其余题型复用原 question_id（包括 Recall/Learn 的 null），不调用取题或生成。事务内按 attempt 实际插入顺序校验 task 仍是最近一次作答，回滚快照和全部计数、void attempt、取消旧任务及其补强、插入新的同学习项重答任务，并清除 Session completed_at。重答 sort_key 取剩余未完成/未取消任务的最小值减 1，没有待答任务则沿用旧 sort_key，保证 GET /api/today 立即返回该学习项；新 task id 避免重用旧任务破坏只结算一次及撤销历史。前端按新任务实例重置草稿、评分和揭示状态；撤销确认文案区分造句换题与其他题型复用。仅造句无法取得新题时不改变原作答。若造句沉淀替换了既有未固定个人例句或裁剪了表达历史，普通撤销需一并恢复；若新例句随后被固定或编辑，则拒绝普通撤销，避免丢失用户修改。重答任务沿用原 origin：撤销补强题释放原配额槽位，再由重答任务占用同一槽位；不会额外消耗 reinforcement 配额。Read 补强题沿用清旗语义（2026-10-04 修订）。
 
 ## 7.6 Today 输入键盘（2026-09-29 真机修正）
 
@@ -288,6 +288,12 @@ iOS 键盘状态不得以 `innerHeight - visualViewport.height - visualViewport.
 2026-09-29 真机视口读数进一步确认：键盘稳定时 `visualViewport.height=389`、`offsetTop=107`，同时 `scrollY=html.scrollTop=107`，顶栏矩形恰为 `-107..-52`、题卡为 `-41..282`。WebKit 已经滚动 document，但 fixed 页面壳并未停留在可视顶部；卡高本身恰为预置 390px。尝试在输入/键盘阶段以 `scrollY` 逐帧校正页面壳与独立 fixed 顶栏，静态位置可对齐，但真机出现抖动，故废弃这条后验补偿。最终改为触摸 `pointerdown` 时在真实输入仍位于原处的前提下执行 `focus({preventScroll:true})`；不取消默认触摸、不移动输入。到合成 click 命中真实输入之前，卡高锁在无键盘基线，避免异步视口缩小抢先挪走命中区域；click 后再释放锁并预定位 dock。若触摸取消/未产出 click，短时超时清锁。目标是在源头避免 WebKit 的原生 107px 滚动，而非追帧补偿。用户已在 iPhone「添加到主屏幕」应用中确认此版键盘交互可用。
 
 键盘交互回归门禁：组件测试覆盖原位聚焦、锁定与释放；移动端 E2E 必须覆盖完整 `pointerdown → pointerup → click`，并模拟视口在 click 前缩小，断言 click 仍命中输入框且焦点保留。浏览器模拟只能检查事件命中和最终几何，不能证明 iOS 主屏 PWA 的原生滚动与动画平顺。调整 `focus` 时机、输入框命中区域、页面壳定位、`visualViewport` 或 dock 算法后，发布验收还须在已添加到主屏幕的 iPhone 上检查：首次聚焦、输入、收起、再次聚焦，以及填空和表达两种输入；全过程顶栏/题面不跳动、键盘不自行消失、输入框停在键盘上方。遇到「静态位置正确但动画抖动」时，先记录 `innerHeight`、`visualViewport.height/offsetTop`、`scrollY` 与顶栏/卡片/input 矩形，确认是否发生 document 原生滚动，不再直接增加整页逐帧位移补偿。
+
+2026-10-04 输入法下箭头收起修正：输入法可恢复视觉视口而不触发输入框失焦；此时旧 `anchored=editing||open` 永久保留 dock 的预置 48% 高度与隐藏导航。键盘开启仍以高度缩小超过 100px 判定，但开启后持续保持 open 到高度恢复至基线（允许 1px 舍入差），避免收起末段提前解锁。仅当已开启的键盘恢复全高且 Today 活动卡内的答题输入仍聚焦时，解除该输入的焦点并重测，清除预置高度、恢复导航与滚动；不清空草稿，不影响其他页面的输入焦点。普通 blur 收起沿用原有路径。单测与完整触摸 E2E 必须覆盖「不先 blur、只恢复视口」以及再次输入。iOS 表单辅助栏无网页端隐藏接口，保留系统栏。
+
+2026-10-04 紧凑造句输入态：用户批准在完整触摸结束后将造句进度合并顶栏，收紧卡片和 dock，替代此前造句「题面位置完全不变」的约束以保证题干可读；pointerdown→click 期间仍禁止移动输入，动画期间不平移页面壳。公共 AutoGrowTextarea 复用 Textarea，使用同字体/内边距的隐藏 CSS 镜像排版，兼容不支持 field-sizing 的 iOS，无 feature 内联样式或逐字 DOM 高度测量。一行起步、最多四行，按可视高度提前封顶；中文题干独立滚动，target 不在滚动区内。真实键盘高度已知后不再使用预置 48% 上限，避免浪费可视空间；收起、草稿与焦点逻辑沿用上段修复。
+
+2026-10-04 再次弹起维护：用户实机报告仅输入法自带按钮收起后再次打开出现整页上移与卡底空隙。原收起逻辑只释放焦点，未清理 document reveal 滚动；原触摸逻辑遇到已有焦点直接退出，未区分键盘已关闭和已打开。输入法恢复全高并释放 Today 焦点后，在下一绘制帧且仍失焦/idle 时清理根滚动一次；下一次同输入触摸前再检查迟到的遗留滚动。仅作用于该输入法收起路径，普通页面滚动不处理，不读取 offsetTop 平移整页、不逐帧 scrollTo。键盘已关闭时即使已有焦点也执行触摸命中锁与 click 预定位；已打开键盘中的重复触摸保持原行为。卸载取消待执行清理；重新聚焦时避免待执行清理干扰新键盘动画。模拟回归覆盖迟到的根滚动、系统预恢复焦点和重复完整触摸；原生动画仍需主屏 PWA 实机复验。
 
 ## 7.7 造句批改通知（前台提示音 + Web Push，2026-10-05）
 
@@ -487,15 +493,16 @@ apps/api/tests/ai/eval/
 建议提供命令：
 
 ```bash
-pnpm ai:eval --task check_production
-pnpm ai:eval --task generate_cloze
-pnpm ai:eval --all
+pnpm ai:eval -- --task check_production
+pnpm ai:eval -- --task check_production --report /tmp/check-production-report.json
+pnpm ai:eval -- --task generate_cloze
+pnpm ai:eval -- --all
 ```
 
 Eval 分两层：
 
 1. **机器可判定约束**：Schema 合法、数量正确、focus target 覆盖、不得出现其他义项、Production 预期 pass/basic_pass/fail、字段长度等。
-2. **人工/Agent 对比**：将新 Prompt 与上一版本在同一 fixtures 上的输出并排展示，只重点看发生变化的 case。
+2. **人工/Agent 对比**：将新 Prompt 与上一版本在同一 fixtures 上的输出并排展示，只重点看发生变化的 case。`--report <path>` 保存逐 case 输入、期望、完整结构化输出与 Prompt/model 元数据，便于审阅改写、纠错和候选来源；不保存 Prompt 正文或环境变量。`check_production` 的 expected 支持嵌套字段，可锁定 score/kind/source 等机器可判定契约。
 
 Prompt 修改标准流程：
 
@@ -525,7 +532,7 @@ V1.2 固定 7 个 AI Prompt：
 | `generate_cloze` | 填空题补库存 | 否 | `generate_cloze.v1.md` |
 | `check_cloze` | 填空答案本地规则无法判断时 | 按需实时 | `check_cloze.v1.md` |
 | `generate_production_prompt` | 表达题补库存 | 否 | `generate_production_prompt.v1.md` |
-| `check_production` | 用户提交表达题答案 | 是 | `check_production.v1.md` |
+| `check_production` | 用户提交表达题答案 | 是 | `check_production.v2.md` |
 | `generate_read` | 用户生成 Read | 是 | `generate_read.v2.md` |
 | `judge_duplicate_meaning` | Import 疑似重复时 | 按需 | `judge_duplicate_meaning.v1.md` |
 

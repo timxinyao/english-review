@@ -10,13 +10,13 @@
 import 'dotenv/config';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   AI_TASK_CATALOG,
   AI_TASKS,
   type AiTask,
   type CheckClozeResult,
-  type CheckProductionResult,
   type JudgeDuplicateMeaningResult,
 } from '@el/shared';
 import { completeStructured } from '../src/ai/complete.js';
@@ -42,6 +42,22 @@ interface CaseResult {
   ok: boolean;
   failures: string[];
   digest: string;
+  input: Record<string, unknown>;
+  expected?: Record<string, unknown>;
+  expectedInvariants?: string[];
+  output: unknown;
+}
+
+interface EvalTaskReport {
+  task: AiTask;
+  promptKey: string;
+  promptVersion: number;
+  promptHash: string;
+  model: string;
+  provider: string;
+  total: number;
+  passed: number;
+  cases: CaseResult[];
 }
 
 const FIXTURES_DIR = fileURLToPath(new URL('../tests/ai/eval/fixtures', import.meta.url));
@@ -52,6 +68,7 @@ function parseArgs(): {
   all: boolean;
   provider: 'mock' | 'glm' | 'auto';
   saveBaseline: boolean;
+  reportFile: string | null;
 } {
   const args = process.argv.slice(2);
   const out = {
@@ -59,6 +76,7 @@ function parseArgs(): {
     all: false,
     provider: 'auto' as 'mock' | 'glm' | 'auto',
     saveBaseline: false,
+    reportFile: null as string | null,
   };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--task') out.task = args[++i] ?? null;
@@ -69,10 +87,11 @@ function parseArgs(): {
       else if (v === 'auto') out.provider = 'auto';
       else throw new Error(`--provider 仅支持 mock|glm|auto，收到 ${v}`);
     } else if (args[i] === '--save-baseline') out.saveBaseline = true;
+    else if (args[i] === '--report') out.reportFile = args[++i] ?? null;
   }
   if (!out.all && !out.task) {
     console.error(
-      '用法：pnpm ai:eval -- --task <task|prompt_key> | --all [--provider mock|glm] [--save-baseline]',
+      '用法：pnpm ai:eval -- --task <task|prompt_key> | --all [--provider mock|glm] [--save-baseline] [--report <file>]',
     );
     process.exit(2);
   }
@@ -96,13 +115,10 @@ function expectedFailures(
   output: unknown,
   expected: Record<string, unknown>,
 ): string[] {
+  if (task === 'checkProduction') return partialExpectedFailures(output, expected);
+
   const failures: string[] = [];
   const out = output as Record<string, unknown>;
-  if (task === 'checkProduction' && 'result' in expected) {
-    if ((out as CheckProductionResult).result !== expected.result) {
-      failures.push(`result=${(out as CheckProductionResult).result}，期望 ${expected.result}`);
-    }
-  }
   if (task === 'checkCloze' && 'accepted' in expected) {
     if ((out as CheckClozeResult).accepted !== expected.accepted) {
       failures.push(`accepted=${(out as CheckClozeResult).accepted}，期望 ${expected.accepted}`);
@@ -112,6 +128,40 @@ function expectedFailures(
     if ((out as JudgeDuplicateMeaningResult).decision !== expected.decision) {
       failures.push(
         `decision=${(out as JudgeDuplicateMeaningResult).decision}，期望 ${expected.decision}`,
+      );
+    }
+  }
+  return failures;
+}
+
+/** expected 对象允许只声明需锁定的字段，支持 check_production 候选的嵌套契约。 */
+function partialExpectedFailures(
+  actual: unknown,
+  expected: Record<string, unknown>,
+  path = 'output',
+): string[] {
+  const failures: string[] = [];
+  for (const [key, expectedValue] of Object.entries(expected)) {
+    const currentPath = path ? `${path}.${key}` : key;
+    const actualValue =
+      actual !== null && typeof actual === 'object'
+        ? (actual as Record<string, unknown>)[key]
+        : undefined;
+    if (
+      expectedValue !== null &&
+      typeof expectedValue === 'object' &&
+      !Array.isArray(expectedValue)
+    ) {
+      failures.push(
+        ...partialExpectedFailures(
+          actualValue,
+          expectedValue as Record<string, unknown>,
+          currentPath,
+        ),
+      );
+    } else if (JSON.stringify(actualValue) !== JSON.stringify(expectedValue)) {
+      failures.push(
+        `${currentPath}=${JSON.stringify(actualValue)}，期望 ${JSON.stringify(expectedValue)}`,
       );
     }
   }
@@ -130,6 +180,7 @@ async function runTask(
   failed: CaseResult[];
   changed: string[];
   manual: number;
+  report: EvalTaskReport;
 }> {
   const spec = AI_TASK_CATALOG[task];
   const fixturePath = `${FIXTURES_DIR}/${spec.promptKey}.sample.json`;
@@ -162,7 +213,16 @@ async function runTask(
       failures.push(...expectedFailures(task, data, c.expected));
     if (fixtureCaseHasInvariants(c)) manualNotes.push(c);
 
-    results.push({ id: c.id, ok: failures.length === 0, failures, digest: digestOf(data) });
+    results.push({
+      id: c.id,
+      ok: failures.length === 0,
+      failures,
+      digest: digestOf(data),
+      input: c.input,
+      expected: c.expected,
+      expectedInvariants: c.expected_invariants,
+      output: data,
+    });
   }
 
   const changed: string[] = [];
@@ -222,6 +282,17 @@ async function runTask(
     failed: results.filter((r) => !r.ok),
     changed,
     manual: manualNotes.length,
+    report: {
+      task,
+      promptKey: spec.promptKey,
+      promptVersion: prompt.version,
+      promptHash: prompt.hash,
+      model,
+      provider: provider.name,
+      total: results.length,
+      passed,
+      cases: results,
+    },
   };
 }
 
@@ -243,9 +314,21 @@ async function main(): Promise<void> {
   const tasks: AiTask[] = args.all ? [...AI_TASKS] : [resolveTask(args.task!)];
 
   let exitCode = 0;
+  const reportTasks: EvalTaskReport[] = [];
   for (const task of tasks) {
     const r = await runTask(task, provider, config, registry, args.saveBaseline);
     if (r.failed.length > 0) exitCode = 1;
+    reportTasks.push(r.report);
+  }
+  if (args.reportFile) {
+    const reportPath = resolve(process.cwd(), args.reportFile);
+    mkdirSync(dirname(reportPath), { recursive: true });
+    // 报告只包含固定 fixture、模型结构化输出与 prompt 元数据；不保存 prompt 正文或环境变量。
+    writeFileSync(
+      reportPath,
+      JSON.stringify({ generatedAt: new Date().toISOString(), tasks: reportTasks }, null, 2) + '\n',
+    );
+    console.log(`完整逐 case 报告已保存：${reportPath}`);
   }
   process.exit(exitCode);
 }

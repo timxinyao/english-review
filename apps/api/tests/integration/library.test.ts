@@ -171,10 +171,7 @@ describe('PATCH /api/library/:id 造句目标', () => {
     db.update(reviewStates)
       .set({ difficulty: null, stability: null, reps: 0, lapses: 0, nextReviewAt: null })
       .where(
-        and(
-          eq(reviewStates.learningItemId, ids.gravity),
-          eq(reviewStates.dimension, 'production'),
-        ),
+        and(eq(reviewStates.learningItemId, ids.gravity), eq(reviewStates.dimension, 'production')),
       )
       .run();
     const res = await app.inject({
@@ -644,6 +641,7 @@ describe('GET /api/library/:id 详情', () => {
       originalText: 'Original 11',
       correctedSentence: 'Corrected 11',
       betterVersion: null,
+      betterVersionKind: null,
       result: 'fail',
       mode: 'today',
     });

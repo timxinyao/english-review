@@ -258,16 +258,25 @@ function buildDetail(
 function parseCorrectionJson(json: string | null): {
   corrected: string | null;
   better: string | null;
+  betterVersionKind: 'polish' | 'rewrite' | null;
 } {
-  if (!json) return { corrected: null, better: null };
+  if (!json) return { corrected: null, better: null, betterVersionKind: null };
   try {
-    const c = JSON.parse(json) as { corrected?: string; better?: string | null };
+    const c = JSON.parse(json) as {
+      corrected?: string;
+      better?: string | null;
+      betterVersionKind?: string | null;
+    };
     return {
       corrected: typeof c.corrected === 'string' ? c.corrected : null,
       better: typeof c.better === 'string' ? c.better : null,
+      betterVersionKind:
+        c.betterVersionKind === 'polish' || c.betterVersionKind === 'rewrite'
+          ? c.betterVersionKind
+          : null,
     };
   } catch {
-    return { corrected: null, better: null };
+    return { corrected: null, better: null, betterVersionKind: null };
   }
 }
 
@@ -298,6 +307,7 @@ function productionHistoryOf(exec: DbExecutor, id: string): LibraryItemDetail['p
       originalText: attempt.answerText,
       correctedSentence: parsed.corrected,
       betterVersion: attempt.betterVersion ?? parsed.better,
+      betterVersionKind: parsed.betterVersionKind,
       result: attempt.result as 'pass' | 'basic_pass' | 'fail' | 'void',
       mode: attempt.mode as 'today' | 'library_practice',
     };
@@ -323,10 +333,12 @@ export async function getLearningItemDetail(
 export interface PersonalExampleInput {
   result: 'pass' | 'basic_pass' | 'fail';
   eligible: boolean;
+  source: 'corrected' | 'better' | null;
   qualityScore: number;
   correctedSentence: string;
   originalText: string;
   betterVersion: string | null;
+  betterVersionKind: 'polish' | 'rewrite' | null;
 }
 
 export interface PersonalExampleSaveResult {
@@ -346,7 +358,9 @@ const SKIP_RESULT: PersonalExampleSaveResult = {
 
 /**
  * 表达题优质句沉淀（同步事务内调用；better-sqlite3 约束下不得 await）：
- * - 仅 result≠fail 且 eligible 才处理；只有 corrected 版本可入库（PRODUCT §7.5）；
+ * - 仅 pass/basic_pass、eligible 且有明确可收录 source 才处理；
+ * - better 只允许是 polish；rewrite 只能作为参考表达展示；
+ * - 插入与替换使用同一个实际评估版本；
  * - 当前 personal 数 <3 → 直接插入；
  * - ==3：找最低 quality_score 的 unpinned（null 视为 0），新分 > 最差 + 0.1 才替换；
  * - 全 pinned → 跳过（pinned 永不自动淘汰）。
@@ -357,19 +371,24 @@ export function maybeSavePersonalExample(
   input: PersonalExampleInput,
   now: Date,
 ): PersonalExampleSaveResult {
-  if (input.result === 'fail' || !input.eligible) return SKIP_RESULT;
+  if (input.result === 'fail' || !input.eligible || !input.source) return SKIP_RESULT;
+  const selectedText =
+    input.source === 'corrected'
+      ? input.correctedSentence
+      : input.betterVersionKind === 'polish'
+        ? input.betterVersion
+        : null;
+  if (!selectedText) return SKIP_RESULT;
 
   const insert = (): PersonalExampleSaveResult => {
     const id = randomUUID();
     const nowIso = now.toISOString();
-    // 2026-10-03：后续学习看更自然版本——主文本取 betterVersion 优先，缺省回退纠错版；
-    // 用户原句保留在 originalText
     tx.insert(learningExamples)
       .values({
         id,
         learningItemId: itemId,
         kind: 'personal',
-        text: input.betterVersion ?? input.correctedSentence,
+        text: selectedText,
         originalText: input.originalText,
         betterText: input.betterVersion,
         pinned: 0,
@@ -409,7 +428,7 @@ export function maybeSavePersonalExample(
         id,
         learningItemId: itemId,
         kind: 'personal',
-        text: input.correctedSentence,
+        text: selectedText,
         originalText: input.originalText,
         betterText: input.betterVersion,
         pinned: 0,

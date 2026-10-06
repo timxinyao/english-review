@@ -431,6 +431,7 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
       segments: [{ text: 'The bridge is stable enough for now.', type: 'same' }],
       correctedSentence: 'The bridge is stable enough for now.',
       betterVersion: null,
+      betterVersionKind: null,
     });
     expect(body.personalExampleSaved).toBe(true);
 

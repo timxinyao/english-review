@@ -44,7 +44,10 @@ export function ProductionHistoryList({ history }: { history: HistoryEntry[] }) 
               <p className="text-xs text-muted-foreground">原句：{entry.originalText}</p>
             )}
             {entry.betterVersion && (
-              <p className="text-xs text-muted-foreground">更自然：{entry.betterVersion}</p>
+              <p className="text-xs text-muted-foreground">
+                {entry.betterVersionKind === 'rewrite' ? '参考表达：' : '更自然：'}
+                {entry.betterVersion}
+              </p>
             )}
           </li>
         ))}

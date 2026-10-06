@@ -33,6 +33,15 @@ let unfocusedVisualHeight = 0;
 const subscribers = new Set<() => void>();
 let debugPanel: HTMLPreElement | null = null;
 let debugFrame = 0;
+const dismissedTodayInputs = new WeakSet<HTMLElement>();
+let dismissedScrollFrame = 0;
+
+function resetDismissedTodayScroll(input: HTMLElement): void {
+  if (!input.isConnected || !input.closest('[data-today-route] .h-today-viewport')) return;
+  if (window.scrollX || window.scrollY || window.visualViewport?.offsetTop) {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }
+}
 
 function updateDebugPanel(): void {
   if (!debugPanel) return;
@@ -98,7 +107,8 @@ function measureViewport(): KeyboardViewport {
   if (unfocusedVisualHeight === 0) unfocusedVisualHeight = vv.height;
   const shrink = Math.max(0, unfocusedVisualHeight - vv.height);
   // focusout 可以早于键盘收起；只要视觉视口还缩着，就继续保持顶部锚定。
-  const open = (editing || currentViewport.open) && shrink > 100;
+  // 开启需明显缩小；已开启后等到全高恢复才结束，避免收起末段提前解锁。
+  const open = (editing || currentViewport.open) && shrink > (currentViewport.open ? 1 : 100);
   const anchored = editing || open;
   if (!anchored) unfocusedVisualHeight = vv.height;
   const layoutInset = window.innerHeight - vv.height - vv.offsetTop;
@@ -112,7 +122,28 @@ function measureViewport(): KeyboardViewport {
 }
 
 function publish(event?: Event) {
-  const next = measureViewport();
+  let next = measureViewport();
+  const focused = document.activeElement;
+  // 输入法的收起按钮可能不触发 blur。只在已打开的键盘恢复全高后，
+  // 释放 Today 答题框的残留焦点，才能清除预定位并恢复导航；草稿不变。
+  if (
+    currentViewport.open &&
+    !next.open &&
+    focused instanceof HTMLElement &&
+    focused.matches('input, textarea') &&
+    focused.closest('[data-today-route] .h-today-viewport')
+  ) {
+    dismissedTodayInputs.add(focused);
+    focused.blur();
+    next = measureViewport();
+    // 等焦点释放和 React 布局恢复后，仅清理这次系统收起遗留的根滚动。
+    // 不在键盘动画中追帧补偿；快速再次输入时也不能触发迟到的归零。
+    window.cancelAnimationFrame(dismissedScrollFrame);
+    dismissedScrollFrame = window.requestAnimationFrame(() => {
+      dismissedScrollFrame = 0;
+      if (!currentViewport.anchored && !isEditing()) resetDismissedTodayScroll(focused);
+    });
+  }
   if (!next.anchored) {
     document.documentElement.removeAttribute('data-today-keyboard-primed');
     document.documentElement.style.removeProperty('--kb-prime-visible-height');
@@ -168,6 +199,7 @@ function stop() {
   document.documentElement.removeAttribute('data-today-touch-pending');
   document.documentElement.style.removeProperty('--kb-prime-visible-height');
   window.clearTimeout(pendingTouchTimer);
+  window.cancelAnimationFrame(dismissedScrollFrame);
   stopDebugPanel();
 }
 
@@ -178,8 +210,14 @@ let pendingTouchTimer = 0;
 export function rememberTodayInputTouch(
   event: ReactPointerEvent<HTMLInputElement | HTMLTextAreaElement>,
 ): void {
-  if (event.pointerType !== 'touch' || document.activeElement === event.currentTarget) return;
+  if (event.pointerType !== 'touch') return;
   const input = event.currentTarget;
+  if (document.activeElement === input && currentViewport.open) return;
+  if (dismissedTodayInputs.delete(input)) {
+    window.cancelAnimationFrame(dismissedScrollFrame);
+    // WebKit 的滚动恢复可能晚于 resize；下一次原位聚焦前再检查一次。
+    if (!currentViewport.open) resetDismissedTodayScroll(input);
+  }
   pendingTodayTouch.add(input);
   document.documentElement.setAttribute('data-today-touch-pending', '');
   window.clearTimeout(pendingTouchTimer);

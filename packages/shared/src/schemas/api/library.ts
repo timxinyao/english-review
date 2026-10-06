@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BetterVersionKind } from '../ai/index.js';
 import { LearningItemStatus, LearningItemType } from '../learning-item.js';
 
 // ---------- 列表 ----------
@@ -93,6 +94,8 @@ export const LibraryItemDetail = z.object({
       originalText: z.string().nullable(),
       correctedSentence: z.string().nullable(),
       betterVersion: z.string().nullable(),
+      /** 旧历史缺少 kind 时保留 null，展示时沿用原标签，不推断类型。 */
+      betterVersionKind: BetterVersionKind.nullable(),
       result: z.enum(['pass', 'basic_pass', 'fail', 'void']),
       mode: z.enum(['today', 'library_practice']),
     }),

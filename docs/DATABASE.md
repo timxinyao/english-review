@@ -47,7 +47,7 @@
 | id | text/uuid | PK |
 | learning_item_id | FK | → learning_items |
 | kind | text | `source` / `extra` / `personal` |
-| text | text | corrected 后长期文本 |
+| text | text | 实际进入长期库的 corrected 或 polish 版本，由批改候选 source 明确选择 |
 | original_text | text nullable | personal 原始用户输入 |
 | better_text | text nullable | 可选润色版本 |
 | pinned | integer | 仅 personal 有效 |
@@ -118,6 +118,8 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 
 索引：`session_id, sort_key`；`learning_item_id, origin`。
 
+普通撤销保留旧任务的 completed_at 并写 canceled_at，作答记录置 void；重答创建新的任务 id 并排在待答任务之前。production 使用同学习项的新 question_id，其他题型沿用原 question_id（允许 null），不重开原任务或删除撤销历史（2026-10-04）。
+
 ## 7. questions
 
 可再生 AI 题库。
@@ -172,6 +174,8 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 | post_state_json | text nullable | Today 结算后状态（含 FSRS 四字段）、插入的补强/个人例句，以及普通撤销需恢复的被替换个人例句/被裁剪表达历史快照；仅记录本次变动，不复制整库 |
 | created_at | datetime | |
 | voided_at | datetime nullable | 坏题或普通撤销后作废 |
+
+`correction_json` 保存表达批改历史：`segments`、`corrected`、`better`、`betterVersionKind`、`personalExampleSource`。新增的 kind/source 描述当前批改与实际选择；旧记录缺少 kind 时 API 返回 null 并沿用历史展示语义，默认不自动推断、回填或重新批改。用户授权的一次人工维护可追加 `manualRevision`，记录复核时间、规则版本/hash、人工判定与候选选择；保留原 `ai_prompt_*`、`ai_model` 与 `attempts.result`，不能把人工校对冒充新模型调用。`post_state_json` 在本次确实保存 Personal Example 时保存 `personalExampleId` 与实际写入的 `personalExampleText`，撤销以该文本精确检查后续编辑；旧快照按原来的插入/替换路径分别解释，不增加数据库列。授权维护更新已保存正文时同步该实际文本，移除不合格个人例句时清除其派生关联，不改快照中的学习状态；维护前后完整行另存可回滚清单。
 
 每个 Item 近期表达历史最多保留 10 次；进入 personal example 的内容由 learning_examples 长期保留。若最新 Today 正式作答触发历史裁剪，需在其可撤销期间保存被裁剪记录的恢复快照；撤销时恢复，确认无需撤销后可丢弃派生快照。
 

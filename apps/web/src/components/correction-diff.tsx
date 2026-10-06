@@ -10,6 +10,8 @@ interface CorrectionDiffProps {
   /** 有修改时展示一行干净的纠正句（通过/全 same 时不重复展示） */
   correctedSentence?: string;
   betterVersion: string | null;
+  /** null/缺省用于兼容旧记录，沿用“更自然的说法”展示语义。 */
+  betterVersionKind?: 'polish' | 'rewrite' | null;
 }
 
 const SEGMENT_CLASSES: Record<CorrectionSegment['type'], string> = {
@@ -22,6 +24,7 @@ export function CorrectionDiff({
   segments,
   correctedSentence,
   betterVersion,
+  betterVersionKind,
 }: CorrectionDiffProps) {
   const hasChanges = segments.some((seg) => seg.type !== 'same');
 
@@ -43,7 +46,7 @@ export function CorrectionDiff({
       {betterVersion && (
         <details className="text-sm" open>
           <summary className="cursor-pointer select-none text-xs text-muted-foreground">
-            更自然的说法
+            {betterVersionKind === 'rewrite' ? '参考表达' : '更自然的说法'}
           </summary>
           <p className="mt-1 text-foreground">{betterVersion}</p>
         </details>

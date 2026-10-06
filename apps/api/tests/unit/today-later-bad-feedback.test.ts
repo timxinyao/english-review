@@ -16,6 +16,7 @@ import {
   answerTodayTask,
   prepareTodayTask,
   deferTodayTask,
+  getTodayStatus,
   reportBadQuestion,
   startTodaySession as startTodaySessionRaw,
   submitTaskFeedback,
@@ -528,14 +529,13 @@ describe('undo（撤销最近一次作答）', () => {
     expect(attemptOfTask(b.id).result).toBe('void');
     expect(attemptOfTask(b.id).voidedAt).toBe(T2.toISOString());
     expect(attemptOfTask(a.id).result).toBe('pass');
-    // 替代题：同 item/同题型/同维度/同 origin，但不同 question id，排在队列尾
+    // Recall 重答：同 item/题型/维度/origin，复用原题，使用新任务实例。
     const replacement = liveReplacementOf('it-b');
     expect(replacement.id).not.toBe(b.id);
     expect(replacement.taskType).toBe(b.taskType);
     expect(replacement.dimension).toBe(b.dimension);
     expect(replacement.origin).toBe('base');
-    expect(replacement.questionId).toBe('it-b-q2');
-    expect(replacement.questionId).not.toBe(b.questionId);
+    expect(replacement.questionId).toBe(b.questionId);
     expect(replacement.completedAt).toBeNull();
 
     // 重复撤销同一任务：不得误伤更早的作答
@@ -547,6 +547,29 @@ describe('undo（撤销最近一次作答）', () => {
     expect(resA.ok).toBe(true);
     expect(dim('it-a', 'understanding')!.reps).toBe(3);
     expect(attemptOfTask(a.id).result).toBe('void');
+  });
+
+  it.each([false, true])('Recall 撤销立即回原词，不取新题（原题已绑定=%s）', async (bound) => {
+    await seedDueChoiceItem('recall-first');
+    await seedDueChoiceItem('recall-next');
+    await startTodaySessionRaw(db, deps, TZ, NOW);
+    const t = taskByItem('recall-first')!;
+    if (bound) await prepareTodayTask(db, deps, TZ, NOW, t.id);
+    const questionId = taskByItem('recall-first')!.questionId;
+    await answerTodayTask(db, deps, TZ, NOW, t.id, { recall: 'recalled' });
+    const questionsBefore = db.select().from(questions).all();
+    const noGeneration = createFakeDeps({
+      generateFailFor: new Set(['recall-first:understanding']),
+    });
+    await undoTodayTask(db, noGeneration, TZ, T1, t.id);
+    const next = getTodayStatus(db, TZ, T1);
+    if (next.status !== 'active') throw new Error('撤销后应立即重答');
+    expect(next.currentTask!.item.target).toBe('recall-first');
+    expect(next.currentTask!.taskId).not.toBe(t.id);
+    expect(liveReplacementOf('recall-first').questionId).toBe(questionId);
+    expect(db.select().from(questions).all()).toEqual(questionsBefore);
+    await answerTodayTask(db, deps, TZ, T2, next.currentTask!.taskId, { recall: 'recalled' });
+    expect(dim('recall-first', 'understanding')!.reps).toBe(4);
   });
 
   it('stale task ID returns 409 without mutation', async () => {
@@ -695,7 +718,7 @@ describe('undo（回滚覆盖）', () => {
       .all();
   }
 
-  it('undo pass：U 维度回滚、daily_stats 回减、替代题同型不同 id、原题状态不变', async () => {
+  it('undo pass：U 维度回滚、daily_stats 回减、复用原题、原题状态不变', async () => {
     await seedDueChoiceItem('ps-1');
     await seedQuestion(db, 'ps-1', {
       id: 'ps-1-q2',
@@ -728,7 +751,7 @@ describe('undo（回滚覆盖）', () => {
     expect(replacement.taskType).toBe('understanding');
     expect(replacement.dimension).toBe('understanding');
     expect(replacement.origin).toBe('base');
-    expect(replacement.questionId).not.toBe(t.questionId);
+    expect(replacement.questionId).toBe(t.questionId);
     // 原题仍是 active（普通撤销不改题目状态，不进 bad_question）
     expect(db.select().from(questions).where(eq(questions.id, t.questionId!)).get()!.status).toBe(
       'active',
@@ -815,6 +838,7 @@ describe('undo（回滚覆盖）', () => {
     expect(db.select().from(reviewSessions).get()!.completedAt).toBeNull();
     const replacement = liveTasksOf('nw-1')[0]!;
     expect(replacement.taskType).toBe('learn');
+    expect(replacement.questionId).toBe(learn.questionId);
     expect(replacement.dimension).toBe('understanding');
     expect(replacement.origin).toBe('base');
   });
@@ -822,6 +846,7 @@ describe('undo（回滚覆盖）', () => {
   it('undo production pass：P 维度回滚、production_attempts/pass 回减、mastery 回滚', async () => {
     // U 已越过掌握线、P=S110 到期：pass 后 P 也越过掌握线 → item mastered
     await seedProductionItemWithSpare('pp-1', 118, { understanding: { stability: 130 } });
+    await seedDueChoiceItem('another-word');
     await startSession();
     const t = liveTasksOf('pp-1').find((x) => x.taskType === 'production')!;
     await answerTodayTask(db, deps, TZ, NOW, t.id, { answerText: `I use pp-1 well.` });
@@ -859,6 +884,9 @@ describe('undo（回滚覆盖）', () => {
     const replacement = liveTasksOf('pp-1')[0]!;
     expect(replacement.taskType).toBe('production');
     expect(replacement.questionId).toBe('pp-1-p2');
+    const next = getTodayStatus(db, TZ, T1);
+    if (next.status !== 'active') throw new Error('撤销后应立即重答');
+    expect(next.currentTask!.taskId).toBe(replacement.id);
   });
 
   it('undo production fail：降级与作答数回减、pass 数不变、无补强可取消', async () => {
@@ -972,11 +1000,10 @@ describe('undo（回滚覆盖）', () => {
     expect(replacement.origin).toBe('reinforcement');
     expect(replacement.dimension).toBe(rf1.dimension);
     expect(replacement.taskType).toBe(rf1.taskType);
-    expect(replacement.questionId).not.toBe(rf1.questionId);
-    // 替代补强位于队列尾
-    const all = tasks();
-    const maxSort = Math.max(...all.map((x) => x.sortKey));
-    expect(replacement.sortKey).toBe(maxSort);
+    expect(replacement.questionId).toBe(rf1.questionId);
+    const next = getTodayStatus(db, TZ, T2);
+    if (next.status !== 'active') throw new Error('撤销后应立即重答');
+    expect(next.currentTask!.taskId).toBe(replacement.id);
 
     // 槽位语义：撤销释放的槽位可用——替代题再 fail 仍可插 1 道补强（共 2 = 上限）
     await answerTodayTask(db, deps, TZ, new Date('2026-09-24T02:03:00.000Z'), replacement.id, {
@@ -987,12 +1014,13 @@ describe('undo（回滚覆盖）', () => {
 
   it('没有可用替代题：抛可重试错误且原作答、状态、会话完全不变', async () => {
     const depsNoGen = createFakeDeps({
-      generateFailFor: new Set(['na-1:understanding']),
+      generateFailFor: new Set(['na-1:production']),
     });
-    await seedDueChoiceItem('na-1'); // 仅 1 道题，且生成失败 → 无替代题
+    await seedProductionItemWithSpare('na-1', 15);
+    db.delete(questions).where(eq(questions.id, 'na-1-p2')).run(); // 仅原题，生成失败
     await startTodaySession(db, depsNoGen, TZ, NOW);
     const t = taskByItem('na-1')!;
-    await answerTodayTask(db, depsNoGen, TZ, NOW, t.id, { recall: 'recalled' });
+    await answerTodayTask(db, depsNoGen, TZ, NOW, t.id, { answerText: 'I use na-1 well.' });
     const statsBefore = db.select().from(dailyStats).get();
 
     await expect(undoTodayTask(db, depsNoGen, TZ, T1, t.id)).rejects.toMatchObject({
@@ -1003,7 +1031,7 @@ describe('undo（回滚覆盖）', () => {
     // 预取失败绝不启动回滚：作答/状态/任务/统计全部原样
     expect(attemptOfTask(t.id).result).toBe('pass');
     expect(attemptOfTask(t.id).voidedAt).toBeNull();
-    expect(dim('na-1', 'understanding')!.reps).toBe(4);
+    expect(dim('na-1', 'production')!.reps).toBe(5);
     expect(taskByItem('na-1')!.canceledAt).toBeNull();
     expect(taskByItem('na-1')!.completedAt).not.toBeNull();
     expect(db.select().from(reviewTasks).all()).toHaveLength(1);
@@ -1054,6 +1082,16 @@ describe('undo（保留数据恢复）', () => {
     return db.select().from(attempts).where(eq(attempts.reviewTaskId, taskId)).get()!;
   }
 
+  function removeSavedTextSnapshot(taskId: string): void {
+    const attempt = attemptOfTask(taskId);
+    const post = JSON.parse(attempt.postStateJson!) as Record<string, unknown>;
+    delete post.personalExampleText;
+    db.update(attempts)
+      .set({ postStateJson: JSON.stringify(post) })
+      .where(eq(attempts.id, attempt.id))
+      .run();
+  }
+
   function liveTasksOf(itemId: string): Array<typeof reviewTasks.$inferSelect> {
     return db
       .select()
@@ -1062,11 +1100,15 @@ describe('undo（保留数据恢复）', () => {
       .all();
   }
 
-  async function answerPass(itemId: string, when: Date): Promise<typeof reviewTasks.$inferSelect> {
-    const started = await startTodaySession(db, deps, TZ, NOW);
+  async function answerPass(
+    itemId: string,
+    when: Date,
+    testDeps: TodayDeps = deps,
+  ): Promise<typeof reviewTasks.$inferSelect> {
+    const started = await startTodaySession(db, testDeps, TZ, NOW);
     if (started.status !== 'active') throw new Error('start 失败');
     const t = liveTasksOf(itemId).find((x) => x.taskType === 'production')!;
-    await answerTodayTask(db, deps, TZ, when, t.id, { answerText: `I use ${itemId} well.` });
+    await answerTodayTask(db, testDeps, TZ, when, t.id, { answerText: `I use ${itemId} well.` });
     return t;
   }
 
@@ -1145,6 +1187,99 @@ describe('undo（保留数据恢复）', () => {
         )
         .all(),
     ).toHaveLength(0);
+  });
+
+  it('兼容旧插入快照：better 优先保存时按 correction_json.better 撤销', async () => {
+    await seedProductionItemWithExamples('legacy-insert');
+    const polishedDeps = createFakeDeps({
+      productionEval: (_question, answerText) => ({
+        result: 'pass',
+        correctedSentence: answerText,
+        segments: [{ text: answerText, type: 'same' }],
+        explanation: '表达自然。',
+        betterVersion: `A polished version of ${answerText}`,
+        betterVersionKind: 'polish',
+        candidate: {
+          eligible: true,
+          source: 'better',
+          qualityScore: 0.95,
+          reason: 'polish 合格。',
+        },
+        promptMeta: { key: 'check_production', version: 2, hash: 'fake-hash', model: 'fake' },
+      }),
+    });
+    await startTodaySession(db, polishedDeps, TZ, NOW);
+    const task = taskByItem('legacy-insert')!;
+    await answerTodayTask(db, polishedDeps, TZ, NOW, task.id, {
+      answerText: 'I use legacy-insert well.',
+    });
+    const attempt = attemptOfTask(task.id);
+    const correction = JSON.parse(attempt.correctionJson!) as {
+      corrected: string;
+      better: string;
+    };
+    const savedId = (JSON.parse(attempt.postStateJson!) as { personalExampleId: string })
+      .personalExampleId;
+    db.update(learningExamples)
+      .set({ text: correction.better })
+      .where(eq(learningExamples.id, savedId))
+      .run();
+    removeSavedTextSnapshot(task.id);
+
+    await expect(undoTodayTask(db, polishedDeps, TZ, T1, task.id)).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(
+      db.select().from(learningExamples).where(eq(learningExamples.id, savedId)).get(),
+    ).toBeUndefined();
+  });
+
+  it('兼容旧替换快照：按 corrected 检查被替换例句路径的保存文本', async () => {
+    await seedProductionItemWithExamples('legacy-replace', [
+      { id: 'legacy-worst', text: 'Old worst sentence.', qualityScore: 0.2 },
+      { id: 'legacy-mid', text: 'Mid sentence.', qualityScore: 0.6 },
+      { id: 'legacy-top', text: 'Top sentence.', qualityScore: 0.8, pinned: 1 },
+    ]);
+    const polishedDeps = createFakeDeps({
+      productionEval: (_question, answerText) => ({
+        result: 'pass',
+        correctedSentence: `Corrected: ${answerText}`,
+        segments: [
+          { text: answerText, type: 'delete' },
+          { text: `Corrected: ${answerText}`, type: 'insert' },
+        ],
+        explanation: '有可修正处。',
+        betterVersion: `A polished version of ${answerText}`,
+        betterVersionKind: 'polish',
+        candidate: {
+          eligible: true,
+          source: 'better',
+          qualityScore: 0.95,
+          reason: 'polish 合格。',
+        },
+        promptMeta: { key: 'check_production', version: 2, hash: 'fake-hash', model: 'fake' },
+      }),
+    });
+    const t = await answerPass('legacy-replace', NOW, polishedDeps);
+    const attempt = attemptOfTask(t.id);
+    const correction = JSON.parse(attempt.correctionJson!) as { corrected: string; better: string };
+    const savedId = (JSON.parse(attempt.postStateJson!) as { personalExampleId: string })
+      .personalExampleId;
+    // Oct 3 的替换路径写 corrected，即使 correction_json 同时有 better。
+    const legacySavedText = correction.corrected;
+    db.update(learningExamples)
+      .set({ text: legacySavedText })
+      .where(eq(learningExamples.id, savedId))
+      .run();
+    removeSavedTextSnapshot(t.id);
+
+    await expect(undoTodayTask(db, deps, TZ, T1, t.id)).resolves.toMatchObject({ ok: true });
+    expect(
+      db.select().from(learningExamples).where(eq(learningExamples.id, savedId)).get(),
+    ).toBeUndefined();
+    expect(
+      db.select().from(learningExamples).where(eq(learningExamples.id, 'legacy-worst')).get(),
+    ).toBeTruthy();
   });
 
   it('新例句已被固定 → 409 且不破坏用户数据', async () => {

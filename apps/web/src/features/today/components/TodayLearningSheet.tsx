@@ -164,6 +164,14 @@ function RecordRow({ entry }: { entry: SessionTaskEntry }) {
           <span>{correct}</span>
         </p>
       )}
+      {result?.correction?.betterVersion && (
+        <p className="text-sm text-foreground">
+          <span className="mr-1 text-xs text-muted-foreground">
+            {result.correction.betterVersionKind === 'rewrite' ? '参考表达' : '更自然的说法'}
+          </span>
+          <span>{result.correction.betterVersion}</span>
+        </p>
+      )}
       {result?.explanation != null && (
         <p className="text-sm text-muted-foreground">{result.explanation}</p>
       )}

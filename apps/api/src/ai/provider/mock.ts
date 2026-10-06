@@ -92,8 +92,10 @@ function checkProduction(req: ProviderRequest): string {
     segments,
     explanation: used ? 'mock：目标使用正确。' : 'mock：未使用目标表达。',
     better_version: null,
+    better_version_kind: null,
     personal_example_candidate: {
       eligible: false,
+      source: null,
       quality_score: 0.1,
       reason: 'mock 输出，不参与个人例句。',
     },

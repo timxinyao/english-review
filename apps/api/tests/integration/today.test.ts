@@ -753,6 +753,7 @@ describe('POST /api/today/tasks/:id/undo 契约', () => {
   it('undo：ok+progress 契约、未作答 409、未知任务 404、重复撤销 409', async () => {
     const ctx = await newCtx(async (db) => {
       await seedDueChoice(db, 'ud-1', 'wear down');
+      await seedDueChoice(db, 'ud-next', 'next word');
       await seedQuestion(db, 'ud-1', {
         id: 'ud-1-q2',
         type: 'understanding',
@@ -775,7 +776,7 @@ describe('POST /api/today/tasks/:id/undo 契约', () => {
     const undo = await post(ctx, `/api/today/tasks/${taskId}/undo`);
     expect(undo.statusCode).toBe(200);
     expect(UndoResponse.safeParse(undo.json()).success).toBe(true);
-    expect(undo.json().progress).toEqual({ completed: 0, total: 1 });
+    expect(undo.json().progress).toEqual({ completed: 0, total: 2 });
 
     // 重复撤销（任务已取消）→ 409；替代任务成为新的当前题
     const again = await post(ctx, `/api/today/tasks/${taskId}/undo`);
@@ -783,6 +784,7 @@ describe('POST /api/today/tasks/:id/undo 契约', () => {
     const next = TodayStatusResponse.parse((await get(ctx, '/api/today')).json());
     if (next.status !== 'active') throw new Error('撤销后会话应重新激活');
     expect(next.currentTask!.taskId).not.toBe(taskId);
+    expect(next.currentTask!.item.target).toBe('wear down');
 
     const missing = await post(ctx, '/api/today/tasks/no-such/undo');
     expect(missing.statusCode).toBe(404);

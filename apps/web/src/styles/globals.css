@@ -96,6 +96,110 @@ body {
   @apply mt-5 shrink-0 border-t border-border pt-4;
 }
 
+.auto-grow-textarea {
+  --auto-textarea-max-height: 7.125rem;
+  display: grid;
+  min-width: 0;
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.auto-grow-textarea::after,
+.auto-grow-textarea-field {
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 2.625rem;
+  max-height: var(--auto-textarea-max-height);
+  padding: 0.5rem 0.875rem;
+  font: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+
+.auto-grow-textarea::after {
+  content: attr(data-value) ' ';
+  border: 1px solid transparent;
+  visibility: hidden;
+  overflow: hidden;
+}
+
+.auto-grow-textarea-field {
+  height: 100%;
+  resize: none;
+  overflow-y: auto;
+}
+
+.production-context {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.production-prompt-scroll {
+  flex: 0 1 auto;
+}
+
+/* 点击命中后才切换造句输入态，保留 pointerdown→click 期间的原位输入。 */
+@media (max-width: 767px) {
+  html:not([data-today-touch-pending])
+    [data-today-route][data-keyboard-anchored]:has([data-production-input]) {
+    & header > div {
+      display: none;
+    }
+
+    & [data-today-progress] {
+      @apply z-header;
+      position: fixed;
+      top: calc(env(safe-area-inset-top) + 0.875rem);
+      right: 1.25rem;
+    }
+
+    & [data-today-progress] button > span:not(:first-child),
+    & [data-today-progress] button[aria-label='自动发音'] {
+      display: none;
+    }
+
+    & article {
+      padding: 0.75rem;
+    }
+
+    & .production-context {
+      gap: 0.5rem;
+    }
+
+    & .production-label {
+      display: none;
+    }
+
+    & .production-prompt-scroll {
+      min-height: 3rem;
+    }
+
+    & .production-prompt-text {
+      font-size: 1rem;
+      line-height: 1.5rem;
+    }
+
+    & .production-target > span {
+      font-size: 1.25rem;
+    }
+
+    & .study-dock {
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+    }
+
+    & .auto-grow-textarea {
+      --auto-textarea-max-height: min(
+        7.125rem,
+        max(2.625rem, calc(var(--kb-visible-height, 100dvh) - var(--header-block) - 11.25rem))
+      );
+    }
+  }
+}
+
 /* 桌面卡片留白不参与手机键盘视口计算。 */
 @media (min-width: 768px) {
   .study-card {
@@ -194,9 +298,11 @@ body {
     );
   }
 
-  /* 完整触摸 click 已落在真实输入、原生聚焦完成后预置 dock 安全高度。
+  /* 完整触摸后先预置安全高度；键盘高度已知后使用真实可视区域。
      不能在 pointerdown 时搬动输入，否则后续 click 会命中原位置下方页面。 */
-  html[data-today-keyboard-primed] [data-today-route]:has(.h-today-viewport) .h-today-viewport {
+  html[data-today-keyboard-primed]
+    [data-today-route]:not([data-keyboard-open]):has(.h-today-viewport)
+    .h-today-viewport {
     height: min(
       calc(var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block)),
       calc(var(--kb-visible-height, 100dvh) - var(--header-block) - 0.75rem),

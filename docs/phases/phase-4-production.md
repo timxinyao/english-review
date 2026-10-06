@@ -41,6 +41,9 @@
 - 跨 feature 的题卡渲染组件提升至 `apps/web/src/components/`（choice/cloze/production-question-card + correction-diff + question-answer 工具），遵循 ARCHITECTURE 跨 feature 升级规则。
 - e2e 新增 `POST /api/__e2e/reset`（仅 E2E_SEED=1 注册、需登录会话）：多个"完整会话"spec 共享 e2e.db 而一天只允许一个正式 session，各 spec 开头重置回种子态，保证顺序无关。
 - fake 批改仅注入 e2e-server（测试进程），生产路径无任何 mock 语言判定。
+- 批改 v2 后续决策（2026-10-04）：corrected 仅做必要语法/拼写/明显搭配修正；评分以用户原文为准；更自然版本区分沿句 polish 与 rewrite 参考表达。个人例句明确指定 corrected/better 实际来源，better 仅允许 polish；候选质量必须评价最终保存文本，旧历史不回填、不重新批改，现有数据库结构不加列。
+- 批改 v2 语言边界（2026-10-04）：polish 可调整意思等价的量词、单复数和句式以符合自然表达，不机械保留不地道的称呼；corrected 仍优先保持原句架。原文已自然不强制生成润色；候选优先合格 polish，rewrite 与纠正后的独立合格候选分开处理。
+- 存量维护范围扩大（2026-10-05）：用户明确要求全量人工校对，故允许一次性修订存量批改及关联个人例句，覆盖此前“本次只更新新答案”的范围。默认保留历史评分、进度、统计和原模型元数据；人工记录另存 JSON，执行前整库备份及原行比较，固定／正文已编辑项保护。正式 API 不支持历史批改编辑，因此本次用离线维护脚本事务化处理，不新增产品入口或 API，不修改 Prompt。
 
 ## 遗留问题（移交后续阶段）
 
@@ -52,3 +55,6 @@
 
 - 2026-09-24：双子 agent 并行交付（子 agent 会话被取消但工作树已完成）；协调者集成：清理残留进程、修复 today.spec 过时断言（4→5 due、补表达卡分支）、新增 e2e reset 端点解决 spec 间 session 冲突；全部门禁与 12 个 E2E 通过。
 - 2026-09-25：GLM 接入切换为 Anthropic Messages 兼容端点（`/api/anthropic/v1/messages`，x-api-key + anthropic-version，max_tokens 必填，无 response_format——JSON 靠 Prompt 约束 + extractJson 容错）；模型映射更新为 glm-5.3（判定/批改/Read）/ glm-5.3-flash（题目生成）；dotenv 在 index.ts 与 ai-eval.ts 加载（e2e-server 不加载，避免 e2e 触发真实生成）；修复 generate_production_prompt 不变式过严（允许词形变化：target 完整出现或任一组成词≥3字符出现）；真实模型全量 Eval 20/20 通过并保存基线。
+- 2026-10-04：GPT-6 Luna max 按已批准的批改与个人例句设计实施 check_production v2、source/kind Schema/API DTO、统一 personal example 插入/替换选择、历史展示标签和精准 undo 保存文本识别；协调者集成、复核并验证。扩充 Production fixtures 至 14 项，Eval 支持保存完整 JSON 审阅报告；相同输入真实模型对比旧版评分 13/14、新版全部断言 14/14，逐句审阅通过，详细结果与取舍见 [发布评测](../evals/2026-10-04-check-production-v2.md)。lint、typecheck、822 项单元／集成测试、30 项 E2E 与独立审阅通过。保留既有工作树，不提交或推送。
+- 2026-10-05：按用户授权脚本部署批改 v2 与个人例句更新；API 健康、HTTPS 页面／静态资源与当前构建、运行源码一致性均核验通过，Prompt hash 与发布评测版本相同。上线 JS 为 `index-CVbHK3jY.js`；旧版本备份 `/opt/english-learning/releases/before-production-polish-20261005-054243`。无数据库迁移或历史重新批改，未提交或推送。
+- 2026-10-05：按用户后续明确请求完成存量人工校对：10 条造句历史、8 条现有个人例句更新，1 条因“喂狗／养狗”语义差异不合格的个人例句移除，原答案／评分／进度／统计保留。人工复核单独留档，不伪造 Prompt 调用。整库备份、6 项维护测试、v2 契约与 diff 校验、完整副本演练、实际写入逐表验证、10 项 HTTPS API 回看通过；详情见 [人工校对清单](../evals/2026-10-05-production-manual-curation.md)。无应用源码修改、数据库迁移或新 API，未提交或推送。

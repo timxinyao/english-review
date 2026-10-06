@@ -381,6 +381,8 @@ export async function answerLibraryPractice(
           segments: evaluation.segments,
           corrected: evaluation.correctedSentence,
           better: evaluation.betterVersion,
+          betterVersionKind: evaluation.betterVersionKind,
+          personalExampleSource: evaluation.candidate.source,
         }),
         explanation: evaluation.explanation,
         betterVersion: evaluation.betterVersion,
@@ -394,17 +396,19 @@ export async function answerLibraryPractice(
         voidedAt: null,
       })
       .run();
-    // 优质 corrected 句仍可进入 Personal Example（PRODUCT §4.4）
+    // 候选明确选择 corrected/polish 版本；rewrite 参考表达不自动进入 Personal Example（PRODUCT §4.4）
     const saved = maybeSavePersonalExample(
       tx,
       itemId,
       {
         result: evaluation.result,
         eligible: evaluation.candidate.eligible,
+        source: evaluation.candidate.source,
         qualityScore: evaluation.candidate.qualityScore,
         correctedSentence: evaluation.correctedSentence,
         originalText: body.answerText!,
         betterVersion: evaluation.betterVersion,
+        betterVersionKind: evaluation.betterVersionKind,
       },
       now,
     );
@@ -424,6 +428,7 @@ export async function answerLibraryPractice(
       segments: evaluation.segments,
       correctedSentence: evaluation.correctedSentence,
       betterVersion: evaluation.betterVersion,
+      betterVersionKind: evaluation.betterVersionKind,
     },
     personalExampleSaved: personalSaved.saved,
   };

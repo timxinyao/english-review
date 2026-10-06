@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 
 /**
  * Today 复习全流程（PC viewport；E2E_SEED=1 播种：
@@ -372,7 +372,9 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
   });
 
-  test('撤销最近一次作答：反馈态确认撤销另排新题重练；完成页保留入口', async ({ page }) => {
+  test('撤销最近一次作答：立即回同词，造句换题、Recall 不换题；完成页保留入口', async ({
+    page,
+  }) => {
     test.setTimeout(120_000);
     await login(page);
     await resetSeedData(page);
@@ -398,12 +400,31 @@ test.describe('Today 复习全流程', () => {
     await expect(dialog).toHaveCount(0);
     await expect(page.getByText('通过', { exact: true })).toBeVisible();
 
-    // 确认撤销 → 回活动队列：原题不重开，直接到下一题 make sense
+    // 确认撤销 → 同一个词的新造句题立即重答，旧草稿/反馈清空。
     await undoIcon.click();
     await dialog.getByRole('button', { name: '撤销' }).click();
+    await expect(page.getByLabel('表达答案')).toBeVisible();
+    await expect(page.getByLabel('表达答案')).toHaveValue('');
+    await expect(page.getByText('give up', { exact: true })).toBeVisible();
+    await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+    await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByText('通过', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '下一题' }).click();
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
 
-    // 完成整个会话（撤销后 give up 另排一道新题在队尾，由通用表达分支处理）
+    // Recall 评分已自动进入后一个词，撤销也立即回 make sense，复用词卡且未揭示。
+    await page.getByRole('button', { name: '显示答案' }).click();
+    await page.getByRole('button', { name: '良好' }).click();
+    await expect(page.getByRole('heading', { name: 'make sense' })).toHaveCount(0);
+    await undoIcon.click();
+    await expect(dialog).toContainText('make sense');
+    await expect(dialog).toContainText('撤销后立即回到这个词重新作答。');
+    await dialog.getByRole('button', { name: '撤销' }).click();
+    await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '显示答案' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '良好' })).toHaveCount(0);
+
+    // 重答后完成整个会话，不遗留队尾重答任务。
     expect(await driveSessionToCompleted(page), '会话应在有限步数内完成').toBe(true);
     await expect(page.getByRole('heading', { name: '今天完成了' })).toBeVisible();
     // 完成页保留最近一次作答的撤销入口（PRODUCT §5.1）
@@ -678,6 +699,97 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
   test.describe('键盘避让（iPhone 高度）', () => {
     test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
 
+    test('造句输入一行起步、逐行增长封顶、删除缩回，键盘期间题干与目标词可见', async ({ page }) => {
+      await login(page);
+      await resetSeedData(page);
+      await page.goto('/today');
+      await page.getByRole('button', { name: '开始今日复习' }).click();
+      const input = page.getByLabel('表达答案');
+      const oneLineHeight = (await input.boundingBox())!.height;
+      expect(oneLineHeight).toBeLessThanOrEqual(46);
+      await input.tap();
+      await page.evaluate(() => {
+        const vv = window.visualViewport!;
+        Object.defineProperty(vv, 'height', { configurable: true, get: () => 389 });
+        vv.dispatchEvent(new Event('resize'));
+      });
+      await expect(input).toBeFocused();
+      let previousHeight = oneLineHeight;
+      for (let lines = 2; lines <= 4; lines++) {
+        await input.fill(Array.from({ length: lines }, () => 'I will not give up.').join('\n'));
+        const height = (await input.boundingBox())!.height;
+        expect(height).toBeGreaterThan(previousHeight);
+        previousHeight = height;
+      }
+      await input.fill(Array.from({ length: 8 }, () => 'I will not give up.').join('\n'));
+      expect((await input.boundingBox())!.height).toBeCloseTo(previousHeight, 0);
+      expect(await input.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+      for (const text of ['长期的压力让我想放弃。', 'give up']) {
+        const box = (await page.getByText(text, { exact: true }).boundingBox())!;
+        expect(box.y).toBeGreaterThanOrEqual(54);
+        expect(box.y + box.height).toBeLessThan((await input.boundingBox())!.y);
+      }
+      await expect(page.getByRole('button', { name: '提交' })).toBeVisible();
+      expect(
+        await page.locator('[data-slot="body"]').evaluate((el) => el.clientHeight),
+      ).toBeGreaterThanOrEqual(48);
+      await page.screenshot({ path: '/tmp/foxi-compact-four-lines.png' });
+      await input.fill('I will not give up.');
+      expect((await input.boundingBox())!.height).toBeCloseTo(oneLineHeight, 0);
+      await input.fill('I will not give up, even when things get difficult. '.repeat(3));
+      expect((await input.boundingBox())!.height).toBeGreaterThan(oneLineHeight);
+      await input.fill('I will not give up.');
+      await page.screenshot({ path: '/tmp/foxi-compact-one-line.png' });
+      await page.evaluate(() => {
+        const vv = window.visualViewport!;
+        Object.defineProperty(vv, 'height', { configurable: true, get: () => 552 });
+        vv.dispatchEvent(new Event('resize'));
+      });
+      const expandedCard = (await page.locator('article').first().boundingBox())!;
+      expect(expandedCard.y + expandedCard.height).toBeCloseTo(552, 0);
+    });
+
+    test('长中文题干在更小键盘视口里滚动，目标词和提交仍可见', async ({ page }) => {
+      await login(page);
+      await resetSeedData(page);
+      const rewrite = async (route: Route) => {
+        const response = await route.fetch();
+        const data = await response.json();
+        if (data.currentTask?.question?.zhPrompt) {
+          data.currentTask.question.zhPrompt =
+            '即使遇到困难，我也想继续坚持下去，而不是轻易放弃。'.repeat(8);
+        }
+        await route.fulfill({ response, json: data });
+      };
+      await page.route('**/api/today', rewrite);
+      await page.route('**/api/today/start', rewrite);
+      await page.goto('/today');
+      await page.getByRole('button', { name: '开始今日复习' }).click();
+      const input = page.getByLabel('表达答案');
+      await input.tap();
+      await page.evaluate(() => {
+        const vv = window.visualViewport!;
+        Object.defineProperty(vv, 'height', { configurable: true, get: () => 320 });
+        vv.dispatchEvent(new Event('resize'));
+      });
+      await input.fill('I will keep trying and will not give up.\n'.repeat(8));
+      const prompt = page.locator('.production-prompt-scroll');
+      expect(await prompt.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+      const promptBox = (await prompt.boundingBox())!;
+      const targetBox = (await page.getByText('give up', { exact: true }).boundingBox())!;
+      const inputBox = (await input.boundingBox())!;
+      const submitBox = (await page.getByRole('button', { name: '提交' }).boundingBox())!;
+      expect(promptBox.height).toBeGreaterThanOrEqual(48);
+      expect(targetBox.y).toBeGreaterThanOrEqual(promptBox.y + promptBox.height);
+      expect(targetBox.y + targetBox.height).toBeLessThanOrEqual(inputBox.y);
+      expect(submitBox.y + submitBox.height).toBeLessThanOrEqual(320);
+      await prompt.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      expect((await page.getByText('give up', { exact: true }).boundingBox())!.y).toBe(targetBox.y);
+      await page.screenshot({ path: '/tmp/foxi-compact-long-prompt.png' });
+    });
+
     test('主屏应用内五击 Foxi 切换视口与卡片诊断面板', async ({ page }) => {
       await login(page);
       await resetSeedData(page);
@@ -697,9 +809,13 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
       test.setTimeout(90_000);
       const runtimeErrors: string[] = [];
       page.on('pageerror', (error) => runtimeErrors.push(error.message));
+      page.on('console', (message) => {
+        if (message.type() === 'error') runtimeErrors.push(message.text());
+      });
       await login(page);
       await resetSeedData(page);
       await page.goto('/today');
+      await expect(page).toHaveTitle('Foxi');
       await page.getByRole('button', { name: '开始今日复习' }).click();
       await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
 
@@ -759,7 +875,7 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
       await expect(page.getByLabel('表达答案')).toHaveValue('test');
       await expect(page.locator('html[data-today-keyboard-primed]')).toHaveCount(1);
       const primedCard = (await card.boundingBox())!;
-      expect(primedCard.y).toBe(cardBefore.y);
+      expect(primedCard.y).toBeLessThan(cardBefore.y); // 进度合并顶栏，题卡获得更多空间
       expect(primedCard.y + primedCard.height).toBeLessThanOrEqual(812 * 0.48 + 2);
 
       for (const height of [780, 750, 715, 690, 620, 552]) {
@@ -772,7 +888,7 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
         const frameHeader = (await header.boundingBox())!;
         const frameCard = (await card.boundingBox())!;
         expect(frameHeader.y).toBe(headerBefore.y);
-        expect(frameCard.y).toBe(cardBefore.y);
+        expect(frameCard.y).toBe(primedCard.y);
         expect(frameCard.y + frameCard.height).toBeLessThanOrEqual(
           Math.min(cardBefore.y + cardBefore.height, height) + 1,
         );
@@ -794,15 +910,20 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
       const cardAfter = (await card.boundingBox())!;
       const headerAfter = (await header.boundingBox())!;
       expect(headerAfter.y).toBe(headerBefore.y); // 顶栏不动
-      expect(cardAfter.y).toBe(cardBefore.y); // 卡顶不动（压缩发生在底部）
+      expect(cardAfter.y).toBe(primedCard.y); // 紧凑布局切换后，动画期间卡顶不动
       expect(cardAfter.height).toBeLessThan(cardBefore.height); // 卡身压缩
       expect(cardAfter.y + cardAfter.height).toBeLessThanOrEqual(552); // 卡底不压键盘
       const inputBox = (await page.getByLabel('表达答案').boundingBox())!;
       expect(inputBox.y + inputBox.height).toBeLessThanOrEqual(552); // 输入框在键盘线上
       await expect(nav).toBeHidden();
 
-      await page.getByLabel('表达答案').evaluate((element) => (element as HTMLElement).blur());
+      // 输入法自带下箭头只隐藏键盘，输入仍聚焦：不能靠手动 blur 掩盖收起 bug。
+      await expect(page.getByLabel('表达答案')).toBeFocused();
       await page.evaluate(() => {
+        // 系统收起路径可能留下 document 的 reveal 滚动；恢复后必须清理，
+        // 否则下一次聚焦继承旧原点，整页被推走且卡底与键盘间出现空隙。
+        document.body.style.minHeight = '2000px';
+        window.scrollTo(0, 107);
         const vv = window.visualViewport!;
         Object.defineProperty(vv, 'height', { configurable: true, get: () => 812 });
         Object.defineProperty(vv, 'offsetTop', { configurable: true, get: () => 0 });
@@ -810,8 +931,81 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
       });
       await expect(page.locator('html[data-today-keyboard-primed]')).toHaveCount(0);
       await expect(nav).toBeVisible();
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
       const restoredCard = (await card.boundingBox())!;
       expect(restoredCard.y).toBe(cardBefore.y);
+      expect(restoredCard.height).toBeCloseTo(cardBefore.height, 0);
+      await expect(page.getByLabel('表达答案')).not.toBeFocused();
+      await expect(page.getByLabel('表达答案')).toHaveValue('test');
+      expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
+      await page.screenshot({ path: '/tmp/foxi-keyboard-restored.png' });
+
+      // 系统先恢复焦点但键盘尚未出现时，也不能跳过 pointerdown→click 保护。
+      await page.evaluate(() => window.scrollTo(0, 107)); // 模拟收起结束后迟到的 reveal 滚动
+      await page.getByLabel('表达答案').evaluate((element) => (element as HTMLElement).focus());
+      await page.evaluate(() => {
+        document.addEventListener(
+          'pointerdown',
+          (event) => {
+            const target = event.target as HTMLElement;
+            if (target.getAttribute('aria-label') !== '表达答案') return;
+            document.documentElement.dataset.secondTouchPending = String(
+              document.documentElement.hasAttribute('data-today-touch-pending'),
+            );
+            const vv = window.visualViewport!;
+            Object.defineProperty(vv, 'height', { configurable: true, get: () => 389 });
+            vv.dispatchEvent(new Event('resize'));
+          },
+          { once: true },
+        );
+      });
+      await page.getByLabel('表达答案').tap();
+      expect(await page.locator('html').getAttribute('data-second-touch-pending')).toBe('true');
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+      await expect(page.getByLabel('表达答案')).toBeFocused();
+      await page.evaluate(() => {
+        const vv = window.visualViewport!;
+        Object.defineProperty(vv, 'height', { configurable: true, get: () => 389 });
+        vv.dispatchEvent(new Event('resize'));
+      });
+      await page.keyboard.type(' again');
+      await expect(page.getByLabel('表达答案')).toHaveValue('test again');
+      expect((await header.boundingBox())!.y).toBe(headerBefore.y);
+      const reopenedCard = (await card.boundingBox())!;
+      expect(reopenedCard.y + reopenedCard.height).toBeCloseTo(389, 0);
+      await page.screenshot({ path: '/tmp/foxi-keyboard-reopened.png' });
+      // 多轮通过输入法按钮收起并重开，卡底不能累积额外空隙。
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await page.evaluate(() => {
+          window.scrollTo(0, 107);
+          const vv = window.visualViewport!;
+          Object.defineProperty(vv, 'height', { configurable: true, get: () => 812 });
+          vv.dispatchEvent(new Event('resize'));
+        });
+        await expect(nav).toBeVisible();
+        await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+        await page.getByLabel('表达答案').tap();
+        await page.evaluate(() => {
+          const vv = window.visualViewport!;
+          Object.defineProperty(vv, 'height', { configurable: true, get: () => 389 });
+          vv.dispatchEvent(new Event('resize'));
+        });
+        await expect(page.getByLabel('表达答案')).toBeFocused();
+        expect((await header.boundingBox())!.y).toBe(headerBefore.y);
+        const repeatCard = (await card.boundingBox())!;
+        expect(repeatCard.y + repeatCard.height).toBeCloseTo(389, 0);
+        await expect(page.getByLabel('表达答案')).toHaveValue('test again');
+      }
+      // 其他方式先 blur 再收键盘，沿用原来的等待动画路径。
+      await page.getByLabel('表达答案').evaluate((element) => (element as HTMLElement).blur());
+      await expect(nav).toBeHidden();
+      await page.evaluate(() => {
+        const vv = window.visualViewport!;
+        Object.defineProperty(vv, 'height', { configurable: true, get: () => 812 });
+        vv.dispatchEvent(new Event('resize'));
+      });
+      await expect(nav).toBeVisible();
+      expect((await card.boundingBox())!.height).toBeCloseTo(cardBefore.height, 0);
 
       // 普通页面滚动不是 iOS 键盘平移：失焦后不可把 fixed 顶栏再往下推。
       await page.evaluate(() => {

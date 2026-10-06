@@ -12,3 +12,26 @@ export const Textarea = forwardRef<
   />
 ));
 Textarea.displayName = 'Textarea';
+
+interface AutoGrowTextareaProps extends Omit<
+  TextareaHTMLAttributes<HTMLTextAreaElement>,
+  'value' | 'rows'
+> {
+  value: string;
+}
+
+/** 隐藏镜像负责排版测量，兼容没有 field-sizing 的 iOS；无需逐字读写 DOM 高度。 */
+export const AutoGrowTextarea = forwardRef<HTMLTextAreaElement, AutoGrowTextareaProps>(
+  ({ value, className, ...props }, ref) => (
+    <div className="auto-grow-textarea" data-value={value}>
+      <Textarea
+        {...props}
+        ref={ref}
+        rows={1}
+        value={value}
+        className={cn('auto-grow-textarea-field', className)}
+      />
+    </div>
+  ),
+);
+AutoGrowTextarea.displayName = 'AutoGrowTextarea';

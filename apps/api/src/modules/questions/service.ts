@@ -5,6 +5,7 @@ import {
   ClozePayload,
   CONTENT_LEVELS,
   DEFAULT_CONTENT_LEVEL,
+  type BetterVersionKind,
   type CheckClozeResult,
   type CheckProductionResult,
   type CorrectionSegment,
@@ -484,6 +485,7 @@ export interface ProductionPromptMeta {
 /** personal_example_candidate 投影（AI_RULES §10：eligible/quality_score，替换由后端决定） */
 export interface ProductionCandidate {
   eligible: boolean;
+  source: 'corrected' | 'better' | null;
   qualityScore: number;
   reason: string;
 }
@@ -495,6 +497,7 @@ export interface ProductionEvaluation {
   segments: CorrectionSegment[];
   explanation: string;
   betterVersion: string | null;
+  betterVersionKind: BetterVersionKind | null;
   candidate: ProductionCandidate;
   promptMeta: ProductionPromptMeta;
 }
@@ -537,7 +540,7 @@ export async function evaluateProduction(
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((e) => e.text);
 
-  // 变量名与 prompts/check_production.v1.md 一致；locked_meaning 用题目生成时锁定的
+  // 变量名与 prompts/check_production.v2.md 一致；locked_meaning 用题目生成时锁定的
   // meaning_snapshot（与 check_cloze 兜底一致；正常流下等于 item.meaning）
   const { data, meta, model } = await completeStructured<CheckProductionResult>(
     { provider: runtime.provider, config: runtime.config, registry: runtime.registry },
@@ -560,8 +563,10 @@ export async function evaluateProduction(
     segments: data.segments,
     explanation: data.explanation,
     betterVersion: data.better_version,
+    betterVersionKind: data.better_version_kind,
     candidate: {
       eligible: data.personal_example_candidate.eligible,
+      source: data.personal_example_candidate.source,
       qualityScore: data.personal_example_candidate.quality_score,
       reason: data.personal_example_candidate.reason,
     },

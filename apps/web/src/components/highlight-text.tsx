@@ -72,31 +72,12 @@ const IRREGULAR_FIRST_VERBS: Record<string, string> = {
   come: 'came',
 };
 
-/**
- * 在文本中高亮目标词/词组（大小写不敏感，词边界匹配）。
- * 单词目标按词形变体集命中（makes/making 也点亮 make）；词组目标对首词变形
- * （规则屈折 ∪ 不规则动词表，make sense → makes/making/made sense）、其余词保持
- * 原形，但占位代词（one's/oneself）在任意词位按人称替换命中
- * （get one's butt kicked → gets his butt kicked）。高亮显示原文里的实际形态。
- * 样式（2026-10-03 四候选视觉评审胜选 C）：accent 文字 + 半粗 + 大偏移下划线——
- * 颜色/字重/下划线三重信号，Quiet 且一眼锁定；不用底色（mark 的 bg-transparent
- * 前缀在 Tailwind CSS 顺序上会压掉任何 bg-* 类）。
- */
-export function HighlightText({
-  text,
-  target,
-  className = 'font-semibold text-accent underline decoration-accent/60 decoration-2 underline-offset-4',
-}: {
-  text: string;
-  target: string;
-  className?: string;
-}): ReactNode {
-  if (!target) return <>{text}</>;
-
+/** 单个 target 的完整匹配模式（词位级 alternation 拼接，见 HighlightText 注释） */
+function patternForTarget(target: string): string {
   // 词边界匹配；空白允许灵活空白（换行/多空格）；首词按 屈折变形 ∪ 不规则表 匹配，
   // 其余词原形（占位代词任意词位替换）。每个词位的 alternation 都包 (?:...)：
   // 防词组后续词被并进分支尾部，也防灾难回溯（分支均为有界字面量序列）。
-  const pattern = target
+  return target
     .trim()
     .split(/\s+/)
     .map((word, index) => {
@@ -111,6 +92,38 @@ export function HighlightText({
       return escapeRegExp(word);
     })
     .join('\\s+');
+}
+
+/**
+ * 在文本中高亮目标词/词组（大小写不敏感，词边界匹配）。
+ * 单词目标按词形变体集命中（makes/making 也点亮 make）；词组目标对首词变形
+ * （规则屈折 ∪ 不规则动词表，make sense → makes/making/made sense）、其余词保持
+ * 原形，但占位代词（one's/oneself）在任意词位按人称替换命中
+ * （get one's butt kicked → gets his butt kicked）。高亮显示原文里的实际形态。
+ * target 支持数组（Read 正文多词复现共用同一算法）：多目标按长度降序合并
+ * alternation，长词优先防止短语被自身单词截断；全部能力（变形/占位/不规则）逐目标生效。
+ * 样式（2026-10-03 四候选视觉评审胜选 C）：accent 文字 + 半粗 + 大偏移下划线——
+ * 颜色/字重/下划线三重信号，Quiet 且一眼锁定；不用底色（mark 的 bg-transparent
+ * 前缀在 Tailwind CSS 顺序上会压掉任何 bg-* 类）。
+ */
+export function HighlightText({
+  text,
+  target,
+  className = 'font-semibold text-accent underline decoration-accent/60 decoration-2 underline-offset-4',
+}: {
+  text: string;
+  target: string | string[];
+  className?: string;
+}): ReactNode {
+  const targets = (Array.isArray(target) ? target : [target])
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+  if (targets.length === 0) return <>{text}</>;
+
+  const pattern = [...targets]
+    .sort((a, b) => b.length - a.length)
+    .map((t) => `(?:${patternForTarget(t)})`)
+    .join('|');
   const regex = new RegExp(`\\b(${pattern})\\b`, 'gi');
 
   const nodes: ReactNode[] = [];

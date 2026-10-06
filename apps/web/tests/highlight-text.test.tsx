@@ -5,7 +5,7 @@ import { HighlightText } from '../src/components/highlight-text';
 afterEach(cleanup);
 
 /** 渲染后收集所有 mark 的文本（即被高亮的原文片段） */
-function highlightedTexts(text: string, target: string): string[] {
+function highlightedTexts(text: string, target: string | string[]): string[] {
   const { container } = render(
     <p>
       <HighlightText text={text} target={target} />
@@ -13,6 +13,9 @@ function highlightedTexts(text: string, target: string): string[] {
   );
   return Array.from(container.querySelectorAll('mark'), (mark) => mark.textContent ?? '');
 }
+
+/** 多目标用例别名（与 highlightedTexts 同实现，读起来更达意） */
+const highlightedMarks = highlightedTexts;
 
 describe('HighlightText 词形变体高亮', () => {
   it('原形命中：stable 命中原句里的 stable', () => {
@@ -119,5 +122,29 @@ describe('HighlightText 占位代词与首词不规则动词表', () => {
     expect(
       highlightedTexts('His brother fixed his bike yesterday.', "get one's butt kicked"),
     ).toEqual([]);
+  });
+});
+
+describe('多目标（Read 正文共用同一算法）', () => {
+  it('多个 target 各自命中；长词优先：give up 不被单词 up 截断', () => {
+    const marks = highlightedMarks('We decided to give up the plan and head up the road.', [
+      'give up',
+      'up',
+    ]);
+    expect(marks).toEqual(['give up', 'up']);
+  });
+
+  it('词边界防误标子串：targets 含 raw 时不点亮 drawing', () => {
+    expect(highlightedMarks('She was drawing a map of the raw coastline.', ['raw'])).toEqual([
+      'raw',
+    ]);
+  });
+
+  it('多目标逐个享有变形能力：makes sense（make sense）与 wore down（wear down）同段全亮', () => {
+    const marks = highlightedMarks(
+      'It makes sense once you know how the sea wore down the cliff.',
+      ['make sense', 'wear down'],
+    );
+    expect(marks).toEqual(['makes sense', 'wore down']);
   });
 });

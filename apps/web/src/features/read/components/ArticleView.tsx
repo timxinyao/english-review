@@ -2,27 +2,18 @@ import { useMemo } from 'react';
 import type { ReadArticleView } from '@el/shared';
 import { Star, Volume2 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
+import { HighlightText } from '../../../components/highlight-text';
 import { cn } from '../../../lib/utils';
 import { speak } from '../../../lib/tts';
 import { READ_TYPE_LABELS, useFavoriteArticle, useReadArticleData } from '../api';
-import { highlightParts } from '../highlight';
 import { relativeTime } from '../time';
 import { ReadCheckItem } from './ReadCheckItem';
 
-/** 正文段落：focus surfaceForm 大小写不敏感轻微高亮（accent-soft 背景） */
-function HighlightedParagraph({ text, surfaceForms }: { text: string; surfaceForms: string[] }) {
-  const parts = useMemo(() => highlightParts(text, surfaceForms), [text, surfaceForms]);
+/** 正文段落：focus 词与 surfaceForm 全部走全局 HighlightText（多目标 + 词形变体/占位代词能力） */
+function HighlightedParagraph({ text, targets }: { text: string; targets: string[] }) {
   return (
     <p className="leading-8 text-foreground">
-      {parts.map((part, i) =>
-        part.highlighted ? (
-          <mark key={i} className="rounded-sm bg-accent-soft px-0.5 text-foreground">
-            {part.text}
-          </mark>
-        ) : (
-          <span key={i}>{part.text}</span>
-        ),
-      )}
+      <HighlightText text={text} target={targets} />
     </p>
   );
 }
@@ -36,8 +27,11 @@ export function ArticleView({ article: initial }: { article: ReadArticleView }) 
   const { data } = useReadArticleData(initial);
   const article = data ?? initial;
   const favorite = useFavoriteArticle(article.id);
-  const surfaceForms = useMemo(
-    () => article.focusItems.map((f) => f.surfaceForm),
+  const highlightTargets = useMemo(
+    () =>
+      [
+        ...new Set(article.focusItems.flatMap((f) => [f.target, f.surfaceForm].filter(Boolean))),
+      ].filter((t): t is string => t !== null && t.length > 0),
     [article.focusItems],
   );
   const paragraphs = useMemo(() => article.body.split('\n\n'), [article.body]);
@@ -81,7 +75,7 @@ export function ArticleView({ article: initial }: { article: ReadArticleView }) 
 
       <div className="space-y-4 text-base">
         {paragraphs.map((paragraph, i) => (
-          <HighlightedParagraph key={i} text={paragraph} surfaceForms={surfaceForms} />
+          <HighlightedParagraph key={i} text={paragraph} targets={highlightTargets} />
         ))}
       </div>
 

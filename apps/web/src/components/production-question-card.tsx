@@ -16,6 +16,17 @@ export interface ProductionQuestionData {
   mustUse: string;
 }
 
+/**
+ * 批改等待预算（秒）：与服务端 checkProduction totalBudgetMs=120s 对齐
+ * （apps/api taskConfig——批改失败正常路径在 120s 落地；前端 150s 中止是冻结兜底，不作展示锚点）。
+ */
+const GRADING_BUDGET_SECONDS = 120;
+
+/** 批改用时展示：<10s 保留一位小数（区分快慢），≥10s 取整 */
+function formatGradingDuration(ms: number): string {
+  return ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
+}
+
 interface ProductionQuestionCardProps {
   question: ProductionQuestionData;
   result: QuestionAnswerResult | null;
@@ -36,8 +47,9 @@ interface ProductionQuestionCardProps {
 
 /** 表达题：受控中文提示 + 批改结果（PRODUCT §7.3/§7.4/§7.6）；Today 与练一下共用。
  *  主动不会（gaveUp）揭示参考句/用法说明且无批改，不渲染最小纠错 diff。
- *  批改中（pending）：提交按钮原地替换为「取消」+ 按钮上方 2px 动态进度线；
- *  取消后输入保留、按钮恢复「提交」可改写重交。
+ *  批改中（pending）：提交按钮原地替换为「取消」+ 按钮上方 2px 动态进度线 +
+ *  正计时「正在批改 已流逝/120」（≥30s 转 accent 提示进入长尾区）；
+ *  取消后输入保留、按钮恢复「提交」可改写重交；结果卡头部右侧显示本轮批改用时。
  *  批改失败（2026-10-05）：弹「批改未完成」对话框（返回修改/重试原句直接重交），
  *  同一错误只弹一次（新一轮提交后失败会再弹），卡上红字保留可见原因。 */
 export function ProductionQuestionCard({
@@ -56,6 +68,35 @@ export function ProductionQuestionCard({
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
+
+  // 批改正计时（2026-10-06）：pending 期间显示 已流逝/预算（120s）；结束时记录本轮批改用时，
+  // 仅在结果卡展示（取消/失败无结果不显示；新一轮提交清零重来）。
+  const pendingSinceRef = useRef<number | null>(null);
+  const prevPendingRef = useRef(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [gradingDurationMs, setGradingDurationMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (pending && !prevPendingRef.current) {
+      pendingSinceRef.current = Date.now();
+      setGradingDurationMs(null);
+      setElapsedSeconds(0);
+    } else if (!pending && prevPendingRef.current) {
+      const started = pendingSinceRef.current;
+      pendingSinceRef.current = null;
+      setElapsedSeconds(0);
+      if (started !== null) setGradingDurationMs(Date.now() - started);
+    }
+    prevPendingRef.current = pending;
+  }, [pending]);
+  useEffect(() => {
+    if (!pending) return;
+    const id = window.setInterval(() => {
+      if (pendingSinceRef.current !== null) {
+        setElapsedSeconds(Math.floor((Date.now() - pendingSinceRef.current) / 1000));
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [pending]);
 
   // 失败弹窗快照（非 null 即弹窗打开）：armed 标记保证同一错误只弹一次，
   // 新一轮提交（pending=true）重新武装——重试/改写后再失败会再弹。
@@ -177,8 +218,14 @@ export function ProductionQuestionCard({
     />
   );
   const gradingLabel = (
-    <span data-grading-label className="text-xs text-muted-foreground">
-      正在批改…
+    <span
+      data-grading-label
+      className={cn(
+        'text-xs tabular-nums',
+        elapsedSeconds >= 30 ? 'text-accent' : 'text-muted-foreground',
+      )}
+    >
+      正在批改 {elapsedSeconds}/{GRADING_BUDGET_SECONDS}
     </span>
   );
 
@@ -190,14 +237,24 @@ export function ProductionQuestionCard({
 
   const feedback = result && (
     <div className="space-y-3">
-      <p
-        className={cn(
-          'text-sm font-medium',
-          result.gaveUp ? 'text-destructive' : PRODUCTION_VERDICTS[result.result].className,
+      <div className="flex items-baseline justify-between gap-2">
+        <p
+          className={cn(
+            'text-sm font-medium',
+            result.gaveUp ? 'text-destructive' : PRODUCTION_VERDICTS[result.result].className,
+          )}
+        >
+          {result.gaveUp ? '主动不会' : PRODUCTION_VERDICTS[result.result].label}
+        </p>
+        {!result.gaveUp && gradingDurationMs !== null && (
+          <span
+            data-grading-duration
+            className="text-xs tabular-nums text-muted-foreground"
+          >
+            批改用时 {formatGradingDuration(gradingDurationMs)}
+          </span>
         )}
-      >
-        {result.gaveUp ? '主动不会' : PRODUCTION_VERDICTS[result.result].label}
-      </p>
+      </div>
       {result.gaveUp ? (
         <>
           {result.referenceAnswer && (

@@ -110,9 +110,64 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     const progressLine = document.querySelector('[data-grading-progress]');
     expect(progressLine).not.toBeNull();
     expect(progressLine!.className).toContain('animate-pulse');
-    expect(screen.getByText('正在批改…')).toBeVisible();
+    expect(screen.getByText(/正在批改 0\/120/)).toBeVisible();
     // 批改等待中不提供「不会表达」入口
     expect(screen.queryByRole('button', { name: '不会表达' })).not.toBeInTheDocument();
+  });
+
+  it('批改正计时与用时（2026-10-06）：等待中每秒 +1 显示 已流逝/预算，≥30s 转 accent；结果卡显示批改用时', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveAnswer!: (v: unknown) => void;
+      const statusQueue = [makeActive(makeProductionTask(), { completed: 1, total: 6 })];
+      stubApi({
+        '/api/today': () => statusQueue.shift() ?? makeActive(makeProductionTask(), { completed: 1, total: 6 }),
+        '/api/today/tasks/task-prod/answer': () =>
+          new Promise((r) => {
+            resolveAnswer = r;
+          }),
+      });
+      renderTodayApp();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      fireEvent.change(screen.getByLabelText('表达答案'), {
+        target: { value: 'I want to give up.' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: '提交' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText(/正在批改 0\/120/)).toBeVisible();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      let label = document.querySelector('[data-grading-label]')!;
+      expect(label.textContent).toBe('正在批改 5/120');
+      expect(label.className).toContain('text-muted-foreground');
+
+      // 长尾区（≥30s）：数字转 accent，提示进入疑难句等待区
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(26_000);
+      });
+      label = document.querySelector('[data-grading-label]')!;
+      expect(label.textContent).toBe('正在批改 31/120');
+      expect(label.className).toContain('text-accent');
+
+      // 结果到达：正计时消失，结果卡头部右侧显示本轮批改用时（≥10s 取整）
+      await act(async () => {
+        resolveAnswer(makeProductionAnswer());
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText('通过')).toBeVisible();
+      expect(document.querySelector('[data-grading-label]')).toBeNull();
+      const duration = document.querySelector('[data-grading-duration]')!;
+      expect(duration.textContent).toBe('批改用时 31s');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('点取消：请求被 abort、输入保留、按钮恢复「提交」，无错误提示；invalidate 刷新今日状态', async () => {
@@ -552,7 +607,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
 
     // 任务仍未结算：无反馈卡，维持「正在批改…」等待态
     await waitFor(() => {
-      expect(screen.getByText('正在批改…')).toBeVisible();
+      expect(screen.getByText(/正在批改 0\/120/)).toBeVisible();
     });
     expect(screen.queryByText('通过')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();

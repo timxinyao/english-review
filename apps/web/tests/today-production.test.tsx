@@ -1,4 +1,12 @@
-import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  createEvent,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ApiModule from '../src/lib/api';
 import { api, ApiError } from '../src/lib/api';
@@ -50,7 +58,9 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(await screen.findByText('长期的压力让我想放弃。')).toBeVisible();
     expect(screen.getByText('用英语表达')).toBeVisible();
     expect(
-      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '必须使用：give up'),
+      screen.getByText(
+        (_, el) => el?.tagName === 'P' && el.textContent === '必须使用：give up[复制]',
+      ),
     ).toBeVisible();
     expect(screen.getByText('give up').className).toContain('text-accent');
     const textarea = screen.getByLabelText('表达答案');
@@ -58,14 +68,20 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(screen.getByRole('button', { name: '提交' })).toBeDisabled();
   });
 
-  it('目标词一键复制：点击写入剪贴板并短暂反馈已复制', async () => {
+  it('目标词一键复制：点击写入剪贴板，底部 Toast 反馈；pointerdown 阻断焦点转移（键盘不收起）', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     renderTodayApp();
 
-    fireEvent.click(await screen.findByRole('button', { name: '复制目标词' }));
+    const btn = await screen.findByRole('button', { name: '复制目标词' });
+    // pointerdown 不夺焦点：默认行为被阻断（真实设备上表现为输入框不 blur、键盘不收起）
+    const pd = createEvent.pointerDown(btn);
+    fireEvent(btn, pd);
+    expect(pd.defaultPrevented).toBe(true);
+    fireEvent.click(btn);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('give up'));
-    expect(await screen.findByRole('button', { name: '已复制' })).toBeVisible();
+    expect(await screen.findByText('内容已经复制到剪贴板')).toBeVisible();
+    expect(screen.getByRole('button', { name: '复制目标词' })).toBeVisible(); // 按钮保持 [复制]
   });
 
   it('提交答案：POST answerText；不显示“查看原句/蒙的/太简单”，保留稍后再做', async () => {
@@ -121,7 +137,8 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
       let resolveAnswer!: (v: unknown) => void;
       const statusQueue = [makeActive(makeProductionTask(), { completed: 1, total: 6 })];
       stubApi({
-        '/api/today': () => statusQueue.shift() ?? makeActive(makeProductionTask(), { completed: 1, total: 6 }),
+        '/api/today': () =>
+          statusQueue.shift() ?? makeActive(makeProductionTask(), { completed: 1, total: 6 }),
         '/api/today/tasks/task-prod/answer': () =>
           new Promise((r) => {
             resolveAnswer = r;

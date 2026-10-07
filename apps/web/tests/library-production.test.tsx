@@ -321,7 +321,9 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     // 第 2 题：表达
     await screen.findByLabelText('表达答案');
     expect(
-      screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '必须使用：give up'),
+      screen.getByText(
+        (_, el) => el?.tagName === 'P' && el.textContent === '必须使用：give up[复制]',
+      ),
     ).toBeVisible();
     fireEvent.change(screen.getByLabelText('表达答案'), {
       target: { value: 'He decided to give up smoke.' },
@@ -360,7 +362,7 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
 
     fireEvent.click(await screen.findByRole('button', { name: '复制目标词' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('give up'));
-    expect(await screen.findByRole('button', { name: '已复制' })).toBeVisible();
+    expect(await screen.findByText('内容已经复制到剪贴板')).toBeVisible(); // Toast 反馈
   });
 
   it('表达题批改中可取消（2026-10-05）：点取消掐断请求、输入保留、按钮恢复「提交」且无错误提示', async () => {

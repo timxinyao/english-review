@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy } from 'lucide-react';
 import { AutoGrowTextarea, Textarea } from './ui/textarea';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
@@ -137,16 +136,35 @@ export function ProductionQuestionCard({
     <p className="production-target shrink-0 text-sm text-muted-foreground">
       必须使用：
       <span className="font-literary text-2xl text-accent">{question.mustUse}</span>
+      {/* pointerdown 阻断默认焦点转移：点复制不 blur 输入框 → 键盘不收起、页面不动；
+          文字链接样式（2026-10-07 参考词典 App：[复制] 跟在词后，成功反馈走底部 Toast） */}
       <button
         type="button"
-        aria-label={copied ? '已复制' : '复制目标词'}
+        aria-label="复制目标词"
+        onPointerDown={(e) => e.preventDefault()}
         onClick={copyTarget}
-        className="-my-1 ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="-my-0.5 ml-1.5 select-none rounded-sm text-xs font-medium text-accent transition-opacity active:opacity-60"
       >
-        {copied ? <Check size={14} /> : <Copy size={14} />}
+        [复制]
       </button>
     </p>
   );
+
+  // 复制成功 Toast：底部深色半透明圆角条（portal 出卡片滚动容器外），1.5s 随 copied 状态消失
+  const copiedToast =
+    copied &&
+    createPortal(
+      <div
+        role="status"
+        data-copy-toast
+        className="pointer-events-none fixed inset-x-0 bottom-24 z-overlay flex justify-center px-4"
+      >
+        <span className="rounded-full bg-foreground/75 px-4 py-2 text-sm text-background shadow-lg">
+          内容已经复制到剪贴板
+        </span>
+      </div>,
+      document.body,
+    );
 
   const prompt = (
     <div className="space-y-4 break-words pr-8">
@@ -247,10 +265,7 @@ export function ProductionQuestionCard({
           {result.gaveUp ? '主动不会' : PRODUCTION_VERDICTS[result.result].label}
         </p>
         {!result.gaveUp && gradingDurationMs !== null && (
-          <span
-            data-grading-duration
-            className="text-xs tabular-nums text-muted-foreground"
-          >
+          <span data-grading-duration className="text-xs tabular-nums text-muted-foreground">
             批改用时 {formatGradingDuration(gradingDurationMs)}
           </span>
         )}
@@ -301,6 +316,7 @@ export function ProductionQuestionCard({
         data-production-input={!result ? '' : undefined}
       >
         {failureDialog}
+        {copiedToast}
         {!result ? (
           <div className="production-context min-h-0 flex-1 break-words pr-8" data-slot="body">
             <p className="production-label text-xs text-muted-foreground">用英语表达</p>
@@ -322,6 +338,10 @@ export function ProductionQuestionCard({
           <div className="study-dock space-y-3" data-slot="dock">
             <AutoGrowTextarea
               aria-label="表达答案"
+              lang="en"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="resize-none"
               placeholder="Write your sentence in English…"
               value={text}
@@ -364,12 +384,17 @@ export function ProductionQuestionCard({
   return (
     <div className="space-y-4">
       {failureDialog}
+      {copiedToast}
       {prompt}
 
       {!result && (
         <div className="space-y-2">
           <Textarea
             aria-label="表达答案"
+            lang="en"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             rows={5}
             className="resize-none"
             placeholder="Write your sentence in English…"

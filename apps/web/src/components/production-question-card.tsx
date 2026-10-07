@@ -136,17 +136,27 @@ export function ProductionQuestionCard({
     <p className="production-target shrink-0 text-sm text-muted-foreground">
       必须使用：
       <span className="font-literary text-2xl text-accent">{question.mustUse}</span>
-      {/* pointerdown 阻断默认焦点转移：点复制不 blur 输入框 → 键盘不收起、页面不动；
-          文字链接样式（2026-10-07 参考词典 App：[复制] 跟在词后，成功反馈走底部 Toast） */}
-      <button
-        type="button"
+      {/* 键盘不收起（2026-10-07 真机复测）：iOS tap-focus 启发式会把焦点抢给可聚焦元素，
+          pointerdown preventDefault 拦不住 WebKit 触摸阶段的焦点转移——改用不可聚焦 span
+          （tabIndex=-1，iOS 不向不可聚焦元素移焦点 → 输入框保持焦点、键盘原位）；
+          Enter/Space 激活保留无障碍语义；样式参考词典 App：[复制] 跟在词后 */}
+      <span
+        role="button"
+        tabIndex={-1}
         aria-label="复制目标词"
         onPointerDown={(e) => e.preventDefault()}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={copyTarget}
-        className="-my-0.5 ml-1.5 select-none rounded-sm text-xs font-medium text-accent transition-opacity active:opacity-60"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            copyTarget();
+          }
+        }}
+        className="-my-0.5 ml-1.5 cursor-pointer select-none rounded-sm text-xs font-medium text-accent transition-opacity active:opacity-60"
       >
         [复制]
-      </button>
+      </span>
     </p>
   );
 
@@ -339,6 +349,7 @@ export function ProductionQuestionCard({
             <AutoGrowTextarea
               aria-label="表达答案"
               lang="en"
+              autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}

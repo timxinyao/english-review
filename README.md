@@ -1,55 +1,97 @@
-# English Learning Tool V1.2 — english-review
+# English Review
 
-个人英语复习系统：替代 Anki 的轻量复习闭环（导入 → New Queue → Today 复习 → 理解/填空/表达 → AI 批改 → Personal Example → Read 上下文复现）。单用户、单机、SQLite。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 文档地图（阅读顺序）
+Personal English review system — an Anki-light closed loop. Single-user, single-machine, SQLite.
 
-| 文档 | 职责 |
+Not a chat tutor. Not multi-user SaaS. A small, disciplined review loop with optional AI assist under backend rules.
+
+## What it does
+
+- **Import** learning material (batch-friendly)
+- **New Queue** holds new items; daily limits feed Today
+- **Today** is the only formal review entry: **Understanding** and **Production** (independent scheduling)
+- **AI feedback** for generation / judgment only — business state is always decided by the backend
+- **Personal Example** captures useful corrections
+- **Read** resurfaces items in context (does not change formal review progress)
+
+## Who it's for
+
+Self-hosters who want a focused personal review loop, not a classroom product or chatbot. Coding agents should start at [AGENTS.md](AGENTS.md), not this README alone.
+
+## Stack
+
+| Layer | Choice |
 | --- | --- |
-| [docs/PRODUCT_DESIGN.md](docs/PRODUCT_DESIGN.md) | 产品行为最高优先级：流程、页面、学习机制 |
-| [docs/TECHNICAL_DESIGN.md](docs/TECHNICAL_DESIGN.md) | 技术栈、模块/API、部署基线 |
-| [docs/DATABASE.md](docs/DATABASE.md) | 数据表与生命周期 |
-| [docs/AI_RULES.md](docs/AI_RULES.md) | AI 行为契约、Prompt 管理、Eval |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 前后端代码分层、全局样式/组件约束 |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | TDD 开发流、测试流、lint 门禁 |
-| [docs/PHASES.md](docs/PHASES.md) | 阶段划分与进度留档（进度唯一事实源） |
-| [docs/MODEL_BENCHMARK.md](docs/MODEL_BENCHMARK.md) | 模型×思考基准与策略（活文档，换模型对比） |
-| [AGENTS.md](AGENTS.md) | Coding Agent 开发纪律 |
-| [apps/api/prompts/](apps/api/prompts/) | 真正发送给模型的 7 个 Prompt（Git 为源） |
-| [apps/api/tests/ai/eval/](apps/api/tests/ai/eval/) | Prompt Eval fixtures |
+| Web | React + Vite + TypeScript, Tailwind + shadcn/ui |
+| API | Fastify, Zod, Drizzle ORM, SQLite |
+| Workspace | pnpm monorepo (`apps/web`, `apps/api`, `packages/shared`) |
 
-## 快速开始
+Requirements: **Node.js >= 20.19**, **pnpm 10**.
+
+## Quick start
 
 ```bash
 pnpm install
-pnpm dev            # 同时启动 api(127.0.0.1:5174) 与 web(5173)
+cp .env.example apps/api/.env   # dotenv loads from apps/api when the API runs
+# Edit apps/api/.env: set AUTH_PASSWORD and SESSION_SECRET
+# Optional: GLM_API_KEY / GLM_* for live AI (eval can use --provider mock)
+pnpm dev                        # API 127.0.0.1:5174 + web http://127.0.0.1:5173
 ```
 
-首次运行前复制 `.env.example` 为 `apps/api/.env` 并设置 `AUTH_PASSWORD`、`SESSION_SECRET`（开发有默认值）。
+See [`.env.example`](.env.example) for all fields (`AUTH_PASSWORD` / `AUTH_PASSWORD_HASH`, `SESSION_SECRET`, `DATABASE_PATH`, `APP_ORIGINS`, `APP_TIMEZONE`, optional `S3_BUCKET` and `GLM_*`). Do not commit real secrets.
 
-## 常用命令
+## Common commands
 
 ```bash
-pnpm test           # 全部单元/集成测试（vitest）
-pnpm e2e            # Playwright E2E（自动拉起 api+web）
-pnpm ai:eval -- --all              # Prompt Eval（无 GLM key 时用 --provider mock）
+pnpm test                              # unit/integration (vitest)
+pnpm e2e                               # Playwright (starts api+web)
+pnpm ai:eval -- --all                  # Prompt eval (use --provider mock without a GLM key)
 pnpm ai:eval -- --task check_production
-pnpm lint           # ESLint
-pnpm format         # Prettier
-pnpm typecheck      # tsc --noEmit
-pnpm build          # 类型检查 + web 产物构建
+pnpm lint
+pnpm format
+pnpm typecheck
+pnpm build                             # typecheck + web build
 ```
 
-## 核心产品原则
+## Core product principles
 
-- Simple first；Today 是唯一正式复习入口。
-- Learning Item 是核心资产，题目只是可再生缓存。
-- Understanding / Production 独立调度（L1–L7 阶梯）。
-- New Queue 承接大批量导入，每日限额引入。
-- Library“练一下”与 Read 不改变正式复习进度。
-- AI 只做文本生成/判断，业务状态永远由后端决定；Prompt 正文在 Git，不入库。
-- 单机、SQLite、可备份、可恢复。
+- Simple first; **Today** is the only formal review entry.
+- **Learning Item** is the core asset; exercise items are regenerable cache.
+- Understanding / Production are scheduled independently (L1–L7 ladder / FSRS as documented).
+- New Queue absorbs large imports; daily limits introduce work into Today.
+- Library “try once” and Read do **not** advance formal review progress.
+- AI only generates or judges text; business state is always decided by the backend. Prompt bodies live in Git, not in the DB.
+- Single machine, SQLite, backup-friendly and recoverable.
+
+## Documentation map
+
+### Humans
+
+Start here → dig into `docs/` as needed:
+
+| Doc | Role |
+| --- | --- |
+| [docs/PRODUCT_DESIGN.md](docs/PRODUCT_DESIGN.md) | Product behavior (highest priority): flows, pages, learning rules |
+| [docs/TECHNICAL_DESIGN.md](docs/TECHNICAL_DESIGN.md) | Stack, modules/API, deploy baseline |
+| [docs/DATABASE.md](docs/DATABASE.md) | Tables and lifecycles |
+| [docs/AI_RULES.md](docs/AI_RULES.md) | AI contracts, Prompt management, Eval |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Frontend/backend layering, style/component constraints |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | TDD flow, tests, lint gates |
+| [docs/PHASES.md](docs/PHASES.md) | Phase plan and progress (sole progress source of truth) |
+| [docs/MODEL_BENCHMARK.md](docs/MODEL_BENCHMARK.md) | Model × thinking benchmarks (living doc) |
+
+Chinese product/tech docs are the authoritative written design; this English README is the public entry, not a second product spec.
+
+### Coding agents
+
+1. Read **[AGENTS.md](AGENTS.md)** before changing code (forbidden scope, stack lock, fact sources, process).
+2. Then the same `docs/*` as source of truth; [docs/PHASES.md](docs/PHASES.md) for progress.
+3. Prompts that are actually sent to models: [apps/api/prompts/](apps/api/prompts/).
+4. Prompt eval fixtures: [apps/api/tests/ai/eval/](apps/api/tests/ai/eval/).
+
+Do not invent a second agent handbook. One fact lives in one place; link instead of copying.
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE) — Copyright (c) 2026 timxinyao.

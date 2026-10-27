@@ -18,5 +18,9 @@ apps/api/data/
 playwright-report/
 test-results/
 apps/api/tests/ai/eval/baselines/*.run.json
+.claude/*.lock
+# bench 本地产物（开源不随仓）：单轮对照矩阵与结果
+apps/api/scripts/bench/matrix-*-only.md
+apps/api/scripts/bench/results-*-only.jsonl
 
 .DS_Store

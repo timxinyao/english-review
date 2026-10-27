@@ -7,6 +7,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from '../src/app/shell';
 
 const keyboard = { inset: 0, open: false, anchored: false, visibleHeight: 812, offsetTop: 0 };
+const immersive = { active: false };
+vi.mock('../src/lib/today-chrome', () => ({
+  useTodayImmersiveSession: () => immersive.active,
+  setTodayImmersiveSession: (v: boolean) => {
+    immersive.active = v;
+  },
+}));
 vi.mock('../src/lib/keyboard-inset', () => ({
   useKeyboardInset: () => keyboard.inset,
   useKeyboardViewport: () => keyboard,
@@ -17,6 +24,7 @@ afterEach(() => {
   cleanup();
   keyboard.open = false;
   keyboard.anchored = false;
+  immersive.active = false;
 });
 
 function renderShell() {
@@ -101,5 +109,22 @@ describe('AppShell iOS 兼容', () => {
     await userEvent.click(screen.getByRole('button', { name: '刷新' }));
     await new Promise((r) => setTimeout(r, 400)); // onRefresh 内 300ms 延迟后 reload
     expect(reloadSpy).toHaveBeenCalledOnce();
+  });
+});
+
+describe('AppShell Today 会话态顶栏收敛', () => {
+  it('immersive 会话中藏刷新与统计，保留设置', () => {
+    immersive.active = true;
+    renderShellAt('/today');
+    expect(screen.queryByRole('link', { name: '统计' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
+    expect(screen.getByRole('link', { name: '设置' })).toBeVisible();
+  });
+
+  it('非会话态仍显示刷新与统计', () => {
+    immersive.active = false;
+    renderShellAt('/today');
+    expect(screen.getByRole('link', { name: '统计' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '刷新' })).toBeVisible();
   });
 });

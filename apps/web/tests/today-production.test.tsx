@@ -323,7 +323,7 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
   });
 
-  it('未通过：判定 destructive、红删绿增 diff、纠正后行、betterVersion 默认展开', async () => {
+  it('未通过：判定 destructive、红删绿增 diff、纠正后行、betterVersion 默认折叠', async () => {
     stubApi({
       '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }),
       '/api/today/tasks/task-prod/answer': makeProductionAnswer({
@@ -359,13 +359,15 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(inserted).toBeDefined();
     expect(screen.getByText('纠正后')).toBeVisible();
     expect(screen.getByText('请使用 give up 表达“放弃”。')).toBeVisible();
-    // rewrite 作为参考表达直接显示
-    expect(screen.getByText('参考表达')).toBeVisible();
-    const details = screen
-      .getByText('The constant stress makes me want to give up everything.')
-      .closest('details');
+    // rewrite 作为参考表达，默认折叠
+    const summary = screen.getByText('参考表达');
+    expect(summary).toBeVisible();
+    expect(screen.queryByText('更自然的说法')).not.toBeInTheDocument();
+    const details = summary.closest('details');
     expect(details).not.toBeNull();
-    expect(details).toHaveAttribute('open');
+    expect(details).not.toHaveAttribute('open');
+    (details as HTMLDetailsElement).open = true;
+    expect(screen.getByText('The constant stress makes me want to give up everything.')).toBeVisible();
     // fail 不入个人例句
     expect(screen.queryByText('已存入个人例句')).not.toBeInTheDocument();
   });

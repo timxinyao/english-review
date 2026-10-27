@@ -43,7 +43,7 @@ describe('CorrectionDiff（表达题批改 diff，PRODUCT §7.4/§12.2）', () =
     expect(seg.className).not.toContain('line-through');
   });
 
-  it('betterVersion 存在：「更自然的说法」默认展开直接可见（2026-10-03）', () => {
+  it('betterVersion 存在：「更自然的说法」默认折叠，展开后可见（手机反馈降噪）', () => {
     render(
       <CorrectionDiff
         segments={SEGMENTS}
@@ -53,9 +53,12 @@ describe('CorrectionDiff（表达题批改 diff，PRODUCT §7.4/§12.2）', () =
 
     const summary = screen.getByText('更自然的说法');
     expect(summary).toBeVisible();
-    const details = screen.getByText('The constant stress is wearing me down.').closest('details');
+    const details = summary.closest('details');
     expect(details).not.toBeNull();
-    expect(details).toHaveAttribute('open');
+    expect(details).not.toHaveAttribute('open');
+    // 展开后正文可见
+    (details as HTMLDetailsElement).open = true;
+    expect(screen.getByText('The constant stress is wearing me down.')).toBeVisible();
   });
 
   it('betterVersion 为 null：不渲染折叠区', () => {
@@ -73,8 +76,13 @@ describe('CorrectionDiff（表达题批改 diff，PRODUCT §7.4/§12.2）', () =
       />,
     );
 
-    expect(screen.getByText('参考表达')).toBeVisible();
+    const summary = screen.getByText('参考表达');
+    expect(summary).toBeVisible();
     expect(screen.queryByText('更自然的说法')).not.toBeInTheDocument();
+    const details = summary.closest('details');
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute('open');
+    (details as HTMLDetailsElement).open = true;
     expect(screen.getByText('Our team welcomed the honored guests at the entrance.')).toBeVisible();
   });
 

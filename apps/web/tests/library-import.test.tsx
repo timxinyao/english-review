@@ -156,7 +156,7 @@ describe('ImportWizard 导入向导', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: libraryKeys.all });
 
     fireEvent.click(screen.getByRole('button', { name: '返回 Library 列表' }));
-    expect(await screen.findByText('还没有学习项，点击导入开始')).toBeVisible();
+    expect(await screen.findByText('还没有学习项。可由教练帮你导入，或在电脑上打开本页使用导入。')).toBeVisible();
   });
 
   it('commit 404（token 过期）提示重新预览', async () => {

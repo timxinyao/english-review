@@ -94,7 +94,7 @@ describe('LibraryPage 列表', () => {
 
   it('筛选 chips：Word 带类型参数、学习中带 status=active', async () => {
     renderLibraryApp();
-    await screen.findByText('还没有学习项，点击导入开始');
+    await screen.findByText('还没有学习项。可由教练帮你导入，或在电脑上打开本页使用导入。');
 
     fireEvent.click(screen.getByRole('button', { name: 'Word' }));
     await waitFor(() => {
@@ -148,9 +148,9 @@ describe('LibraryPage 列表', () => {
     ).toBeVisible();
   });
 
-  it('空态显示安静文案与导入入口', async () => {
+  it('空态显示教练/PC 导入说明与 PC 导入入口', async () => {
     renderLibraryApp();
-    expect(await screen.findByText('还没有学习项，点击导入开始')).toBeVisible();
+    expect(await screen.findByText('还没有学习项。可由教练帮你导入，或在电脑上打开本页使用导入。')).toBeVisible();
     expect(screen.getByRole('button', { name: '开始导入' })).toBeVisible();
   });
 
@@ -165,7 +165,7 @@ describe('LibraryPage 列表', () => {
 
   it('点击导入进入导入向导视图', async () => {
     renderLibraryApp();
-    await screen.findByText('还没有学习项，点击导入开始');
+    await screen.findByText('还没有学习项。可由教练帮你导入，或在电脑上打开本页使用导入。');
 
     fireEvent.click(screen.getByRole('button', { name: '导入' }));
     expect(await screen.findByLabelText('粘贴学习库 JSON')).toBeVisible();

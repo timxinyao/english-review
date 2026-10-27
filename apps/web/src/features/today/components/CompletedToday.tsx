@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { EXTEND_BATCH_UNLIMITED, type TodayCompletedResponse } from '@el/shared';
 import { Link } from 'react-router-dom';
 import { Button } from '../../../components/ui/button';
@@ -7,7 +8,7 @@ import { useExtendSession, useSessionTasks } from '../api';
 
 /**
  * completed 态：安静完成摘要（PRODUCT §4.3/§5.1）+ 再学一批（§3.4）
- * + 「今日学习」按学习项去重的只读记录（与会话内弹层同一分组组件，不用于跳题/重答）。
+ * + 「今日学习」默认折叠，点开才看全日记录（手机降压）。
  */
 export function CompletedToday({
   data,
@@ -23,6 +24,7 @@ export function CompletedToday({
   const undoableTaskId = sessionTasks?.undoableTaskId ?? null;
   const extend = useExtendSession();
   const extendCount = remainingNewQuota ?? EXTEND_BATCH_UNLIMITED;
+  const [showLog, setShowLog] = useState(false);
 
   function renderExtend() {
     if (remainingNewQuota === 0) return null;
@@ -68,8 +70,28 @@ export function CompletedToday({
 
       {entries.length > 0 && (
         <section className="space-y-1.5">
-          <h3 className="text-sm font-medium text-foreground">今日学习</h3>
-          <TodayLearningList entries={entries} />
+          {!showLog ? (
+            <div className="flex justify-center">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowLog(true)}
+              >
+                查看今日记录
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-medium text-foreground">今日学习</h3>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setShowLog(false)}>
+                  收起
+                </Button>
+              </div>
+              <TodayLearningList entries={entries} />
+            </>
+          )}
         </section>
       )}
     </div>

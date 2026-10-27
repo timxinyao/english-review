@@ -60,6 +60,9 @@ describe('完成页今日学习', () => {
     renderTodayApp();
     await screen.findByText('今天完成了');
 
+    // 全日记录默认折叠：先点「查看今日记录」
+    fireEvent.click(await screen.findByRole('button', { name: '查看今日记录' }));
+
     // 今日学习列表来自独立的 /api/today/tasks 查询，晚于完成摘要落地，需等待
     const list = await screen.findByRole('list', { name: '今日学习' });
     // 分组按 item 去重：alpha（两题一组）/ beta / gamma（已撤销）= 3 组

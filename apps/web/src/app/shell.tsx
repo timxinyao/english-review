@@ -6,6 +6,7 @@ import { stopSpeaking } from '../lib/tts';
 import { toggleKeyboardDebug, useKeyboardPhase } from '../lib/keyboard-inset';
 import { useLogout } from '../features/auth/api';
 import { Button } from '../components/ui/button';
+import { useTodayImmersiveSession } from '../lib/today-chrome';
 
 const MAIN_NAV = [
   { to: '/today', label: 'Today', icon: Sun },
@@ -48,6 +49,7 @@ export function AppShell() {
   const immersiveToday = pathname === '/' || pathname.startsWith('/today');
   const todayKeyboardAnchored = immersiveToday && keyboardPhase !== 'idle';
   const todayKeyboardOpen = immersiveToday && keyboardPhase === 'open';
+  const todayImmersive = useTodayImmersiveSession();
 
   // 路由切换时停止正在播放的发音
   useEffect(() => {
@@ -121,22 +123,27 @@ export function AppShell() {
             {headerTitle(pathname)}
           </span>
           <div className="flex items-center gap-1">
-            <NavLink
-              to="/stats"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
-              aria-label="统计"
-            >
-              <BarChart3 className="h-4 w-4" aria-hidden />
-            </NavLink>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 text-muted-foreground"
-              aria-label="刷新"
-              onClick={onRefresh}
-            >
-              <RotateCw className={refreshed ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} aria-hidden />
-            </Button>
+            {/* 会话一题一屏时藏刷新/Stats，给 ProgressRow 让出顶栏空间；Settings 保留 */}
+            {!todayImmersive && (
+              <>
+                <NavLink
+                  to="/stats"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+                  aria-label="统计"
+                >
+                  <BarChart3 className="h-4 w-4" aria-hidden />
+                </NavLink>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-muted-foreground"
+                  aria-label="刷新"
+                  onClick={onRefresh}
+                >
+                  <RotateCw className={refreshed ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} aria-hidden />
+                </Button>
+              </>
+            )}
             <NavLink
               to="/settings"
               className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"

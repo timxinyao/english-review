@@ -10,6 +10,7 @@ import { TaskCard } from './TaskCard';
 import { TodayLearningSheet } from './TodayLearningSheet';
 import { UndoAnswerControl } from './UndoAnswer';
 import { todayKeys, useSessionTasks } from '../api';
+import { setTodayImmersiveSession } from '../../../lib/today-chrome';
 
 export interface FrozenAnswer {
   task: TodayTaskView;
@@ -54,6 +55,8 @@ function ProgressRow({
   const pass = live.filter((e) => e.result?.result === 'pass').length;
   const basicPass = live.filter((e) => e.result?.result === 'basic_pass').length;
   const fail = live.filter((e) => e.result?.result === 'fail').length;
+  /** 大队列（>~20）不用每题一根 flex 色条：手机上 50+ 题会压成 1px 条，改靠数字+文字统计 */
+  const showSegmentBar = hasEntries && live.length <= 20;
 
   return (
     <div className="shrink-0 px-0.5" data-today-progress>
@@ -76,8 +79,8 @@ function ProgressRow({
               通过 {pass} · 基础通过 {basicPass} · 未通过 {fail}
             </span>
           )}
-          {/* 分布分段按结果着色；当前题段加高亮（颜色之外另有文字计数） */}
-          {hasEntries && (
+          {/* 分布分段按结果着色；当前题段加高亮（颜色之外另有文字计数）。大队列隐藏分段条 */}
+          {showSegmentBar && (
             <span className="mt-2 flex items-center gap-1" aria-hidden>
               {live.map((e) => {
                 const kind = e.result?.result ?? 'pending';
@@ -98,13 +101,13 @@ function ProgressRow({
             </span>
           )}
         </button>
-        {/* 「自动」药丸与词行纯喇叭发音按钮视觉区分（2026-10-03）：开=波形+陶土，关=斜杠喇叭+灰 */}
+        {/* 「自动」发音：手机仅图标（次要入口，给进度区让位）；桌面保留文字 */}
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className={cn(
-            'h-7 gap-1 rounded-full px-2.5 text-xs',
+            'h-7 shrink-0 gap-1 rounded-full px-2 text-xs md:px-2.5',
             autoSpeak ? 'text-accent' : 'text-muted-foreground',
           )}
           aria-label="自动发音"
@@ -116,7 +119,7 @@ function ProgressRow({
           ) : (
             <VolumeX className="h-3.5 w-3.5" aria-hidden />
           )}
-          自动
+          <span className="hidden md:inline">自动</span>
         </Button>
       </div>
 
@@ -154,6 +157,11 @@ export function ActiveSession({
   onUndone,
 }: ActiveSessionProps) {
   const { data: sessionTasks } = useSessionTasks();
+  // 通知 shell：手机会话态收敛顶栏（藏刷新/Stats），卸载时恢复
+  useEffect(() => {
+    setTodayImmersiveSession(true);
+    return () => setTodayImmersiveSession(false);
+  }, []);
   const entries = sessionTasks?.tasks ?? null;
   const undoableTaskId = sessionTasks?.undoableTaskId ?? null;
   const queryClient = useQueryClient();

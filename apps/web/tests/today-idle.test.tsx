@@ -18,13 +18,14 @@ describe('TodayPage idle 态', () => {
     stubApi({ '/api/today': makeIdle() });
   });
 
-  it('主卡片渲染 due/new 数字、开始按钮与 Recently learned 列表', async () => {
+  it('主卡片渲染降压文案、开始按钮、轻提示与 Recently learned 列表', async () => {
     renderTodayApp();
 
     expect(
-      await screen.findByText('词汇总数 57 · 待学 27 · 今日到期 4 项 · 可新学 1'),
+      await screen.findByText('词库 57 · 待学 27 · 有 4 项可复习 · 还可新学 1'),
     ).toBeVisible();
     expect(screen.getByRole('button', { name: '开始今日复习' })).toBeVisible();
+    expect(screen.getByText('做一点也行，不必一次清完')).toBeVisible();
     expect(screen.getByText('Recently learned')).toBeVisible();
     expect(screen.getByText('wear down')).toBeVisible();
     expect(screen.getByText('raw')).toBeVisible();

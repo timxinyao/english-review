@@ -5,7 +5,7 @@ import { StartSessionDialog } from './StartSessionDialog';
 
 export const RECENTLY_LEARNED_MAX = 5;
 
-/** idle 态：一页一个主动作——开始今日复习（PRODUCT §5.1） */
+/** idle 态：一页一个主动作——开始今日复习（PRODUCT §5.1）；文案降压，不做假数字拆分积压 */
 export function IdleToday({ data }: { data: TodayIdleResponse }) {
   const start = useStartSession();
 
@@ -13,8 +13,9 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
     <div className="space-y-8">
       <div className="rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-sm text-muted-foreground">
-          词汇总数 {data.totalItems} · 待学 {data.newQueueCount} · 今日到期 {data.dueItems} 项 ·
-          可新学 {data.newTodayAvailable}
+          词库 {data.totalItems} · 待学 {data.newQueueCount}
+          {data.dueItems > 0 ? ` · 有 ${data.dueItems} 项可复习` : ' · 暂无到期'}
+          {data.newTodayAvailable > 0 ? ` · 还可新学 ${data.newTodayAvailable}` : ''}
         </p>
         <Button
           size="lg"
@@ -24,6 +25,7 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
         >
           {start.isPending ? '正在开始…' : '开始今日复习'}
         </Button>
+        <p className="mt-3 text-xs text-muted-foreground">做一点也行，不必一次清完</p>
       </div>
 
       {/* 条件挂载（非常驻 return null）：计时起点 useState 初值取挂载时刻才不失真 */}

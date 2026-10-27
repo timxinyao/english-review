@@ -532,6 +532,48 @@ describe('进度区交互：整个进度区为弹层入口', () => {
   });
 });
 
+describe('大队列进度区：不渲染每题色条', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('任务数 > 20 时仅显示完成/总数与文字统计，无 data-seg', async () => {
+    const tasks = Array.from({ length: 21 }, (_, i) =>
+      makeChoiceTask({
+        taskId: `task-${i}`,
+        item: {
+          id: `item-${i}`,
+          type: 'word',
+          target: i === 20 ? 'omega' : `w${i}`,
+          meaning: `义${i}`,
+          ipa: null,
+          notes: null,
+        },
+        question: {
+          questionId: `q-${i}`,
+          kind: 'direct_meaning',
+          context: null,
+          question: `"w${i}" 的意思是？`,
+          options: [
+            { id: `o${i}a`, text: `义${i}` },
+            { id: `o${i}b`, text: '其他' },
+          ],
+        },
+      }),
+    );
+    const current = tasks[20]!;
+    stubApi({
+      '/api/today': () => makeActive(current, { completed: 0, total: 21 }),
+      '/api/today/tasks': () =>
+        makeTasksResponse(tasks.map((task) => makeSessionEntry(task, null))),
+    });
+    renderTodayApp();
+    await screen.findByRole('heading', { name: 'omega' });
+    expect(await screen.findByText('0 / 21')).toBeVisible();
+    expect(screen.getByText('通过 0 · 基础通过 0 · 未通过 0')).toBeVisible();
+    const entry = screen.getByRole('button', { name: '查看今日学习' });
+    expect(entry.querySelectorAll('[data-seg]')).toHaveLength(0);
+  });
+});
+
 describe('回前台自动刷新今日状态（2026-10-04）', () => {
   beforeEach(() => vi.clearAllMocks());
 

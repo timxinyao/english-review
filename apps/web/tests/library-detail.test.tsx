@@ -225,9 +225,15 @@ describe('LibraryDetail 详情', () => {
     expect(await screen.findByRole('button', { name: '编辑' })).toBeVisible();
   });
 
-  it('显式操作：暂停/归档(destructive)/标记已掌握；重置进度带确认', async () => {
+  it('主操作练一下/编辑突出；暂停/归档/掌握/重置收在「更多」', async () => {
     renderDetail();
     await screen.findByRole('heading', { name: 'resilient' });
+
+    expect(screen.getByRole('button', { name: '练一下' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '编辑' })).toBeVisible();
+    // 次要操作默认收起
+    expect(screen.queryByRole('button', { name: '暂停' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '更多' }));
 
     fireEvent.click(screen.getByRole('button', { name: '暂停' }));
     await waitFor(() => {
@@ -259,6 +265,7 @@ describe('LibraryDetail 详情', () => {
   it('paused 显示恢复（resume），archived 显示恢复（restore）且非 destructive', async () => {
     renderDetail({ status: 'paused' });
     await screen.findByRole('heading', { name: 'resilient' });
+    fireEvent.click(screen.getByRole('button', { name: '更多' }));
     expect(screen.queryByRole('button', { name: '暂停' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '恢复' }));
     await waitFor(() => {
@@ -268,6 +275,7 @@ describe('LibraryDetail 详情', () => {
     cleanup();
     renderDetail({ status: 'archived' });
     await screen.findByRole('heading', { name: 'resilient' });
+    fireEvent.click(screen.getByRole('button', { name: '更多' }));
     const restoreBtn = screen.getByRole('button', { name: '恢复' });
     expect(restoreBtn.className).not.toContain('text-destructive');
     fireEvent.click(restoreBtn);

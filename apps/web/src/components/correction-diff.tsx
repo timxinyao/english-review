@@ -3,7 +3,8 @@ import type { CorrectionSegment } from '@el/shared';
 /**
  * 表达题批改 diff（PRODUCT §7.4/§12.2）：
  * same 正文色、delete 红色删除线、insert 绿色；
- * betterVersion 默认展开（2026-10-03：更自然的说法直接可见），为 null 不渲染。
+ * betterVersion 默认折叠（手机反馈层级：判语 → 纠正/diff → 一句 explanation；
+ * 「更自然/参考表达」点开再看），为 null 不渲染。
  */
 interface CorrectionDiffProps {
   segments: readonly CorrectionSegment[];
@@ -44,7 +45,7 @@ export function CorrectionDiff({
         </p>
       )}
       {betterVersion && (
-        <details className="text-sm" open>
+        <details className="text-sm">
           <summary className="cursor-pointer select-none text-xs text-muted-foreground">
             {betterVersionKind === 'rewrite' ? '参考表达' : '更自然的说法'}
           </summary>

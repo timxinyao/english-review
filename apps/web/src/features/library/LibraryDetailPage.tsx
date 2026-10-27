@@ -343,6 +343,7 @@ export function LibraryDetailPage() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [practicing, setPracticing] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   const { data, isLoading, isError } = useQuery({
@@ -568,74 +569,93 @@ export function LibraryDetailPage() {
             )}
           </section>
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-            <Button variant="neutral" size="sm" onClick={() => setEditing(true)}>
-              编辑
-            </Button>
-            <Button variant="neutral" size="sm" onClick={() => setPracticing(true)}>
-              练一下
-            </Button>
-            {item.status === 'active' && (
-              <Button
-                variant="neutral"
-                size="sm"
-                disabled={action.isPending}
-                onClick={() => runAction(() => pauseLibraryItem(id))}
-              >
-                暂停
+          <div className="space-y-2 border-t border-border pt-4">
+            {/* 主操作突出：练一下 / 编辑；暂停归档等收进「更多」 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={() => setPracticing(true)}>
+                练一下
               </Button>
-            )}
-            {item.status === 'paused' && (
-              <Button
-                variant="neutral"
-                size="sm"
-                disabled={action.isPending}
-                onClick={() => runAction(() => resumeLibraryItem(id))}
-              >
-                恢复
+              <Button variant="neutral" size="sm" onClick={() => setEditing(true)}>
+                编辑
               </Button>
-            )}
-            {item.status === 'archived' ? (
               <Button
-                variant="neutral"
+                type="button"
+                variant="ghost"
                 size="sm"
-                disabled={action.isPending}
-                onClick={() => runAction(() => restoreLibraryItem(id))}
+                aria-expanded={moreOpen}
+                onClick={() => setMoreOpen((v) => !v)}
               >
-                恢复
+                更多
               </Button>
-            ) : (
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={action.isPending}
-                onClick={() => runAction(() => archiveLibraryItem(id))}
+            </div>
+            {moreOpen && (
+              <div
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2"
+                data-more-actions
               >
-                归档
-              </Button>
-            )}
-            <Button
-              variant="neutral"
-              size="sm"
-              onClick={() =>
-                setConfirm({
-                  title: '重置学习进度？',
-                  description: '将清空该学习项的理解与输出进度，重新回到未开始状态。',
-                  onConfirm: () => reset.mutate(),
-                })
-              }
-            >
-              重置进度
-            </Button>
-            {item.status !== 'mastered' && (
-              <Button
-                variant="neutral"
-                size="sm"
-                disabled={action.isPending}
-                onClick={() => runAction(() => masterLibraryItem(id))}
-              >
-                标记已掌握
-              </Button>
+                {item.status === 'active' && (
+                  <Button
+                    variant="neutral"
+                    size="sm"
+                    disabled={action.isPending}
+                    onClick={() => runAction(() => pauseLibraryItem(id))}
+                  >
+                    暂停
+                  </Button>
+                )}
+                {item.status === 'paused' && (
+                  <Button
+                    variant="neutral"
+                    size="sm"
+                    disabled={action.isPending}
+                    onClick={() => runAction(() => resumeLibraryItem(id))}
+                  >
+                    恢复
+                  </Button>
+                )}
+                {item.status === 'archived' ? (
+                  <Button
+                    variant="neutral"
+                    size="sm"
+                    disabled={action.isPending}
+                    onClick={() => runAction(() => restoreLibraryItem(id))}
+                  >
+                    恢复
+                  </Button>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={action.isPending}
+                    onClick={() => runAction(() => archiveLibraryItem(id))}
+                  >
+                    归档
+                  </Button>
+                )}
+                <Button
+                  variant="neutral"
+                  size="sm"
+                  onClick={() =>
+                    setConfirm({
+                      title: '重置学习进度？',
+                      description: '将清空该学习项的理解与输出进度，重新回到未开始状态。',
+                      onConfirm: () => reset.mutate(),
+                    })
+                  }
+                >
+                  重置进度
+                </Button>
+                {item.status !== 'mastered' && (
+                  <Button
+                    variant="neutral"
+                    size="sm"
+                    disabled={action.isPending}
+                    onClick={() => runAction(() => masterLibraryItem(id))}
+                  >
+                    标记已掌握
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </>

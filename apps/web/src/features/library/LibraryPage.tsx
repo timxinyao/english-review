@@ -64,7 +64,8 @@ export function LibraryPage() {
         onChange={(e) => setSearch(e.target.value)}
       />
 
-      <div className="flex flex-wrap gap-1.5">
+      {/* 手机单行横滑；桌面仍可自然排布（nowrap + 可滚动不折行） */}
+      <div className="-mx-1 flex flex-nowrap gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {LIBRARY_FILTERS.map(({ key, label }) => (
           <button
             key={key}
@@ -72,7 +73,7 @@ export function LibraryPage() {
             aria-pressed={filter === key}
             onClick={() => setFilter(key)}
             className={cn(
-              'rounded-full border px-3 py-1 text-xs transition-colors',
+              'shrink-0 rounded-full border px-3 py-1 text-xs transition-colors',
               filter === key
                 ? 'border-accent bg-accent-soft text-accent'
                 : 'border-border text-muted-foreground hover:bg-muted',
@@ -95,7 +96,9 @@ export function LibraryPage() {
 
       {data && data.items.length === 0 && isMainEmpty && (
         <div className="space-y-3 py-16 text-center">
-          <p className="text-sm text-muted-foreground">还没有学习项，点击导入开始</p>
+          <p className="text-sm text-muted-foreground">
+            还没有学习项。可由教练帮你导入，或在电脑上打开本页使用导入。
+          </p>
           <Button
             variant="neutral"
             size="sm"

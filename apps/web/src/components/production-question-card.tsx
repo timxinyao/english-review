@@ -300,6 +300,7 @@ export function ProductionQuestionCard({
         </>
       ) : (
         <>
+          {/* 手机反馈层级：判语（上方）→ 纠正/diff → 一句 explanation；betterVersion 在 CorrectionDiff 内默认折叠 */}
           {result.correction && (
             <CorrectionDiff
               segments={result.correction.segments}
@@ -309,7 +310,7 @@ export function ProductionQuestionCard({
             />
           )}
           {result.explanation && (
-            <p className="text-sm text-muted-foreground">{result.explanation}</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">{result.explanation}</p>
           )}
           {result.personalExampleSaved && (
             <p className="text-xs text-muted-foreground">已存入个人例句</p>

@@ -28,7 +28,11 @@
 - [x] 造句 fail（非主动不会）回传并展示 referenceAnswer / answerNote；pass / basic_pass 不变。
 - [x] 过期未完成 Session 在下次创建 Session 时标记 abandoned_at。
 - [x] `pnpm lint && pnpm typecheck && pnpm test` 通过（api 590 / web 303；typecheck 在 1.9G 小机需逐包串行，并行 tsc 会被 OOM SIGTERM；e2e 视部署验收补充）。
-- [ ] 部署到生产并冒烟（health、idle 文案、软上限行为）。
+- [x] 部署到生产并冒烟（health、idle 文案、软上限行为）。
+  - 部署 f163a25 → /opt，迁移 0009 自动应用（settings.today_review_limit=15、review_sessions.abandoned_at 就位）；
+  - 冒烟：health ok；GET /api/settings 含 todayReviewLimit=15；GET /api/today idle → dueItems 67 / plannedReviews 15 / backlogLeft 52；
+  - 生产当日已按旧行为建好的 67 题零进度会话（0 作答/0 新学消耗）快照 DB 后删除，下次 Start 按上限 15 重建；
+  - 8 条跨日未完成历史 Session 将在用户下次 Start 时自动标记 abandoned_at。
 
 ## 决策记录
 
@@ -47,3 +51,4 @@
 
 - 2026-10-27：阶段开档，PRODUCT/TECHNICAL/DATABASE/PHASES 文档更新。
 - 2026-10-27：shared 契约（settings/today/backup）、DB schema + 迁移 0009、API（软上限/idle 计划积压字段/fail 揭示/abandoned 标记/parseBody 输出类型）、web 接线（IdleToday 拆分文案、Settings 今日复习上限、fail 参考句）、e2e 断言与全部测试落地。
+- 2026-10-27：e2e 全绿 30/30（顺带修复 8989fa1 后 4 处 spec 未跟进：完成页折叠、[复制] 链接、Library 更多菜单、betterVersion 折叠——均为存量 spec 腐坏，与本阶段代码无关）；api 590 / web 303 / lint / 逐包 typecheck 全过；f163a25 已 push 并部署生产，冒烟通过，阶段完成。

@@ -16,7 +16,7 @@
 | 8 | Today 沉浸式答题改版 | 满屏卡片、主动不会与纠错、结果进度、今日学习、最近作答撤销 | done（2026-09-28） | [phase-8-today-card-flow.md](phases/phase-8-today-card-flow.md) |
 | 9 | Foxi V2 学习流程 | 条件化造句目标、Recall/Production、Read 自然复现与安全切换 | done（2026-10-02） | [phase-9-foxi-v2.md](phases/phase-9-foxi-v2.md) |
 | 10 | FSRS 记忆调度 | 固定阶梯换轨 FSRS（D/S 状态、S≥120 mastered、attempts 回放切换） | done（2026-10-03） | [phase-10-fsrs.md](phases/phase-10-fsrs.md) |
-| 11 | 暖纸色卡与 Session 视觉 | Claude 风格色卡、公共控件与阅读式 Session 排版 | done（2026-10-03，未部署） | [phase-11-paper-ui.md](phases/phase-11-paper-ui.md) |
+| 11 | 暖纸色卡与 Session 视觉 | Claude 风格色卡、公共控件与阅读式 Session 排版 | done（2026-10-03 提交，2026-10-07 已部署） | [phase-11-paper-ui.md](phases/phase-11-paper-ui.md) |
 
 > **V1.2 六个阶段全部完成（2026-09-25），已部署上线**：https://18-136-183-11.nip.io（HTTPS+PWA）与 http://18.136.183.11:8080 双入口。剩余可选优化见 phase-6 留档"遗留问题"。
 
@@ -33,6 +33,7 @@
 
 | 日期 | 决策 | 依据 |
 | --- | --- | --- |
+| 2026-10-27 | 核对 Phase 11：暖纸 UI 已在生产，更正「未部署」过时状态 |
 | 2026-09-24 | 采用六阶段计划（上表）；B 类工程决策按分析报告默认值执行（间隔减半规则、补强插入位置、Learn 完成时翻 queue_state 等） | 设计包审查确认 |
 | 2026-09-24 | 文档缺口补齐：import JSON 增加 ipa、新增 daily_stats 表、practice 作答与 master 端点、generate_production_prompt fixture | 设计包审查确认 |
 | 2026-09-24 | TDD 强制、阶段留档、前后端架构文档、全局样式/组件约束写入 AGENTS.md 与 docs/ | 用户要求 |

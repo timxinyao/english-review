@@ -49,3 +49,7 @@ pnpm build          # 类型检查 + web 产物构建
 - Library“练一下”与 Read 不改变正式复习进度。
 - AI 只做文本生成/判断，业务状态永远由后端决定；Prompt 正文在 Git，不入库。
 - 单机、SQLite、可备份、可恢复。
+
+## License
+
+[MIT](./LICENSE)

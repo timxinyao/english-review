@@ -64,6 +64,8 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
         // pass 时 corrected = 原句（diff 全 same）
         await expect(page.getByText('The constant stress makes me want to give up.')).toBeVisible();
         await expect(page.getByText('参考表达', { exact: true })).toBeVisible();
+        // betterVersion 折叠在参考表达 details 内（手机反馈层级降压）：点开再断言
+        await page.getByText('参考表达', { exact: true }).click();
         await expect(
           page.getByText('Constant stress is making me feel like giving up.'),
         ).toBeVisible();

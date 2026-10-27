@@ -367,6 +367,7 @@ describe('GET /api/export/backup', () => {
     expect(typeof body.exportedAt).toBe('string');
     expect(body.settings).toEqual({
       maxNewItemsPerDay: 15,
+      todayReviewLimit: 15,
       contentLevel: 'B2',
       preferredTtsVoice: 'en-US-voice',
     });
@@ -749,7 +750,12 @@ describe('POST /api/restore/commit', () => {
     const payload: BackupExport = {
       version: '1.2',
       exportedAt: NOW,
-      settings: { maxNewItemsPerDay: 10, contentLevel: 'B1', preferredTtsVoice: null },
+      settings: {
+        maxNewItemsPerDay: 10,
+        todayReviewLimit: 15,
+        contentLevel: 'B1',
+        preferredTtsVoice: null,
+      },
       items: [],
       dailyStats: [],
     };
@@ -767,7 +773,12 @@ describe('POST /api/restore/commit', () => {
     const payload: BackupExport = {
       version: '1.2',
       exportedAt: NOW,
-      settings: { maxNewItemsPerDay: 10, contentLevel: 'B1', preferredTtsVoice: null },
+      settings: {
+        maxNewItemsPerDay: 10,
+        todayReviewLimit: 15,
+        contentLevel: 'B1',
+        preferredTtsVoice: null,
+      },
       items: [],
       dailyStats: [],
     };

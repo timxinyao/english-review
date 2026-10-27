@@ -180,6 +180,9 @@ describe('today production answer', () => {
 
     expect(res.result).toBe('pass');
     expect(res.correct).toBe(true);
+    // pass / basic_pass 不揭示参考句（diff + 解释已足够；fail 才补参考句，2026-10-27）
+    expect(res.referenceAnswer).toBeNull();
+    expect(res.answerNote).toBeNull();
     expect(res.correction).toEqual({
       segments: [{ text: 'I will never give item-p up today.', type: 'same' }],
       correctedSentence: 'I will never give item-p up today.',
@@ -334,6 +337,9 @@ describe('today production answer', () => {
     expect(res.reinforcementAdded).toBe(false);
     expect(res.correction?.correctedSentence).toBe('They item-f naturally.');
     expect(res.personalExampleSaved).toBe(false);
+    // 2026-10-27 挫败反馈：fail 同时揭示题目自带参考句与用法说明（不新增 AI 调用）
+    expect(res.referenceAnswer).toBe('They item-f naturally.');
+    expect(res.answerNote).toBe('允许变化。');
 
     const p = db
       .select()

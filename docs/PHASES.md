@@ -17,6 +17,7 @@
 | 9 | Foxi V2 学习流程 | 条件化造句目标、Recall/Production、Read 自然复现与安全切换 | done（2026-10-02） | [phase-9-foxi-v2.md](phases/phase-9-foxi-v2.md) |
 | 10 | FSRS 记忆调度 | 固定阶梯换轨 FSRS（D/S 状态、S≥120 mastered、attempts 回放切换） | done（2026-10-03） | [phase-10-fsrs.md](phases/phase-10-fsrs.md) |
 | 11 | 暖纸色卡与 Session 视觉 | Claude 风格色卡、公共控件与阅读式 Session 排版 | done（2026-10-03 提交，2026-10-07 已部署） | [phase-11-paper-ui.md](phases/phase-11-paper-ui.md) |
+| 12 | Today 会话软上限与积压反馈 | 复习入队软上限、Idle 计划/积压拆分、造句 fail 揭示参考句、过期 Session 标记 | in-progress（2026-10-27 开始） | [phase-12-today-soft-cap.md](phases/phase-12-today-soft-cap.md) |
 
 > **V1.2 六个阶段全部完成（2026-09-25），已部署上线**：https://18-136-183-11.nip.io（HTTPS+PWA）与 http://18.136.183.11:8080 双入口。剩余可选优化见 phase-6 留档"遗留问题"。
 

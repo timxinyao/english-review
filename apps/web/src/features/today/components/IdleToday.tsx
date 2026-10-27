@@ -5,17 +5,35 @@ import { StartSessionDialog } from './StartSessionDialog';
 
 export const RECENTLY_LEARNED_MAX = 5;
 
-/** idle 态：一页一个主动作——开始今日复习（PRODUCT §5.1）；文案降压，不做假数字拆分积压 */
+/** idle 态：一页一个主动作——开始今日复习（PRODUCT §5.1）；
+ *  今日计划/积压用 API 真实数字拆分展示（plannedReviews/backlogLeft，2026-10-27），不假造 */
 export function IdleToday({ data }: { data: TodayIdleResponse }) {
   const start = useStartSession();
+  const reviews = data.plannedReviews;
+  const newToday = data.newTodayAvailable;
+  const plannedTotal = reviews + newToday;
 
   return (
     <div className="space-y-8">
       <div className="rounded-xl border border-border bg-card p-8 text-center">
-        <p className="text-sm text-muted-foreground">
+        {plannedTotal > 0 ? (
+          <p className="text-sm text-foreground">
+            {reviews > 0 && newToday > 0
+              ? `今日计划 ${plannedTotal} 题（复习 ${reviews} · 新学 ${newToday}）`
+              : reviews > 0
+                ? `今日计划 ${reviews} 题复习`
+                : `今日学 ${newToday} 个新词`}
+          </p>
+        ) : (
+          <p className="text-sm text-foreground">今天没有到期的复习</p>
+        )}
+        {data.backlogLeft > 0 && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            积压还剩 {data.backlogLeft} 题，之后每天自动安排
+          </p>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">
           词库 {data.totalItems} · 待学 {data.newQueueCount}
-          {data.dueItems > 0 ? ` · 有 ${data.dueItems} 项可复习` : ' · 暂无到期'}
-          {data.newTodayAvailable > 0 ? ` · 还可新学 ${data.newTodayAvailable}` : ''}
         </p>
         <Button
           size="lg"

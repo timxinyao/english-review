@@ -143,6 +143,8 @@ export const reviewSessions = sqliteTable(
     baseTaskCount: integer('base_task_count').notNull().default(0),
     newItemsStarted: integer('new_items_started').notNull().default(0),
     createdAt: text('created_at').notNull(),
+    // 跨日未完成的过期 Session 标记（PRODUCT §10.3，2026-10-27；仅数据卫生）
+    abandonedAt: text('abandoned_at'),
   },
   (t) => ({ dateUq: uniqueIndex('uq_review_sessions_date').on(t.sessionDate) }),
 );
@@ -257,6 +259,7 @@ export const readArticleItems = sqliteTable(
 export const settings = sqliteTable('settings', {
   id: integer('id').primaryKey().default(1),
   maxNewItemsPerDay: integer('max_new_items_per_day').notNull().default(10),
+  todayReviewLimit: integer('today_review_limit').notNull().default(15),
   contentLevel: text('content_level').notNull().default('B1'),
   preferredTtsVoice: text('preferred_tts_voice'),
   updatedAt: text('updated_at').notNull(),

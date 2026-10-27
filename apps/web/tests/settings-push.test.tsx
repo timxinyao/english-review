@@ -21,6 +21,7 @@ vi.mock('../src/lib/api', () => ({
     if (path === '/api/settings') {
       return {
         maxNewItemsPerDay: 10,
+        todayReviewLimit: 15,
         contentLevel: 'B1',
         preferredTtsVoice: null,
         updatedAt: '2026-10-05T00:00:00.000Z',
@@ -163,6 +164,7 @@ describe('设置页「批改完成通知」开关（Web Push）', () => {
       if (path === '/api/settings') {
         return {
           maxNewItemsPerDay: 10,
+          todayReviewLimit: 15,
           contentLevel: 'B1',
           preferredTtsVoice: null,
           updatedAt: '2026-10-05T00:00:00.000Z',
@@ -206,6 +208,7 @@ describe('设置页「批改完成通知」开关（Web Push）', () => {
       if (path === '/api/settings') {
         return {
           maxNewItemsPerDay: 10,
+          todayReviewLimit: 15,
           contentLevel: 'B1',
           preferredTtsVoice: null,
           updatedAt: '2026-10-05T00:00:00.000Z',

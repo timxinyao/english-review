@@ -49,7 +49,12 @@ function backupJson() {
   return {
     version: '1.2',
     exportedAt: '2026-08-01T10:30:00.000Z',
-    settings: { maxNewItemsPerDay: 10, contentLevel: 'B1', preferredTtsVoice: null },
+    settings: {
+      maxNewItemsPerDay: 10,
+      todayReviewLimit: 15,
+      contentLevel: 'B1',
+      preferredTtsVoice: null,
+    },
     items: [backupItem()],
     dailyStats: [
       {
@@ -297,6 +302,7 @@ describe('SettingsPage 集成', () => {
       if (path === '/api/settings')
         return Promise.resolve({
           maxNewItemsPerDay: 10,
+          todayReviewLimit: 15,
           contentLevel: 'B1',
           preferredTtsVoice: null,
           updatedAt: '2026-09-25T00:00:00.000Z',

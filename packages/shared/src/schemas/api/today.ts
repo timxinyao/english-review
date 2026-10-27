@@ -82,6 +82,10 @@ export const TodayIdleResponse = z.object({
   status: z.literal('idle'),
   /** 到期的 item-dimension 数量 */
   dueItems: z.number().int(),
+  /** 今日计划复习题数 = min(dueItems, todayReviewLimit)（不限制=dueItems，2026-10-27） */
+  plannedReviews: z.number().int().min(0),
+  /** 积压：已到期但今日未入队的复习题数 */
+  backlogLeft: z.number().int().min(0),
   /** 今日剩余可引入的新学习项数量 */
   newTodayAvailable: z.number().int(),
   /** 在学词条总数（active，含 New Queue） */

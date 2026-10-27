@@ -187,6 +187,8 @@ export function makeIdle(overrides: Partial<TodayIdleResponse> = {}): TodayIdleR
   return {
     status: 'idle',
     dueItems: 4,
+    plannedReviews: 4,
+    backlogLeft: 0,
     newTodayAvailable: 1,
     totalItems: 57,
     newQueueCount: 27,

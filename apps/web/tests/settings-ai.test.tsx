@@ -10,6 +10,7 @@ vi.mock('../src/lib/api', () => ({
     if (path === '/api/settings') {
       return {
         maxNewItemsPerDay: 10,
+        todayReviewLimit: 15,
         contentLevel: 'B1',
         preferredTtsVoice: null,
         updatedAt: '2026-09-25T00:00:00.000Z',

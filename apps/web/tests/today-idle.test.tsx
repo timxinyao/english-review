@@ -18,17 +18,42 @@ describe('TodayPage idle 态', () => {
     stubApi({ '/api/today': makeIdle() });
   });
 
-  it('主卡片渲染降压文案、开始按钮、轻提示与 Recently learned 列表', async () => {
+  it('主卡片渲染今日计划拆分文案（无积压不显示积压行）、开始按钮、轻提示与列表', async () => {
     renderTodayApp();
 
-    expect(
-      await screen.findByText('词库 57 · 待学 27 · 有 4 项可复习 · 还可新学 1'),
-    ).toBeVisible();
+    expect(await screen.findByText('今日计划 5 题（复习 4 · 新学 1）')).toBeVisible();
+    expect(screen.getByText('词库 57 · 待学 27')).toBeVisible();
+    expect(screen.queryByText(/积压还剩/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '开始今日复习' })).toBeVisible();
     expect(screen.getByText('做一点也行，不必一次清完')).toBeVisible();
     expect(screen.getByText('Recently learned')).toBeVisible();
     expect(screen.getByText('wear down')).toBeVisible();
     expect(screen.getByText('raw')).toBeVisible();
+  });
+
+  it('有积压时拆分显示「今日计划 / 积压还剩」（软上限截断，2026-10-27）', async () => {
+    stubApi({
+      '/api/today': makeIdle({ dueItems: 27, plannedReviews: 15, backlogLeft: 12 }),
+    });
+    renderTodayApp();
+
+    expect(await screen.findByText('今日计划 16 题（复习 15 · 新学 1）')).toBeVisible();
+    expect(screen.getByText('积压还剩 12 题，之后每天自动安排')).toBeVisible();
+  });
+
+  it('无到期无新学：显示空态文案，仍可开始（空会话直接完成）', async () => {
+    stubApi({
+      '/api/today': makeIdle({
+        dueItems: 0,
+        plannedReviews: 0,
+        backlogLeft: 0,
+        newTodayAvailable: 0,
+      }),
+    });
+    renderTodayApp();
+
+    expect(await screen.findByText('今天没有到期的复习')).toBeVisible();
+    expect(screen.getByRole('button', { name: '开始今日复习' })).toBeVisible();
   });
 
   it('Recently learned 最多展示 5 条', async () => {

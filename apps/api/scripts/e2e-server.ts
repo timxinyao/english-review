@@ -2,6 +2,7 @@
 import { rmSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { sql } from 'drizzle-orm';
+import { TODAY_REVIEW_LIMIT_UNLIMITED } from '@el/shared';
 import { loadConfig } from '../src/config.js';
 import { createDatabase, type AppDatabase } from '../src/db/client.js';
 import { runMigrations } from '../src/db/migrate.js';
@@ -13,6 +14,7 @@ import {
   readArticleItems,
   readArticles,
   reviewStates,
+  settings,
 } from '../src/db/schema.js';
 import { setTodayDepsForTests, loadRealTodayDeps } from '../src/modules/today/service.js';
 import { loadRealPracticeDeps, setPracticeDepsForTests } from '../src/modules/practice/service.js';
@@ -1206,6 +1208,22 @@ export function seedLargeDueQueue(db: AppDatabase, count = 40, now = new Date())
       })
       .run();
   }
+  // 大队列场景测的是导航/手感（PRODUCT 2026-10-27 今日复习软上限的例外）：
+  // 播种时把上限设为不限制，保留"start 即时返回全量 pending 任务"的旧行为
+  db.insert(settings)
+    .values({
+      id: 1,
+      maxNewItemsPerDay: 10,
+      todayReviewLimit: TODAY_REVIEW_LIMIT_UNLIMITED,
+      contentLevel: 'B1',
+      preferredTtsVoice: null,
+      updatedAt: nowIso,
+    })
+    .onConflictDoUpdate({
+      target: settings.id,
+      set: { todayReviewLimit: TODAY_REVIEW_LIMIT_UNLIMITED, updatedAt: nowIso },
+    })
+    .run();
   return true;
 }
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { and, asc, eq } from 'drizzle-orm';
+import { TODAY_REVIEW_LIMIT_UNLIMITED } from '@el/shared';
 import { createDatabase, rawSqlite, type AppDatabase } from '../../src/db/client.js';
 import { withJobLock } from '../../src/db/job-lock.js';
 import { runMigrations } from '../../src/db/migrate.js';
@@ -44,6 +45,8 @@ beforeEach(() => {
 
 describe('V2 pending task binding', () => {
   it('creates all 100 due tasks without waiting for a blocked generator', async () => {
+    // 2026-10-27 软上限默认 15；本用例验证"创建不等 AI"，设为不限制保留原全量语义
+    setTodayReviewLimit(TODAY_REVIEW_LIMIT_UNLIMITED);
     for (let i = 0; i < 100; i += 1) {
       await seedItem(db, { id: `due-${i}`, target: `due-${i}`, queueState: 'started' });
       await seedReviewState(db, `due-${i}`, 'understanding', {
@@ -302,6 +305,37 @@ function setMaxNewItemsPerDay(v: number): void {
     .run();
 }
 
+function setTodayReviewLimit(v: number): void {
+  db.insert(settings)
+    .values({
+      id: 1,
+      maxNewItemsPerDay: 10,
+      todayReviewLimit: v,
+      contentLevel: 'B1',
+      preferredTtsVoice: null,
+      updatedAt: new Date().toISOString(),
+    })
+    .onConflictDoUpdate({
+      target: settings.id,
+      set: { todayReviewLimit: v },
+    })
+    .run();
+}
+
+/** 软上限用例：播种 n 个到期 U 题，第 i 个 next_review_at = 2026-09-01 + i 天（i 越小越早） */
+async function seedBacklog(n: number): Promise<void> {
+  for (let i = 0; i < n; i += 1) {
+    const dueIso = new Date(Date.parse('2026-09-01T00:00:00.000Z') + i * 86_400_000).toISOString();
+    await seedItem(db, { id: `back-${i}`, target: `back-${i}`, queueState: 'started' });
+    await seedReviewState(db, `back-${i}`, 'understanding', {
+      difficulty: 5,
+      stability: 5,
+      reps: 2,
+      nextReviewAt: dueIso,
+    });
+  }
+}
+
 function sessionOf(date: string) {
   return db.select().from(reviewSessions).where(eq(reviewSessions.sessionDate, date)).get();
 }
@@ -335,6 +369,131 @@ async function seedCompletedSession(): Promise<string> {
     .run();
   return session.id;
 }
+
+describe('今日会话软上限（PRODUCT V2 规则，2026-10-27）', () => {
+  it('默认 15：100 道到期复习只入队最早 15 题，其余保持积压不入队', async () => {
+    await seedBacklog(100);
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    expect(started.progress).toEqual({ completed: 0, total: 15 });
+    const enqueued = db
+      .select({ itemId: reviewTasks.learningItemId })
+      .from(reviewTasks)
+      .all()
+      .map((r) => r.itemId);
+    expect(enqueued).toHaveLength(15);
+    // 最早到期优先：2026-09-01 起 15 天内到期的题入队
+    expect(enqueued).toEqual(
+      expect.arrayContaining(Array.from({ length: 15 }, (_, i) => `back-${i}`)),
+    );
+    expect(enqueued).not.toContain('back-15');
+  });
+
+  it('可调 10 / 20：Settings 生效截断', async () => {
+    setTodayReviewLimit(10);
+    await seedBacklog(30);
+    const ten = await startTodaySession(db, deps, TZ, NOW);
+    if (ten.status !== 'active') throw new Error('expected active');
+    expect(ten.progress.total).toBe(10);
+  });
+
+  it('不限制（-1）：全部到期入队（旧行为）', async () => {
+    setTodayReviewLimit(TODAY_REVIEW_LIMIT_UNLIMITED);
+    await seedBacklog(20);
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    expect(started.progress.total).toBe(20);
+  });
+
+  it('Learn 新学不占复习上限：上限 10 时 12 复习 + 额度内新学照常入队', async () => {
+    setTodayReviewLimit(10);
+    await seedBacklog(12);
+    await seedNewItem('new-a', '2026-09-01T00:00:00.000Z');
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    // 10 复习 + 1 新学；back-10/11 留在积压
+    expect(started.progress.total).toBe(11);
+    const itemIds = db
+      .select({ itemId: reviewTasks.learningItemId })
+      .from(reviewTasks)
+      .all()
+      .map((r) => r.itemId);
+    expect(itemIds).toContain('new-a');
+    expect(itemIds).not.toContain('back-10');
+  });
+
+  it('idle 拆分展示：plannedReviews / backlogLeft（今日计划 vs 积压）', async () => {
+    await seedBacklog(20);
+    await seedNewItem('new-a', '2026-09-01T00:00:00.000Z');
+    const status = getTodayStatus(db, TZ, NOW);
+    if (status.status !== 'idle') throw new Error('expected idle');
+    expect(status.dueItems).toBe(20);
+    expect(status.plannedReviews).toBe(15);
+    expect(status.backlogLeft).toBe(5);
+    expect(status.newTodayAvailable).toBe(1);
+  });
+
+  it('idle 无积压时 backlogLeft = 0', async () => {
+    await seedBacklog(3);
+    const status = getTodayStatus(db, TZ, NOW);
+    if (status.status !== 'idle') throw new Error('expected idle');
+    expect(status.plannedReviews).toBe(3);
+    expect(status.backlogLeft).toBe(0);
+  });
+
+  it('积压跨日滚动：未答任务保持 due，次日 Session 重新纳入且历史未完成 Session 标记 abandoned', async () => {
+    await seedBacklog(20);
+    await startTodaySession(db, deps, TZ, NOW);
+    // 未作答任何任务 → 次日重新入队最早 15（next_review_at 未变）
+    const day2 = await startTodaySession(db, deps, TZ, TOMORROW);
+    if (day2.status !== 'active') throw new Error('expected active');
+    expect(day2.progress.total).toBe(15);
+    const day2Ids = db
+      .select({ itemId: reviewTasks.learningItemId, sessionDate: reviewSessions.sessionDate })
+      .from(reviewTasks)
+      .innerJoin(reviewSessions, eq(reviewSessions.id, reviewTasks.sessionId))
+      .where(eq(reviewSessions.sessionDate, '2026-09-25'))
+      .all()
+      .map((r) => r.itemId);
+    expect(day2Ids).toEqual(
+      expect.arrayContaining(Array.from({ length: 15 }, (_, i) => `back-${i}`)),
+    );
+    // 昨日未完成 Session 被标记 abandoned（数据卫生），今日 Session 不受影响
+    const stale = sessionOf(TODAY)!;
+    expect(stale.completedAt).toBeNull();
+    expect(stale.abandonedAt).not.toBeNull();
+    const fresh = sessionOf('2026-09-25')!;
+    expect(fresh.abandonedAt).toBeNull();
+  });
+
+  it('答过的任务次日出队：答 easy 推进后由积压下一题补位', async () => {
+    setTodayReviewLimit(10);
+    await seedBacklog(12);
+    const started = await startTodaySession(db, deps, TZ, NOW);
+    if (started.status !== 'active') throw new Error('expected active');
+    // 答掉最早一题（easy → FSRS 推进，next_review_at 移到未来）
+    const firstTask = db
+      .select()
+      .from(reviewTasks)
+      .where(eq(reviewTasks.sessionId, started.session.id))
+      .orderBy(asc(reviewTasks.sortKey))
+      .get()!;
+    const answered = await answerTodayTask(db, deps, TZ, NOW, firstTask.id, { recall: 'easy' });
+    expect(answered.result).toBe('pass');
+    // 次日：back-0 已推进（不再 due），入队 back-1..back-10
+    const day2 = await startTodaySession(db, deps, TZ, TOMORROW);
+    if (day2.status !== 'active') throw new Error('expected active');
+    const day2Ids = db
+      .select({ itemId: reviewTasks.learningItemId })
+      .from(reviewTasks)
+      .innerJoin(reviewSessions, eq(reviewSessions.id, reviewTasks.sessionId))
+      .where(eq(reviewSessions.sessionDate, '2026-09-25'))
+      .all()
+      .map((r) => r.itemId);
+    expect(day2Ids).not.toContain('back-0');
+    expect(day2Ids).toContain('back-10');
+  });
+});
 
 describe('GET 状态：三态映射（getTodayStatus）', () => {
   it('无 session → idle：dueItems 按 item×维度计数，newTodayAvailable 为默认额度', async () => {

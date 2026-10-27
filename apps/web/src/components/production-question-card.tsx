@@ -312,6 +312,20 @@ export function ProductionQuestionCard({
           {result.explanation && (
             <p className="text-sm leading-relaxed text-muted-foreground">{result.explanation}</p>
           )}
+          {/* fail 挫败反馈（PRODUCT §7.6，2026-10-27）：diff/解释之外补题目自带参考句与用法
+              说明（API 零新增调用）；pass / basic_pass 不揭示 */}
+          {result.result === 'fail' && result.referenceAnswer && (
+            <p className="study-example">
+              <span className="mb-1 block text-xs text-muted-foreground">参考句</span>
+              <HighlightText text={result.referenceAnswer} target={question.mustUse} />
+            </p>
+          )}
+          {result.result === 'fail' && result.answerNote && (
+            <p className="text-sm">
+              <span className="text-muted-foreground">用法：</span>
+              {result.answerNote}
+            </p>
+          )}
           {result.personalExampleSaved && (
             <p className="text-xs text-muted-foreground">已存入个人例句</p>
           )}

@@ -330,6 +330,9 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
         result: 'fail',
         correct: false,
         explanation: '请使用 give up 表达“放弃”。',
+        // fail 挫败反馈（2026-10-27）：diff/解释之外同时揭示题目自带参考句与用法
+        referenceAnswer: 'The constant stress makes me want to give up.',
+        answerNote: '允许正常时态与人称变化。',
         personalExampleSaved: false,
         correction: {
           segments: [
@@ -359,6 +362,14 @@ describe('Today 表达题任务卡（PRODUCT §7.3/§7.4/§7.6）', () => {
     expect(inserted).toBeDefined();
     expect(screen.getByText('纠正后')).toBeVisible();
     expect(screen.getByText('请使用 give up 表达“放弃”。')).toBeVisible();
+    // fail 同时揭示参考句（目标词高亮）与用法说明（gave_up 同款版式）
+    const reference = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent === '参考句The constant stress makes me want to give up.',
+    );
+    expect(reference).toBeVisible();
+    expect(screen.getByText('允许正常时态与人称变化。')).toBeVisible();
     // rewrite 作为参考表达，默认折叠
     const summary = screen.getByText('参考表达');
     expect(summary).toBeVisible();

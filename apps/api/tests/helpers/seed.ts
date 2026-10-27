@@ -31,6 +31,7 @@ export function seedLegacyBoundTask(
       baseTaskCount: 0,
       newItemsStarted: 0,
       createdAt: now.toISOString(),
+      abandonedAt: null,
     };
     db.insert(reviewSessions).values(session).run();
   }

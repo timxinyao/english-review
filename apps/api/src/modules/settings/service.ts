@@ -12,12 +12,14 @@ function nowIso(): string {
 
 function toDto(row: {
   maxNewItemsPerDay: number;
+  todayReviewLimit: number;
   contentLevel: string;
   preferredTtsVoice: string | null;
   updatedAt: string;
 }): Settings {
   return {
     maxNewItemsPerDay: row.maxNewItemsPerDay,
+    todayReviewLimit: row.todayReviewLimit,
     contentLevel: row.contentLevel as Settings['contentLevel'],
     preferredTtsVoice: row.preferredTtsVoice,
     updatedAt: row.updatedAt,

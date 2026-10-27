@@ -94,6 +94,7 @@ Understanding / Production 共用一张表，每个 Item 两行。
 | base_task_count | integer | Session 创建时基础任务数 |
 | new_items_started | integer | 当天已启动新项数 |
 | created_at | datetime | |
+| abandoned_at | datetime nullable | 跨日未完成的过期 Session 标记（创建新 Session 时写入，2026-10-27；仅数据卫生） |
 
 V1.2 单用户，因此 `session_date` 可唯一。
 
@@ -216,6 +217,7 @@ Session 中的任务实例。Question 是可复用题库；Task 是一次正式�
 单用户 key-value 或单行设置表均可。推荐单行明确字段：
 
 - `max_new_items_per_day` = 10
+- `today_review_limit` = 15（10/15/20/30/-1 不限制；Session 创建时到期复习题入队上限，2026-10-27）
 - `content_level` = `B1`
 - `preferred_tts_voice` nullable
 - `updated_at`

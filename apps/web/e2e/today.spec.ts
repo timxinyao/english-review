@@ -255,7 +255,7 @@ test.describe('Today 复习全流程', () => {
     // idle 主卡片：种子 5 个到期（Phase 4 新增 give up 的 P 任务）；new today 为剩余新学额度
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
     await expect(
-      page.getByText(/^词汇总数 \d+ · 待学 \d+ · 今日到期 4 项 · 可新学 \d+$/),
+      page.getByText(/^今日计划 \d+ 题（复习 4 · 新学 \d+）$/),
     ).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
@@ -273,7 +273,9 @@ test.describe('Today 复习全流程', () => {
     const passCount = Number(summaryText.match(/通过 (\d+)/)?.[1] ?? 0);
     expect(passCount).toBeGreaterThanOrEqual(1);
 
-    // 今日学习：按学习项去重分组，stable 组含错题轨迹；展开可只读查看作答记录
+    // 今日学习（完成页默认折叠，2026-10-27 手机降压）：先点开「查看今日记录」；
+    // 按学习项去重分组，stable 组含错题轨迹；展开可只读查看作答记录
+    await page.getByRole('button', { name: '查看今日记录' }).click();
     const learning = page.getByRole('list', { name: '今日学习' });
     await expect(learning).toBeVisible();
     const stableGroup = learning.getByRole('button', { name: /stable/ });
@@ -490,7 +492,7 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
 
     await page.goto('/today');
     // 到期 5 = 基础 4 + set off 次日到期的 P；put off（显式关闭）与 raw（word 默认关）不计入
-    await expect(page.getByText(/今日到期 5 项/)).toBeVisible();
+    await expect(page.getByText(/今日计划 \d+ 题（复习 5 · 新学 \d+）/)).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
     await expect(page.getByText('0 / 7', { exact: true })).toBeVisible();
 
@@ -507,8 +509,11 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
       const prod = page.getByLabel('表达答案');
       if (await prod.isVisible()) {
         const mustUse =
-          (await page.getByText(/^必须使用：/).textContent())?.replace('必须使用：', '').trim() ??
-          '';
+          // 目标词后跟 [复制] 链接（同段落 textContent），提取时剥离
+          (await page.getByText(/^必须使用：/).textContent())
+            ?.replace('必须使用：', '')
+            .replace(/\[复制\]/g, '')
+            .trim() ?? '';
         if (mustUse === 'set off') setOffDone = true;
         await prod.fill(`I want to ${mustUse} now.`);
         await page.getByRole('button', { name: '提交' }).click();
@@ -607,7 +612,8 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
     expect(seeded).toBe(200);
 
     await page.goto('/today');
-    await expect(page.getByText(/今日到期 44 项/)).toBeVisible();
+    // 大队列 seed 显式设今日复习上限=不限制（软上限例外）：plannedReviews=44
+    await expect(page.getByText(/复习 44/)).toBeVisible();
     // start 建全量 pending 队列即返回：不逐题等 AI/库存（旧 V1 行为会分钟级阻塞）
     const startedAt = Date.now();
     await page.getByRole('button', { name: '开始今日复习' }).click();

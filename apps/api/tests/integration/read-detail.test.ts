@@ -81,7 +81,8 @@ function seedArticle(overrides: Partial<typeof readArticles.$inferInsert> = {}):
       promptHash: 'seed',
       model: 'seed',
       createdAt: now,
-      expiresAt: new Date(NOW.getTime() + 30 * DAY_MS).toISOString(),
+      // 存活期相对真实运行时间（固定 NOW+30d 会在 2026-10-24 起过期导致 404）
+      expiresAt: new Date(Date.now() + 30 * DAY_MS).toISOString(),
       type: 'story',
       // V1 遗留：一未答 + 一已答（答错）检查题，详情只读回放
       checksJson: JSON.stringify([

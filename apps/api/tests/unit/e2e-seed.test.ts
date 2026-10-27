@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase, type AppDatabase } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
-import { learningItems, questions, reviewStates, reviewTasks } from '../../src/db/schema.js';
+import { learningItems, questions, reviewStates, reviewTasks, settings } from '../../src/db/schema.js';
 import type { QuestionRow } from '../../src/modules/questions/service.js';
 import {
   fakeEvaluateProduction,
@@ -251,6 +251,8 @@ describe('E2E V2 journey 播种（Phase 9 Task 10）', () => {
   it('seedLargeDueQueue：40 项全部进入 pending 队列，start 即时返回全量任务', async () => {
     seedE2eData(db, NOW);
     expect(seedLargeDueQueue(db, 40, NOW)).toBe(true);
+    // 大队列是导航/手感场景：seed 显式设今日复习上限=不限制（软上限例外，2026-10-27）
+    expect(db.select().from(settings).get()?.todayReviewLimit).toBe(-1);
 
     const session = await startTodaySession(db, createFakeDeps(), 'Asia/Shanghai', NOW);
     expect(session.status).toBe('active');

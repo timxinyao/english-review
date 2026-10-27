@@ -196,6 +196,8 @@ test.describe('Library 与 PC 导入流程', () => {
 
     await expect(page.getByText('A resilient team adapts fast.')).toBeVisible();
     await expect(page.getByRole('button', { name: '编辑' })).toBeVisible();
+    // 暂停/归档等收进「更多」（2026-10-27 详情主次降压）：先展开再断言
+    await page.getByRole('button', { name: '更多' }).click();
     await expect(page.getByRole('button', { name: '暂停' })).toBeVisible();
     await expect(page.getByRole('button', { name: '归档' })).toBeVisible();
     await expect(page.getByRole('button', { name: '重置进度' })).toBeVisible();

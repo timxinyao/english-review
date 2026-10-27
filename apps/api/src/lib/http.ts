@@ -1,9 +1,9 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { ZodType } from 'zod';
+import type { ZodTypeAny, output } from 'zod';
 import { AppError } from './errors.js';
 
-/** 请求体校验：失败抛稳定 VALIDATION_ERROR */
-export function parseBody<T>(schema: ZodType<T>, data: unknown): T {
+/** 请求体校验：失败抛稳定 VALIDATION_ERROR（返回 output 类型——含 .default() 字段的解析结果） */
+export function parseBody<S extends ZodTypeAny>(schema: S, data: unknown): output<S> {
   const result = schema.safeParse(data);
   if (!result.success) {
     const first = result.error.issues[0];

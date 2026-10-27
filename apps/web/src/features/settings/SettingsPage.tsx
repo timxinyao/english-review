@@ -115,6 +115,15 @@ const QUOTA_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '-1', label: '不限制' },
 ];
 
+/** 今日复习上限（PRODUCT §5.5，2026-10-27）：Session 创建时到期复习题入队上限 */
+const PLAN_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '10', label: '10 题/天' },
+  { value: '15', label: '15 题/天' },
+  { value: '20', label: '20 题/天' },
+  { value: '30', label: '30 题/天' },
+  { value: '-1', label: '不限制' },
+];
+
 const LEVEL_OPTIONS = ['A2', 'B1', 'B2', 'C1'] as const;
 
 export function SettingsPage() {
@@ -161,6 +170,23 @@ export function SettingsPage() {
               </div>
             </div>
             <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+              <span className="text-muted-foreground">今日复习上限</span>
+              <div className="flex items-center gap-2">
+                <Select
+                  aria-label="今日复习上限"
+                  value={String(data.todayReviewLimit)}
+                  disabled={update.isPending}
+                  onChange={(e) => update.mutate({ todayReviewLimit: Number(e.target.value) })}
+                >
+                  {PLAN_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
               <span className="text-muted-foreground">内容难度</span>
               <Select
                 aria-label="内容难度"
@@ -178,7 +204,7 @@ export function SettingsPage() {
               </Select>
             </div>
             <p className="text-xs text-muted-foreground">
-              新学上限只限制每天从 New Queue 引入的新词；到期复习不受限制。
+              新学上限限制每天从 New Queue 引入的新词；今日复习上限限制开始复习时一次入队的到期复习题，超出的保持积压、之后每天自动安排。
               {update.isError && <span className="text-destructive"> 保存失败，请重试。</span>}
               {saved && <span className="text-success"> 已保存</span>}
             </p>

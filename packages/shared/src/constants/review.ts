@@ -44,6 +44,10 @@ export const REVIEW_TASKS_KEEP_DAYS = 365;
 export const DEFAULT_MAX_NEW_ITEMS_PER_DAY = 10;
 export const MAX_NEW_ITEMS_CHOICES = [5, 10, 15, 20] as const;
 export const MAX_NEW_ITEMS_UNLIMITED = -1;
+/** 今日复习上限：Session 创建时到期复习题入队上限（PRODUCT V2 规则，2026-10-27） */
+export const DEFAULT_TODAY_REVIEW_LIMIT = 15;
+export const TODAY_REVIEW_LIMIT_CHOICES = [10, 15, 20, 30] as const;
+export const TODAY_REVIEW_LIMIT_UNLIMITED = -1;
 /** 同日追加学习（extend）：不限制模式下每批追加数量 */
 export const EXTEND_BATCH_UNLIMITED = 10;
 

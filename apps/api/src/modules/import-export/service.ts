@@ -637,6 +637,7 @@ function loadSettingsForBackup(db: AppDatabase): BackupSettings {
   if (!row) return { ...DEFAULT_BACKUP_SETTINGS };
   return {
     maxNewItemsPerDay: row.maxNewItemsPerDay,
+    todayReviewLimit: row.todayReviewLimit,
     contentLevel: row.contentLevel as BackupSettings['contentLevel'],
     preferredTtsVoice: row.preferredTtsVoice,
   };
@@ -898,6 +899,7 @@ export async function commitRestore(
       .values({
         id: 1,
         maxNewItemsPerDay: backup.settings.maxNewItemsPerDay,
+        todayReviewLimit: backup.settings.todayReviewLimit,
         contentLevel: backup.settings.contentLevel,
         preferredTtsVoice: backup.settings.preferredTtsVoice,
         updatedAt: nowIso,

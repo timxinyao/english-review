@@ -261,6 +261,8 @@ API 名称是工程基线，可在不改变资源边界的前提下微调；禁�
 
 Session 创建时从 New Queue 最多取 settings.maxNewItemsPerDay 个新项；如果当天已经开始过新 Item，则只补足剩余额度。
 
+2026-10-27 起到期复习软上限：到期复习题按 next_review_at, learning_item_id 升序截取前 `settings.today_review_limit`（-1 不限制）后才参与混排；Learn 按新学额度另行入队，不占该上限。`GET /api/today` idle 响应新增 `plannedReviews`（今日计划复习题数）与 `backlogLeft`（积压剩余）两个字段。创建新 Session 的事务内，将 `session_date` 早于今日且未完成、未标记的历史 Session 写入 `abandoned_at`（数据卫生，见 PRODUCT §10.3）。
+
 ## 7.2 动态补强
 
 理解题或填空题 fail 后可插入 reinforcement task。同一 Learning Item 在一个 Session 内最多新增 2 个 reinforcement task。插入位置必须位于当前任务之后若干题或队列后 30% 区域。

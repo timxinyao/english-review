@@ -1,5 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  sql,
+} from 'drizzle-orm';
 import {
   DEFAULT_SETTINGS,
   EXTEND_BATCH_UNLIMITED,
@@ -7,6 +21,7 @@ import {
   MAX_REINFORCEMENT_PER_ITEM_PER_SESSION,
   REINFORCEMENT_MIN_GAP,
   REINFORCEMENT_TAIL_RATIO,
+  TODAY_REVIEW_LIMIT_UNLIMITED,
   localDateString,
   type AnswerRequest,
   type AnswerResponse,
@@ -785,6 +800,12 @@ function readMaxNewItemsPerDay(exec: DbExecutor): number {
   return row?.maxNewItemsPerDay ?? DEFAULT_SETTINGS.maxNewItemsPerDay;
 }
 
+/** 今日复习上限（-1 不限制；PRODUCT V2 规则 2026-10-27） */
+function readTodayReviewLimit(exec: DbExecutor): number {
+  const row = exec.select().from(settings).get();
+  return row?.todayReviewLimit ?? DEFAULT_SETTINGS.todayReviewLimit;
+}
+
 function activeResponse(exec: DbExecutor, session: SessionRow): TodayActiveResponse {
   const current = exec
     .select()
@@ -829,6 +850,11 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
   const dueItems = dueRows.filter(
     (row) => row.dimension !== 'production' || effectiveProductionEnabled(row),
   ).length;
+  // 今日计划 vs 积压（PRODUCT V2 规则 2026-10-27）：到期按 next_review_at 最早优先截取上限
+  const limit = readTodayReviewLimit(db);
+  const plannedReviews =
+    limit === TODAY_REVIEW_LIMIT_UNLIMITED ? dueItems : Math.min(dueItems, Math.max(0, limit));
+  const backlogLeft = Math.max(0, dueItems - plannedReviews);
 
   const today = localDateString(now, timezone);
   const maxNew = readMaxNewItemsPerDay(db);
@@ -876,6 +902,8 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
   return {
     status: 'idle',
     dueItems,
+    plannedReviews,
+    backlogLeft,
     newTodayAvailable,
     totalItems,
     newQueueCount,
@@ -1081,9 +1109,15 @@ async function startTodaySessionInner(
   const learnItems = newCandidates.slice(0, remainingQuota);
 
   // ---- 3) 先创建所有 pending 任务；取题只在 prepare 阶段进行 ----
+  // 到期复习软上限（PRODUCT V2 规则 2026-10-27）：按 next_review_at 最早优先截取，
+  // 超出部分保持 due 计入积压，之后每天 Session 重新纳入；Learn 按新学额度独立入队不占上限。
+  const reviewLimit = readTodayReviewLimit(db);
   const plans: PlanTask[] = [];
+  let queuedReviews = 0;
   for (const row of dueRows) {
     if (row.state.dimension === 'production' && !effectiveProductionEnabled(row.item)) continue;
+    if (reviewLimit !== TODAY_REVIEW_LIMIT_UNLIMITED && queuedReviews >= reviewLimit) break;
+    queuedReviews += 1;
     const dimension = row.state.dimension as Dimension;
     plans.push({
       itemId: row.item.id,
@@ -1109,6 +1143,18 @@ async function startTodaySessionInner(
     db.transaction((tx) => {
       const sessionId = randomUUID();
       const empty = ordered.length === 0;
+      // 跨日未完成的过期 Session 标记 abandoned（PRODUCT §10.3，2026-10-27）：
+      // 仅数据卫生——未完成不算失败，不影响统计与调度；今日路径不受影响。
+      tx.update(reviewSessions)
+        .set({ abandonedAt: nowIso })
+        .where(
+          and(
+            lt(reviewSessions.sessionDate, today),
+            isNull(reviewSessions.completedAt),
+            isNull(reviewSessions.abandonedAt),
+          ),
+        )
+        .run();
       tx.insert(reviewSessions)
         .values({
           id: sessionId,
@@ -1512,9 +1558,11 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
   const result: AnswerResponse['result'] =
     stored === 'pass' || stored === 'basic_pass' ? stored : 'fail';
   const reveal = question && isCloze ? clozeReveal(question) : null;
-  // 主动不会：feedback='gave_up'（无提交答案），表达题从绑定题目 payload 重建参考句揭示
+  // 主动不会：feedback='gave_up'（无提交答案），表达题从绑定题目 payload 重建参考句揭示；
+  // fail（2026-10-27）同样揭示，与首次作答响应一致
   const gaveUp = attempt?.feedback === 'gave_up';
-  const production = gaveUp && question && isProduction ? productionReveal(question) : null;
+  const production =
+    question && isProduction && stored === 'fail' ? productionReveal(question) : null;
   // 表达题：回放首次批改 correction 与首次 personalExampleSaved（post 快照 exampleId）
   const correction = isProduction ? parseCorrectionView(attempt?.correctionJson ?? null) : null;
   const post = parseSnapshot(attempt?.postStateJson ?? null);
@@ -1847,9 +1895,16 @@ export async function answerTodayTask(
     }
 
     const reveal = question && isCloze ? clozeReveal(question) : null;
-    // 主动不会的表达题揭示：参考句/用法说明取自绑定题目 payload（仅作答后返回）
+    // 主动不会的表达题揭示：参考句/用法说明取自绑定题目 payload（仅作答后返回）；
+    // 2026-10-27 挫败反馈：非主动不会的 fail 同样揭示（diff/解释之外补参考句与用法，
+    // 不新增 AI 调用）；pass / basic_pass 不揭示
+    const failProductionReveal =
+      !giveUp && isProduction && production?.result === 'fail' && question
+        ? productionReveal(question)
+        : null;
     const giveUpProductionReveal =
       giveUp && question && isProduction ? productionReveal(question) : null;
+    const productionRevealOut = failProductionReveal ?? giveUpProductionReveal;
     const explanation = question
       ? giveUp
         ? // 主动不会：表达题无批改说明（揭示走 payload 参考句/用法说明）；选择/填空揭示解释
@@ -1945,8 +2000,8 @@ export async function answerTodayTask(
       // 真实作答回传提交内容（与 attempt 落库一致：recall 直判的选项已归一丢弃）；giveUp 为 null
       selectedOptionId: isRecallTask && body.recall ? null : (body.selectedOptionId ?? null),
       submittedAnswerText: body.answerText ?? null,
-      referenceAnswer: giveUpProductionReveal?.referenceAnswer ?? null,
-      answerNote: giveUpProductionReveal?.answerNote ?? null,
+      referenceAnswer: productionRevealOut?.referenceAnswer ?? null,
+      answerNote: productionRevealOut?.answerNote ?? null,
       explanation,
       correctOptionId: question && !isCloze && !isProduction ? question.correctOptionId : null,
       completeSentence: reveal?.completeSentence ?? null,

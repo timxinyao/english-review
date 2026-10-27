@@ -2,8 +2,11 @@ import { z } from 'zod';
 import { CONTENT_LEVELS } from '../../constants/app.js';
 import {
   DEFAULT_MAX_NEW_ITEMS_PER_DAY,
+  DEFAULT_TODAY_REVIEW_LIMIT,
   MAX_NEW_ITEMS_CHOICES,
   MAX_NEW_ITEMS_UNLIMITED,
+  TODAY_REVIEW_LIMIT_CHOICES,
+  TODAY_REVIEW_LIMIT_UNLIMITED,
 } from '../../constants/review.js';
 import { LearningItemStatus, LearningItemType, QueueState } from '../learning-item.js';
 
@@ -70,6 +73,17 @@ export const BackupSettings = z.object({
         v === MAX_NEW_ITEMS_UNLIMITED || (MAX_NEW_ITEMS_CHOICES as readonly number[]).includes(v),
       { message: '每日新学额度非法' },
     ),
+  // 2026-10-27 新增：旧备份缺省 15（与 Settings 默认一致）
+  todayReviewLimit: z
+    .number()
+    .int()
+    .refine(
+      (v) =>
+        v === TODAY_REVIEW_LIMIT_UNLIMITED ||
+        (TODAY_REVIEW_LIMIT_CHOICES as readonly number[]).includes(v),
+      { message: '今日复习上限非法' },
+    )
+    .default(DEFAULT_TODAY_REVIEW_LIMIT),
   contentLevel: z.enum(CONTENT_LEVELS),
   preferredTtsVoice: z.string().nullable(),
 });
@@ -126,6 +140,7 @@ export type RestoreCommitResponse = z.infer<typeof RestoreCommitResponse>;
 
 export const DEFAULT_BACKUP_SETTINGS: BackupSettings = {
   maxNewItemsPerDay: DEFAULT_MAX_NEW_ITEMS_PER_DAY,
+  todayReviewLimit: DEFAULT_TODAY_REVIEW_LIMIT,
   contentLevel: 'B1',
   preferredTtsVoice: null,
 };

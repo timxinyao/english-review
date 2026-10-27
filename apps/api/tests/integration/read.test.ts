@@ -276,7 +276,7 @@ describe('GET /api/read/history', () => {
         createdAt,
         expiresAt:
           opts.expiresAt === undefined
-            ? new Date(NOW.getTime() + 30 * DAY_MS).toISOString()
+            ? new Date(Date.now() + 30 * DAY_MS).toISOString() // 相对真实运行时间（固定 NOW+30d 2026-10-24 起全过期）
             : opts.expiresAt,
       })
       .run();

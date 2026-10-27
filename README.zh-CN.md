@@ -41,6 +41,66 @@ pnpm dev                        # API 127.0.0.1:5174 + Web http://127.0.0.1:5173
 
 字段说明见 [`.env.example`](.env.example)（`AUTH_PASSWORD` / `AUTH_PASSWORD_HASH`、`SESSION_SECRET`、`DATABASE_PATH`、`APP_ORIGINS`、`APP_TIMEZONE`，以及可选的 `S3_BUCKET`、`GLM_*`）。不要把真实密钥提交进仓库。
 
+## 自带 HTTP API
+
+这是 Web 界面使用的**单用户应用 API**，不是对外多租户 SDK。仓库**没有**发布 OpenAPI/Swagger；契约在代码（`apps/api/src/modules/*/routes.ts`）与 [docs/TECHNICAL_DESIGN.md](docs/TECHNICAL_DESIGN.md) §6。
+
+| 项 | 说明 |
+| --- | --- |
+| 前缀 | 全部在 `/api` 下 |
+| 本地地址 | API `http://127.0.0.1:5174`；Web `http://127.0.0.1:5173`（在 `APP_ORIGINS` 里写上 Web 源） |
+| 鉴权 | `POST /api/auth/login` 提交 `{ "password" }` → 签发**会话 Cookie**；多数接口依赖 Cookie |
+| 公开 | 仅 `POST /api/auth/login`、`GET /api/health` |
+| 形态 | JSON + Zod 校验；稳定 error code；不向前端暴露 provider 密钥或 Prompt 正文 |
+
+模块清单（Today、Library、Import、Read、Stats、Settings 等）：[TECHNICAL_DESIGN §6.2](docs/TECHNICAL_DESIGN.md)。共享类型在 `packages/shared`。
+
+### `el-cli`（与界面同一 API 契约）
+
+给脚本 / Coding Agent 用，不经浏览器，内部仍走登录 Cookie：
+
+```bash
+cd apps/api
+pnpm exec tsx scripts/el-cli.ts find [query]
+pnpm exec tsx scripts/el-cli.ts show <id>
+pnpm exec tsx scripts/el-cli.ts preview <file.json|->   # 导入预览
+pnpm exec tsx scripts/el-cli.ts commit --token <tok>
+pnpm exec tsx scripts/el-cli.ts stats
+pnpm exec tsx scripts/el-cli.ts backup ./backup.json
+```
+
+默认：`IMPORT_API_BASE=http://127.0.0.1:5174`，密码取自 `apps/api/.env` 的 `IMPORT_PASSWORD` 或 `AUTH_PASSWORD`。详见 [`apps/api/scripts/el-cli.ts`](apps/api/scripts/el-cli.ts) 文件头注释。
+
+## Agent Skills（给编程 Agent 用，不是产品内功能）
+
+产品 UI **没有**「Skill」功能。仓库提供的是 **Cursor / Claude 类 Agent 的 skill 剧本**，通过 `el-cli` 做导入与词库管理：
+
+| Skill | 路径 | 作用 |
+| --- | --- | --- |
+| `import-english` | [`.agents/skills/import-english/`](.agents/skills/import-english/)（`.claude/skills/` 有镜像） | 把对话里的材料整理成导入 JSON → `preview` → 确认 → `commit` |
+| `library-english` | [`.agents/skills/library-english/`](.agents/skills/library-english/) | 查询 / 改释义例句 / 归档暂停重置掌握 / 统计 / 备份 |
+
+- 破坏性或影响进度的操作：先展示现状与后果，确认后再执行。
+- **改代码**（Prompt、功能、Eval）请走 **[AGENTS.md](AGENTS.md)** → `docs/*` → 改 `apps/api/prompts/*.md` 并按需跑 `pnpm ai:eval`，不要指望上述 Skill。
+- `docs/superpowers/` 是分阶段实施笔记，不是终端用户手册。
+
+## 配置后端 AI 模型
+
+对接 GLM / Anthropic Messages 兼容端点。复制 [`.env.example`](.env.example) → `apps/api/.env`，再填：
+
+| 变量 | 作用 |
+| --- | --- |
+| `GLM_API_KEY` | 真实生成 / 判定需要 |
+| `GLM_API_BASE` | 默认 `https://open.bigmodel.cn/api/anthropic` |
+| `GLM_MODEL_FLASH` / `GLM_MODEL_AIR` / `GLM_MODEL_MAX` | 可选固定型号；留空则从 `/v1/models` 自动选 |
+| `GLM_MAX_TOKENS` | 默认 `8192` |
+| `GLM_THINKING` | 可选全局覆盖：`off` / `low` / `high` / `max`；留空按任务策略 |
+
+- **没有 key**：API/Web 仍可启动，AI 相关能力会降级；Prompt Eval 可用 `pnpm ai:eval -- --provider mock` 离线跑。
+- **改完 env**：重启 `pnpm dev`（或 API 进程）才会生效。
+- **Settings 页**：只读展示当前解析到的模型与思考档位（`GET /api/ai/models`，不暴露密钥与 endpoint）。
+- 更深策略：[docs/AI_RULES.md](docs/AI_RULES.md)、[docs/MODEL_BENCHMARK.md](docs/MODEL_BENCHMARK.md)、TECHNICAL_DESIGN §10.5。
+
 ## 常用命令
 
 ```bash
@@ -89,6 +149,7 @@ pnpm build                             # 类型检查 + web 构建
 2. 再读同一套 `docs/*` 作为权威；进度看 [docs/PHASES.md](docs/PHASES.md)。
 3. 真正发给模型的 Prompt：[apps/api/prompts/](apps/api/prompts/)。
 4. Prompt Eval fixtures：[apps/api/tests/ai/eval/](apps/api/tests/ai/eval/)。
+5. 对话式管词库/导入：见上方 Agent Skills + `el-cli`（不要另写一套手册）。
 
 不要另写一套 Agent 手册。一处事实只维护一处，用链接，不复制粘贴。
 

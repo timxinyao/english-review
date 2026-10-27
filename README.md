@@ -41,6 +41,66 @@ pnpm dev                        # API 127.0.0.1:5174 + web http://127.0.0.1:5173
 
 See [`.env.example`](.env.example) for all fields (`AUTH_PASSWORD` / `AUTH_PASSWORD_HASH`, `SESSION_SECRET`, `DATABASE_PATH`, `APP_ORIGINS`, `APP_TIMEZONE`, optional `S3_BUCKET` and `GLM_*`). Do not commit real secrets.
 
+## HTTP API
+
+This is the **single-user app API** the web UI uses — not a public multi-tenant SDK. There is **no OpenAPI/Swagger** published; contracts live in code (`apps/api/src/modules/*/routes.ts`) and [docs/TECHNICAL_DESIGN.md](docs/TECHNICAL_DESIGN.md) §6.
+
+| Topic | Detail |
+| --- | --- |
+| Prefix | All routes under `/api` |
+| Dev base | API `http://127.0.0.1:5174`; web `http://127.0.0.1:5173` (set `APP_ORIGINS` for the web origin) |
+| Auth | `POST /api/auth/login` with `{ "password" }` → signed **session cookie**; most routes require it |
+| Public | `POST /api/auth/login`, `GET /api/health` only |
+| Shape | JSON + Zod validation; stable error codes; no provider keys or prompt bodies exposed to the client |
+
+Module map (Today, Library, Import, Read, Stats, Settings, …): [TECHNICAL_DESIGN §6.2](docs/TECHNICAL_DESIGN.md). Shared request/response types: `packages/shared`.
+
+### `el-cli` (same API as the UI)
+
+Scripted / agent access without the browser — talks to the running API with the same login cookie flow:
+
+```bash
+cd apps/api
+pnpm exec tsx scripts/el-cli.ts find [query]
+pnpm exec tsx scripts/el-cli.ts show <id>
+pnpm exec tsx scripts/el-cli.ts preview <file.json|->   # import preview
+pnpm exec tsx scripts/el-cli.ts commit --token <tok>
+pnpm exec tsx scripts/el-cli.ts stats
+pnpm exec tsx scripts/el-cli.ts backup ./backup.json
+```
+
+Defaults: `IMPORT_API_BASE=http://127.0.0.1:5174`, password from `IMPORT_PASSWORD` or `AUTH_PASSWORD` in `apps/api/.env`. See the header comment in [`apps/api/scripts/el-cli.ts`](apps/api/scripts/el-cli.ts).
+
+## Agent Skills (for coding agents, not an in-app feature)
+
+English Review does **not** ship end-user “Skills” inside the product UI. It does ship **agent skill playbooks** so Cursor / Claude-style agents can drive import and library ops via `el-cli`:
+
+| Skill | Path | Does |
+| --- | --- | --- |
+| `import-english` | [`.agents/skills/import-english/`](.agents/skills/import-english/) (mirror under `.claude/skills/`) | Turn chat notes into import JSON → `preview` → confirm → `commit` |
+| `library-english` | [`.agents/skills/library-english/`](.agents/skills/library-english/) | Find / show / edit / archive / pause / reset / master / stats / backup |
+
+- Destructive or progress-changing ops: show current state, state consequences, get confirmation, then run.
+- For **changing the codebase** (prompts, features, evals), ignore Skills and follow **[AGENTS.md](AGENTS.md)** → `docs/*` → edit `apps/api/prompts/*.md` and run `pnpm ai:eval` as needed.
+- Phase / planning notes under `docs/superpowers/` are for staged implementation, not end users.
+
+## Configure AI models
+
+AI talks to a GLM / Anthropic-Messages-compatible endpoint. Copy [`.env.example`](.env.example) → `apps/api/.env`, then set:
+
+| Variable | Role |
+| --- | --- |
+| `GLM_API_KEY` | Required for live generation / judgment |
+| `GLM_API_BASE` | Default `https://open.bigmodel.cn/api/anthropic` |
+| `GLM_MODEL_FLASH` / `GLM_MODEL_AIR` / `GLM_MODEL_MAX` | Optional pin; empty = auto-pick from `/v1/models` |
+| `GLM_MAX_TOKENS` | Default `8192` |
+| `GLM_THINKING` | Optional global override: `off` / `low` / `high` / `max`; empty = per-task policy |
+
+- **Without a key**: API/web still boot; AI-backed actions degrade. Prompt eval works offline with `pnpm ai:eval -- --provider mock`.
+- **After edits**: restart `pnpm dev` (or the API process) so env reloads.
+- **Settings UI**: read-only resolved models / thinking via `GET /api/ai/models` (no keys or endpoints shown).
+- Deeper policy: [docs/AI_RULES.md](docs/AI_RULES.md), [docs/MODEL_BENCHMARK.md](docs/MODEL_BENCHMARK.md), TECHNICAL_DESIGN §10.5.
+
 ## Common commands
 
 ```bash
@@ -89,6 +149,7 @@ Chinese product/tech docs are the authoritative written design; this English REA
 2. Then the same `docs/*` as source of truth; [docs/PHASES.md](docs/PHASES.md) for progress.
 3. Prompts that are actually sent to models: [apps/api/prompts/](apps/api/prompts/).
 4. Prompt eval fixtures: [apps/api/tests/ai/eval/](apps/api/tests/ai/eval/).
+5. Runtime library/import via chat: Agent Skills above + `el-cli` (do not invent a second handbook).
 
 Do not invent a second agent handbook. One fact lives in one place; link instead of copying.
 

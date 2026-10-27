@@ -57,7 +57,7 @@ describe('会话自动发音', () => {
   it('默认开：当前卡到达自动读词一次', async () => {
     stubSession();
     renderTodayApp();
-    await screen.findByText('2 / 4');
+    await screen.findByText('今日 2 / 4');
     await waitFor(() => expect(vi.mocked(speak)).toHaveBeenCalledWith('gamma'));
     expect(vi.mocked(speak)).toHaveBeenCalledTimes(1);
   });
@@ -66,7 +66,7 @@ describe('会话自动发音', () => {
     localStorage.setItem('el:auto-pronounce', '0');
     stubSession();
     renderTodayApp();
-    await screen.findByText('2 / 4');
+    await screen.findByText('今日 2 / 4');
     await new Promise((r) => setTimeout(r, 100));
     expect(vi.mocked(speak)).not.toHaveBeenCalled();
   });
@@ -74,7 +74,7 @@ describe('会话自动发音', () => {
   it('开关按钮：点击关闭后不读，重开即刻读当前词；aria-pressed 反映状态', async () => {
     stubSession();
     renderTodayApp();
-    await screen.findByText('2 / 4');
+    await screen.findByText('今日 2 / 4');
     await waitFor(() => expect(vi.mocked(speak)).toHaveBeenCalledTimes(1));
 
     const btn = screen.getByRole('button', { name: '自动发音' });
@@ -97,7 +97,7 @@ describe('会话自动发音', () => {
   it('与词行发音按钮视觉区分：自动开关为「自动」药丸，词行发音保持纯图标', async () => {
     stubSession();
     renderTodayApp();
-    await screen.findByText('2 / 4');
+    await screen.findByText('今日 2 / 4');
 
     const autoBtn = screen.getByRole('button', { name: '自动发音' });
     expect(autoBtn).toHaveTextContent('自动'); // 药丸带文字标签

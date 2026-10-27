@@ -73,7 +73,7 @@ export function LibraryPage() {
             aria-pressed={filter === key}
             onClick={() => setFilter(key)}
             className={cn(
-              'shrink-0 rounded-full border px-3 py-1 text-xs transition-colors',
+              'inline-flex h-9 min-h-9 shrink-0 items-center rounded-full border px-3.5 text-[13px] transition-colors',
               filter === key
                 ? 'border-accent bg-accent-soft text-accent'
                 : 'border-border text-muted-foreground hover:bg-muted',
@@ -138,15 +138,15 @@ export function LibraryPage() {
                   )}
                 </div>
                 <p className="mt-0.5 text-sm text-muted-foreground">{item.meaning}</p>
-                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span>理解 {item.understandingStage}</span>
-                  <span aria-hidden>·</span>
-                  <span>输出 {item.productionStage}</span>
+                <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
+                  <span className="rounded border border-border px-1.5 py-0.5">
+                    理解 {item.understandingStage}
+                  </span>
+                  <span className="rounded border border-border px-1.5 py-0.5">
+                    输出 {item.productionStage}
+                  </span>
                   {item.source && (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span>{item.source}</span>
-                    </>
+                    <span className="rounded border border-border px-1.5 py-0.5">{item.source}</span>
                   )}
                 </p>
               </Link>

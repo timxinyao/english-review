@@ -134,7 +134,7 @@ describe('Today 完成页撤销入口（PRODUCT §5.1）', () => {
     // 回到活动会话：替换题（Recall Card）挂载、进度行出现、完成摘要消失；
     // 已撤销的原题不回放（result 为 null、canceled 条目不进分布）
     expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
-    expect(await screen.findByText('0 / 1')).toBeVisible();
+    expect(await screen.findByText('今日 0 / 1')).toBeVisible();
     await waitFor(() => expect(screen.queryByRole('heading', { name: '今天完成了' })).toBeNull());
     await new Promise((r) => setTimeout(r, 50));
     expect(apiCalls('/api/today/tasks/task-1/undo')).toHaveLength(1); // 仍只有一次

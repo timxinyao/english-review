@@ -874,7 +874,7 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
 
   // recentlyLearned：最近完成的 Learn 任务对应项；无历史时退化为最近创建的 started 项
   let recent = db
-    .select({ id: learningItems.id, target: learningItems.target, type: learningItems.type })
+    .select({ id: learningItems.id, target: learningItems.target, meaning: learningItems.meaning, type: learningItems.type })
     .from(reviewTasks)
     .innerJoin(learningItems, eq(learningItems.id, reviewTasks.learningItemId))
     .where(
@@ -889,7 +889,7 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
     .all();
   if (recent.length === 0) {
     recent = db
-      .select({ id: learningItems.id, target: learningItems.target, type: learningItems.type })
+      .select({ id: learningItems.id, target: learningItems.target, meaning: learningItems.meaning, type: learningItems.type })
       .from(learningItems)
       .where(and(eq(learningItems.queueState, 'started'), ne(learningItems.status, 'archived')))
       .orderBy(desc(learningItems.createdAt), desc(learningItems.id))
@@ -910,6 +910,7 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
     recentlyLearned: recent.map((r) => ({
       id: r.id,
       target: r.target,
+      meaning: r.meaning,
       type: r.type as 'word' | 'chunk',
     })),
   };

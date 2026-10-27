@@ -116,12 +116,28 @@ function ReadHome({
     });
   }
 
+  const lastCreatedAt = recent.data?.items[0]?.createdAt;
+  const daysSinceLast =
+    lastCreatedAt != null
+      ? Math.floor((Date.now() - new Date(lastCreatedAt).getTime()) / 86_400_000)
+      : null;
+  const staleHint =
+    recent.data != null &&
+    (recent.data.items.length === 0 || (daysSinceLast !== null && daysSinceLast >= 14));
+
   return (
     <section className="space-y-8">
       <h1 className="hidden text-lg font-semibold md:block">Read</h1>
 
       <div className="rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-sm text-muted-foreground">让近期学过的词在新的上下文里再次出现</p>
+        {staleHint && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {recent.data.items.length === 0
+              ? '还没有阅读记录，用近期词练一篇吧'
+              : `上次阅读已是 ${daysSinceLast} 天前，用近期词练一篇`}
+          </p>
+        )}
         <Button size="lg" className="mt-5" disabled={generate.isPending} onClick={generateOnce}>
           生成阅读
         </Button>

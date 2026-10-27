@@ -52,7 +52,7 @@ describe('Today learn 首题（Recall Card：三档自评）', () => {
   it('active 态渲染进度 x / y；learn 分派 RecallCard——不剧透 meaning/选项，无提示入口', async () => {
     renderTodayApp();
 
-    expect(await screen.findByText('1 / 4')).toBeVisible();
+    expect(await screen.findByText('今日 1 / 4')).toBeVisible();
     // learn 渲染 RecallCard：不剧透 meaning，也无选项与提示入口（揭示前仅「显示答案」）
     expect(screen.queryByText('重力')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: '选项' })).not.toBeInTheDocument();

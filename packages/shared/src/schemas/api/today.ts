@@ -68,6 +68,8 @@ export type CorrectionView = z.infer<typeof CorrectionView>;
 export const RecentlyLearnedDto = z.object({
   id: z.string(),
   target: z.string(),
+  /** 短释义：同 target 多义项时区分（Quiet UI） */
+  meaning: z.string(),
   type: LearningItemType,
 });
 export type RecentlyLearnedDto = z.infer<typeof RecentlyLearnedDto>;

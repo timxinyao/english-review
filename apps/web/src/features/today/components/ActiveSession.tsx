@@ -72,7 +72,7 @@ function ProgressRow({
           aria-label="查看今日学习"
         >
           <span className="block text-sm font-medium tabular-nums text-foreground">
-            {completed} / {total}
+            今日 {completed} / {total}
           </span>
           {hasEntries && (
             <span className="mt-1 block text-xs text-muted-foreground">

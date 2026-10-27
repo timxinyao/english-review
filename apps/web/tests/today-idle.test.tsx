@@ -28,7 +28,9 @@ describe('TodayPage idle 态', () => {
     expect(screen.getByText('做一点也行，不必一次清完')).toBeVisible();
     expect(screen.getByText('Recently learned')).toBeVisible();
     expect(screen.getByText('wear down')).toBeVisible();
+    expect(screen.getByText('消耗；使疲惫')).toBeVisible();
     expect(screen.getByText('raw')).toBeVisible();
+    expect(screen.getByText('未加工的')).toBeVisible();
   });
 
   it('有积压时拆分显示「今日计划 / 积压还剩」（软上限截断，2026-10-27）', async () => {
@@ -62,6 +64,7 @@ describe('TodayPage idle 态', () => {
         recentlyLearned: Array.from({ length: 6 }, (_, i) => ({
           id: `r${i}`,
           target: `item-${i}`,
+          meaning: `释义 ${i}`,
           type: 'word' as const,
         })),
       }),
@@ -92,5 +95,20 @@ describe('TodayPage idle 态', () => {
     // refetch 后进入 active 态渲染任务卡（understanding → Recall Card 直判态）
     expect(await screen.findByRole('heading', { name: 'stable' })).toBeVisible();
     expect(screen.getByRole('button', { name: '显示答案' })).toBeVisible();
+  });
+
+  it('首屏加载显示骨架壳，不只有「加载中…」空白文案', async () => {
+    let resolveStatus: (v: unknown) => void = () => {};
+    const pending = new Promise((resolve) => {
+      resolveStatus = resolve;
+    });
+    stubApi({
+      '/api/today': () => pending,
+    });
+    renderTodayApp();
+    expect(await screen.findByLabelText('加载中')).toBeInTheDocument();
+    expect(screen.queryByText('加载中…')).not.toBeInTheDocument();
+    resolveStatus(makeIdle());
+    expect(await screen.findByText(/今日计划/)).toBeVisible();
   });
 });

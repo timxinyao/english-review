@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useStats } from './api';
 import { HeatmapGrid } from './components/HeatmapGrid';
 
@@ -35,6 +36,9 @@ export function StatsPage() {
   const { totals } = data;
   const passRate =
     data.productionPassRate === null ? '暂无' : `${Math.round(data.productionPassRate * 100)}%`;
+  const lowPass =
+    data.productionPassRate !== null && data.productionPassRate < 0.4 && data.productionAttempts > 0;
+  const earlyMastery = totals.mastered === 0 && totals.active > 0;
 
   return (
     <section className="space-y-8">
@@ -62,6 +66,25 @@ export function StatsPage() {
         </Row>
         <Row label="最近 30 天新增">{data.last30DaysNewItems}</Row>
       </dl>
+
+      {(earlyMastery || lowPass) && (
+        <p className="text-sm text-muted-foreground">
+          {lowPass
+            ? '表达通过率还可以慢慢练。'
+            : '掌握需要时间，先把今日到期清掉一小部分。'}{' '}
+          <Link to="/today" className="text-accent hover:underline">
+            去 Today
+          </Link>
+          {lowPass && (
+            <>
+              {' · '}
+              <Link to="/library" className="text-accent hover:underline">
+                在 Library 练一下
+              </Link>
+            </>
+          )}
+        </p>
+      )}
 
       <div className="space-y-3">
         <h2 className="text-sm font-semibold">最近 12 个月</h2>

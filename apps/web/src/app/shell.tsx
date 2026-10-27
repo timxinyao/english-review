@@ -128,7 +128,7 @@ export function AppShell() {
               <>
                 <NavLink
                   to="/stats"
-                  className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+                  className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
                   aria-label="统计"
                 >
                   <BarChart3 className="h-4 w-4" aria-hidden />
@@ -136,7 +136,7 @@ export function AppShell() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 text-muted-foreground"
+                  className="h-11 w-11 text-muted-foreground"
                   aria-label="刷新"
                   onClick={onRefresh}
                 >
@@ -146,7 +146,7 @@ export function AppShell() {
             )}
             <NavLink
               to="/settings"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
               aria-label="设置"
             >
               <Settings className="h-4 w-4" aria-hidden />

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -82,29 +82,48 @@ function renderPage() {
 
 afterEach(() => cleanup());
 
+async function renderExpandedAi() {
+  renderPage();
+  // 默认折叠：先点开 AI 模型再断言任务表
+  const toggle = await screen.findByRole('button', { name: /AI 模型/ });
+  fireEvent.click(toggle);
+  return toggle;
+}
+
 describe('Settings 页 AI 模型区块（按任务矩阵动态分组）', () => {
-  it('生成类任务合并为一行：flash + 思考关', async () => {
+  it('默认折叠为「当前模型」一行；展开后可见任务表', async () => {
     renderPage();
+    expect(await screen.findByText(/当前模型/)).toBeVisible();
+    expect(screen.getByText('glm-5.3-flash')).toBeVisible();
+    expect(
+      screen.queryByText('理解题生成 · 填空题生成 · 填空兜底判定 · 表达题生成 · Read 生成'),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /AI 模型/ }));
     expect(
       await screen.findByText('理解题生成 · 填空题生成 · 填空兜底判定 · 表达题生成 · Read 生成'),
     ).toBeVisible();
   });
 
   it('表达批改单独一行：主模型 + 思考中（2026-09-25 基准矩阵）', async () => {
-    renderPage();
+    await renderExpandedAi();
     expect(await screen.findByText('表达批改', { exact: false })).toBeVisible();
     expect(screen.getAllByText('glm-5.3').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('思考 中')).toBeVisible();
   });
 
   it('导入重复判定：flash + 思考低', async () => {
-    renderPage();
+    await renderExpandedAi();
     expect(await screen.findByText('导入重复判定')).toBeVisible();
     expect(screen.getByText('思考 低')).toBeVisible();
   });
 
   it('有可用清单时展示自动选择说明', async () => {
-    renderPage();
+    await renderExpandedAi();
     expect(await screen.findByText(/自动从 2 个可用模型中选择最新版本/)).toBeVisible();
+  });
+
+  it('页底展示构建时间', async () => {
+    renderPage();
+    expect(await screen.findByText(/构建 /)).toBeVisible();
   });
 });

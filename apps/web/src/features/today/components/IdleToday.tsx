@@ -65,8 +65,11 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
           </p>
           <ul className="border-t border-border">
             {data.recentlyLearned.slice(0, RECENTLY_LEARNED_MAX).map((item) => (
-              <li key={item.id} className="border-b border-border py-2.5 text-sm text-foreground">
-                {item.target}
+              <li key={item.id} className="border-b border-border py-2.5">
+                <p className="text-sm text-foreground">{item.target}</p>
+                {item.meaning.trim() && (
+                  <p className="mt-0.5 text-[13px] text-muted-foreground">{item.meaning}</p>
+                )}
               </li>
             ))}
           </ul>

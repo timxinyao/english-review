@@ -88,7 +88,7 @@ describe('V2 pending 题目准备（2026-10-03 两级契约）', () => {
     renderTodayApp();
     // 失败态：错误文案 + dock 三键（重试/稍后再做/刷新今日学习）
     expect(await screen.findByText('题目暂时无法生成，请稍后重试')).toBeVisible();
-    expect(screen.getByText('0 / 1')).toBeVisible();
+    expect(screen.getByText('今日 0 / 1')).toBeVisible();
     expect(screen.getByRole('button', { name: '重试' })).toBeVisible();
     expect(screen.getByRole('button', { name: '稍后再做' })).toBeVisible();
     expect(screen.getByRole('button', { name: '刷新今日学习' })).toBeVisible();
@@ -119,7 +119,7 @@ describe('V2 pending 题目准备（2026-10-03 两级契约）', () => {
     await waitFor(() => expect(apiCalls('/api/today/tasks/task-prod/later')).toHaveLength(1));
     expect(apiCalls('/api/today/tasks/task-prod/later')[0]!.init).toMatchObject({ method: 'POST' });
     expect(await screen.findByRole('heading', { name: 'gravity' })).toBeVisible();
-    expect(screen.getByText('0 / 2')).toBeVisible();
+    expect(screen.getByText('今日 0 / 2')).toBeVisible();
   });
 });
 
@@ -396,7 +396,7 @@ describe('Today 撤销最近一次作答（卡片右上单图标，PRODUCT §5.1
     });
     renderTodayApp();
     await screen.findByRole('heading', { name: 'beta' });
-    await screen.findByText('0 / 2');
+    await screen.findByText('今日 0 / 2');
     expect(screen.queryByRole('button', { name: '撤销最近一次作答' })).toBeNull();
   });
 
@@ -567,7 +567,7 @@ describe('大队列进度区：不渲染每题色条', () => {
     });
     renderTodayApp();
     await screen.findByRole('heading', { name: 'omega' });
-    expect(await screen.findByText('0 / 21')).toBeVisible();
+    expect(await screen.findByText('今日 0 / 21')).toBeVisible();
     expect(screen.getByText('通过 0 · 基础通过 0 · 未通过 0')).toBeVisible();
     const entry = screen.getByRole('button', { name: '查看今日学习' });
     expect(entry.querySelectorAll('[data-seg]')).toHaveLength(0);

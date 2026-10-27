@@ -85,6 +85,14 @@ describe('LibraryDetail 详情', () => {
     expect(screen.getByText('A resilient mindset helps.')).toBeVisible();
   });
 
+  it('来源与链接为空时不渲染占位行', async () => {
+    renderDetail({ source: null, sourceUrl: null });
+    await screen.findByRole('heading', { name: 'resilient' });
+    expect(screen.queryByText('来源')).not.toBeInTheDocument();
+    expect(screen.queryByText('链接')).not.toBeInTheDocument();
+    expect(screen.getByText('标签')).toBeVisible();
+  });
+
   it('渲染两维状态：stability 天数、阶段与下次复习时间', async () => {
     renderDetail();
     await screen.findByRole('heading', { name: 'resilient' });

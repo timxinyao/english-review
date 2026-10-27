@@ -444,14 +444,16 @@ export function LibraryDetailPage() {
       ) : (
         <>
           <dl className="space-y-2 text-sm">
-            <div className="flex gap-2">
-              <dt className="w-20 shrink-0 text-muted-foreground">来源</dt>
-              <dd>{item.source ?? '—'}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="w-20 shrink-0 text-muted-foreground">链接</dt>
-              <dd className="min-w-0 flex-1 truncate">
-                {item.sourceUrl ? (
+            {item.source && (
+              <div className="flex gap-2">
+                <dt className="w-20 shrink-0 text-muted-foreground">来源</dt>
+                <dd>{item.source}</dd>
+              </div>
+            )}
+            {item.sourceUrl && (
+              <div className="flex gap-2">
+                <dt className="w-20 shrink-0 text-muted-foreground">链接</dt>
+                <dd className="min-w-0 flex-1 truncate">
                   <a
                     href={item.sourceUrl}
                     target="_blank"
@@ -460,11 +462,9 @@ export function LibraryDetailPage() {
                   >
                     {item.sourceUrl}
                   </a>
-                ) : (
-                  '—'
-                )}
-              </dd>
-            </div>
+                </dd>
+              </div>
+            )}
             <div className="flex gap-2">
               <dt className="w-20 shrink-0 text-muted-foreground">标签</dt>
               <dd className="flex flex-wrap gap-1">

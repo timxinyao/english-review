@@ -40,7 +40,7 @@ export function LoginPage() {
             {login.error.message}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={login.isPending || !password}>
+        <Button type="submit" className="w-full bg-[#974831] hover:bg-[#833f2b] active:bg-[#833f2b]" disabled={login.isPending || !password}>
           {login.isPending ? '登录中…' : '进入'}
         </Button>
       </form>

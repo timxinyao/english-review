@@ -193,8 +193,8 @@ export function makeIdle(overrides: Partial<TodayIdleResponse> = {}): TodayIdleR
     totalItems: 57,
     newQueueCount: 27,
     recentlyLearned: [
-      { id: 'r1', target: 'wear down', type: 'chunk' },
-      { id: 'r2', target: 'raw', type: 'word' },
+      { id: 'r1', target: 'wear down', meaning: '消耗；使疲惫', type: 'chunk' },
+      { id: 'r2', target: 'raw', meaning: '未加工的', type: 'word' },
     ],
     ...overrides,
   };

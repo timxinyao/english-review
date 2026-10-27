@@ -43,6 +43,7 @@
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-27 | 手机 Quiet UI 跟进：Today 骨架、触控区、Recently learned 释义、详情空来源隐藏、Settings 模型折叠与构建时间、Stats/Read 安静下一步（fix/mobile-quiet-ui）。 |
 | 2026-10-27 | 核对线上：暖纸 tokens 已在生产 CSS（#f4f3ee/#ae563d），源码与 /opt 部署一致；更正本阶段「未部署」过时状态。 |
 | 2026-10-03 | 用户批准方案，更新产品/架构规范并开始实现。 |
 | 2026-10-03 | 统一色彩、字体、输入控件与按钮；更新 Recall/Production 排版和 `/tokens`，复用 Textarea 到 Library/Import。 |

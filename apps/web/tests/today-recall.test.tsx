@@ -246,7 +246,7 @@ describe('Recall Card（understanding）', () => {
     expect(screen.queryByRole('button', { name: '下一题' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '坏题' })).not.toBeInTheDocument();
     // 进度同步推进（已完成数/总数）
-    expect(screen.getByText('1 / 2')).toBeVisible();
+    expect(screen.getByText('今日 1 / 2')).toBeVisible();
   });
 
   it('评分即前进：快照里造句题未绑定时走中性占位，不闪 pending 单词卡', async () => {

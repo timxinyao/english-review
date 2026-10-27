@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AiModelsResponse, Settings, UpdateSettingsRequest } from '@el/shared';
+import { ChevronDown } from 'lucide-react';
 import { api } from '../../lib/api';
+import { cn } from '../../lib/utils';
 import { Select } from '../../components/ui/select';
 import { BackupSection } from './components/BackupSection';
 import { NotificationSection } from './components/NotificationSection';
@@ -71,38 +73,67 @@ function AiModelsSection() {
     queryFn: () => api<AiModelsResponse>('/api/ai/models'),
     staleTime: 10 * 60 * 1000,
   });
+  // 手机默认折叠成一行「当前模型」；桌面同样可点开（Quiet UI）
+  const [expanded, setExpanded] = useState(false);
+
+  const rows = useMemo(() => (data ? groupTaskMapping(data) : []), [data]);
+  const primaryModel = rows[0]?.model ?? data?.models.flash.model ?? '—';
 
   if (isLoading) return <p className="text-sm text-muted-foreground">AI 模型：加载中…</p>;
   if (isError || !data) return <p className="text-sm text-muted-foreground">AI 模型：暂不可用</p>;
 
-  const rows = groupTaskMapping(data);
   return (
     <div className="space-y-3">
-      <h2 className="text-sm font-semibold">AI 模型</h2>
-      <dl className="space-y-3 text-sm">
-        {rows.map((row) => (
-          <div
-            key={row.key}
-            className="flex items-center justify-between gap-3 border-b border-border pb-3"
-          >
-            <dt className="text-muted-foreground">{row.usage}</dt>
-            <dd className="flex shrink-0 items-center gap-2">
-              <span className="font-mono text-xs">{row.model}</span>
-              <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {SOURCE_LABEL[row.source]}
-              </span>
-              <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {THINKING_LABEL[row.thinking]}
-              </span>
-            </dd>
-          </div>
-        ))}
-      </dl>
-      <p className="text-xs text-muted-foreground">
-        {data.availableModels.length > 0
-          ? `自动从 ${data.availableModels.length} 个可用模型中选择最新版本；可通过环境变量固定。`
-          : '未配置 GLM_API_KEY，使用内置默认模型。'}
-      </p>
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 text-left"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="space-y-0.5">
+          <span className="block text-sm font-semibold">AI 模型</span>
+          {!expanded && (
+            <span className="block text-sm text-muted-foreground">
+              当前模型 <span className="font-mono text-xs text-foreground">{primaryModel}</span>
+            </span>
+          )}
+        </span>
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+            expanded && 'rotate-180',
+          )}
+          aria-hidden
+        />
+      </button>
+      {expanded && (
+        <>
+          <dl className="space-y-3 text-sm">
+            {rows.map((row) => (
+              <div
+                key={row.key}
+                className="flex items-center justify-between gap-3 border-b border-border pb-3"
+              >
+                <dt className="text-muted-foreground">{row.usage}</dt>
+                <dd className="flex shrink-0 items-center gap-2">
+                  <span className="font-mono text-xs">{row.model}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    {SOURCE_LABEL[row.source]}
+                  </span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    {THINKING_LABEL[row.thinking]}
+                  </span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-xs text-muted-foreground">
+            {data.availableModels.length > 0
+              ? `自动从 ${data.availableModels.length} 个可用模型中选择最新版本；可通过环境变量固定。`
+              : '未配置 GLM_API_KEY，使用内置默认模型。'}
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -125,6 +156,13 @@ const PLAN_OPTIONS: Array<{ value: string; label: string }> = [
 ];
 
 const LEVEL_OPTIONS = ['A2', 'B1', 'B2', 'C1'] as const;
+
+function formatBuildTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export function SettingsPage() {
   const qc = useQueryClient();
@@ -226,6 +264,10 @@ export function SettingsPage() {
       <Link to="/tokens" className="block text-xs text-muted-foreground hover:underline">
         设计色卡
       </Link>
+
+      <p className="pt-2 text-[11px] text-muted-foreground/70">
+        构建 {formatBuildTime(__BUILD_TIME__)}
+      </p>
     </section>
   );
 }

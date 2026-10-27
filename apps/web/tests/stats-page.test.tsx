@@ -167,4 +167,45 @@ describe('Stats 页', () => {
     renderStatsPage();
     expect(await screen.findByText(/读取失败/)).toBeVisible();
   });
+
+  it('掌握为 0 时给出安静下一步（去 Today）', async () => {
+    statsApi.mockImplementation(((path: string) => {
+      if (path === '/api/stats')
+        return Promise.resolve(
+          makeStats({
+            totals: {
+              items: 6,
+              words: 3,
+              chunks: 3,
+              active: 2,
+              mastered: 0,
+              paused: 0,
+              archived: 1,
+              newQueue: 1,
+            },
+          }),
+        );
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    }) as typeof api);
+    renderStatsPage();
+    expect(await screen.findByText(/掌握需要时间/)).toBeVisible();
+    expect(screen.getByRole('link', { name: '去 Today' })).toHaveAttribute('href', '/today');
+  });
+
+  it('表达通过率偏低时提示去练', async () => {
+    statsApi.mockImplementation(((path: string) => {
+      if (path === '/api/stats')
+        return Promise.resolve(
+          makeStats({ productionPassRate: 0.26, productionAttempts: 50, productionPass: 13 }),
+        );
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    }) as typeof api);
+    renderStatsPage();
+    expect(await screen.findByText(/表达通过率还可以慢慢练/)).toBeVisible();
+    expect(screen.getByRole('link', { name: '在 Library 练一下' })).toHaveAttribute(
+      'href',
+      '/library',
+    );
+  });
+
 });

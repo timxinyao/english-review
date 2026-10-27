@@ -76,7 +76,7 @@ describe('Today 进度：结果分布（PRODUCT §5.1）', () => {
 
     // 文字计数（不以颜色为唯一载体）与 完成数/总数
     expect(await screen.findByText('通过 1 · 基础通过 1 · 未通过 1')).toBeVisible();
-    expect(screen.getByText('3 / 4')).toBeVisible();
+    expect(screen.getByText('今日 3 / 4')).toBeVisible();
 
     // 分布分段按结果着色：pass / basic_pass / fail / pending 各一段
     await waitFor(() => expect(document.querySelectorAll('[data-seg]')).toHaveLength(4));
@@ -109,7 +109,7 @@ describe('Today 进度：结果分布（PRODUCT §5.1）', () => {
     renderTodayApp();
 
     expect(await screen.findByText('通过 1 · 基础通过 1 · 未通过 1')).toBeVisible();
-    expect(screen.getByText('3 / 4')).toBeVisible(); // 分母 4 = 5 条 - 1 撤销
+    expect(screen.getByText('今日 3 / 4')).toBeVisible(); // 分母 4 = 5 条 - 1 撤销
     await waitFor(() => expect(document.querySelectorAll('[data-seg]')).toHaveLength(4)); // 撤销条目无分段
   });
 
@@ -145,13 +145,13 @@ describe('Today 进度：结果分布（PRODUCT §5.1）', () => {
       },
     });
     renderTodayApp();
-    expect(await screen.findByText('2 / 4')).toBeVisible();
+    expect(await screen.findByText('今日 2 / 4')).toBeVisible();
 
     // 答错评分即前进（显示答案 → 重来）：自动切到 delta，补强使总数变 5
     fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
     fireEvent.click(screen.getByRole('button', { name: '重来' }));
     expect(await screen.findByRole('heading', { name: 'delta' })).toBeVisible();
-    expect(await screen.findByText('3 / 5')).toBeVisible();
+    expect(await screen.findByText('今日 3 / 5')).toBeVisible();
     expect(screen.getByText('通过 1 · 基础通过 1 · 未通过 1')).toBeVisible();
     await waitFor(() => expect(document.querySelectorAll('[data-seg]')).toHaveLength(5));
   });
@@ -195,12 +195,12 @@ describe('Today 进度：结果分布（PRODUCT §5.1）', () => {
       },
     });
     renderTodayApp();
-    await screen.findByText('2 / 4');
+    await screen.findByText('今日 2 / 4');
     fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
     fireEvent.click(await screen.findByRole('button', { name: '良好' }));
     // 无需点"下一题"：refetch 落地即到下一题
     expect(await screen.findByRole('heading', { name: 'delta' })).toBeVisible();
-    expect(await screen.findByText('3 / 4')).toBeVisible();
+    expect(await screen.findByText('今日 3 / 4')).toBeVisible();
   });
 });
 

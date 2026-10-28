@@ -81,8 +81,10 @@ function makePracticeQuestions(): PracticeQuestion[] {
     {
       qtype: 'production',
       questionId: 'pq-2',
+      kind: 'scramble',
       zhPrompt: '他决定戒烟。',
-      mustUse: 'give up',
+      targets: [{ learningItemId: 'item-1', surface: 'give up' }],
+      chips: ['He', 'decided', 'to', 'give', 'up', 'smoking', 'quit'],
     },
   ];
 }
@@ -293,112 +295,56 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(screen.getByRole('heading', { name: 'resilient' })).toBeVisible();
   });
 
-  it('表达题批改与完成：提交 answerText → diff → 已存个人例句 → 完成 → 返回详情', async () => {
+  it('表达题拼词：提交 selectedTokens → 结果 → 完成 → 返回详情', async () => {
     renderDetailWithPractice({
       '/api/library/item-1/practice/pq-2/answer': makePracticeAnswer({
-        result: 'basic_pass',
-        correct: false,
-        explanation: '时态可以更自然。',
-        personalExampleSaved: true,
-        correction: {
-          segments: [
-            { text: 'He decided to give up smoke.', type: 'delete' },
-            { text: 'He decided to give up smoking.', type: 'insert' },
-          ],
-          correctedSentence: 'He decided to give up smoking.',
-          betterVersion: null,
-          betterVersionKind: null,
-        },
+        itemResults: [{ learningItemId: 'item-1', surface: 'give up', result: 'pass' }],
+        referenceTokens: ['He', 'decided', 'to', 'give', 'up', 'smoking'],
       }),
     });
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-
-    // 第 1 题：recall 直判通过
     fireEvent.click(await screen.findByRole('button', { name: '良好' }));
-    await screen.findByText('良好');
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-
-    // 第 2 题：表达
-    await screen.findByLabelText('表达答案');
-    expect(
-      screen.getByText(
-        (_, el) => el?.tagName === 'P' && el.textContent === '必须使用：give up[复制]',
-      ),
-    ).toBeVisible();
-    fireEvent.change(screen.getByLabelText('表达答案'), {
-      target: { value: 'He decided to give up smoke.' },
-    });
+    fireEvent.click(await screen.findByRole('button', { name: '下一题' }));
+    expect(await screen.findByText('他决定戒烟。')).toBeVisible();
+    const bank = screen.getByTestId('scramble-chip-bank');
+    for (const tok of ['He', 'decided', 'to', 'give', 'up', 'smoking']) {
+      const btn = Array.from(bank.querySelectorAll('button')).find((b) => b.textContent === tok);
+      expect(btn).toBeTruthy();
+      fireEvent.click(btn!);
+    }
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
     await waitFor(() => {
       expect(apiCalls('/api/library/item-1/practice/pq-2/answer')).toHaveLength(1);
     });
     expect(jsonBodyOf(apiCalls('/api/library/item-1/practice/pq-2/answer')[0])).toEqual({
-      answerText: 'He decided to give up smoke.',
+      selectedTokens: ['He', 'decided', 'to', 'give', 'up', 'smoking'],
     });
-    expect(await screen.findByText('基本通过')).toBeVisible();
-    expect(screen.getByText('He decided to give up smoke.').className).toContain(
-      'text-diff-delete',
-    );
-    expect(screen.getByText('已存入个人例句')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-
-    // 完成
+    expect(await screen.findByTestId('scramble-result')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '继续' }));
     expect(await screen.findByText('练习完成')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '返回详情' }));
-    expect(await screen.findByRole('button', { name: '编辑' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'resilient' })).toBeVisible();
   });
 
-  it('表达题目标词一键复制（与 Today 共用卡）', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  it('表达题展示目标 surface 芯片（无复制按钮）', async () => {
     renderDetailWithPractice();
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-
-    // recall 直判通过 → 表达题
     fireEvent.click(await screen.findByRole('button', { name: '良好' }));
-    await screen.findByText('放弃');
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-
-    fireEvent.click(await screen.findByRole('button', { name: '复制目标词' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('give up'));
-    expect(await screen.findByText('内容已经复制到剪贴板')).toBeVisible(); // Toast 反馈
+    fireEvent.click(await screen.findByRole('button', { name: '下一题' }));
+    expect(await screen.findByText('give up')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '复制目标词' })).not.toBeInTheDocument();
   });
 
-  it('表达题批改中可取消（2026-10-05）：点取消掐断请求、输入保留、按钮恢复「提交」且无错误提示', async () => {
+  it('拼词提交 pending 时禁用芯片与提交', async () => {
     renderDetailWithPractice({
-      // 永不 resolve：保持批改 pending
       '/api/library/item-1/practice/pq-2/answer': () => new Promise(() => {}),
     });
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-
-    // 第 1 题：recall 直判通过 → 第 2 题表达
     fireEvent.click(await screen.findByRole('button', { name: '良好' }));
-    await screen.findByText('良好');
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-
-    fireEvent.change(await screen.findByLabelText('表达答案'), {
-      target: { value: 'He decided to give up smoke.' },
-    });
+    fireEvent.click(await screen.findByRole('button', { name: '下一题' }));
+    const bank = await screen.findByTestId('scramble-chip-bank');
+    fireEvent.click(Array.from(bank.querySelectorAll('button'))[0]!);
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
-
-    // 批改中：提交按钮原地变「取消」+ 进度线（练一下无正式状态，纯前端掐断）
-    const cancelBtn = await screen.findByRole('button', { name: '取消' });
-    expect(document.querySelector('[data-grading-progress]')).not.toBeNull();
-    const answerCall = apiCalls('/api/library/item-1/practice/pq-2/answer')[0]!;
-    const signal = answerCall.init?.signal as AbortSignal;
-    expect(signal.aborted).toBe(false);
-
-    fireEvent.click(cancelBtn);
-
-    expect(signal.aborted).toBe(true);
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '提交' })).toBeEnabled();
-    });
-    expect(screen.getByLabelText('表达答案')).toHaveValue('He decided to give up smoke.');
-    expect(screen.getByLabelText('表达答案')).toBeEnabled();
-    // 取消不是失败：不弹「批改失败」
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '提交中…' })).toBeDisabled();
   });
 
   it('生成练习失败：显示错误并可返回详情', async () => {
@@ -414,35 +360,22 @@ describe('Library 练一下（V2：Recall + 可选 Production；PRODUCT §4.4 �
     expect(await screen.findByRole('button', { name: '编辑' })).toBeVisible();
   });
 
-  it('表达题批改失败弹窗（2026-10-05）：失败弹「批改未完成」，返回修改回编辑态、输入保留', async () => {
+  it('拼词批改失败：展示错误文案', async () => {
     renderDetailWithPractice({
-      // 练一下无正式状态（无超时竞态概念）：失败直接置错弹窗
-      '/api/library/item-1/practice/pq-2/answer': () =>
-        Promise.reject(new ApiError('AI_PROVIDER_ERROR', 'AI 批改暂时不可用', 502)),
+      '/api/library/item-1/practice/pq-2/answer': () => {
+        throw new ApiError('AI_PROVIDER_ERROR', '批改失败', 502);
+      },
     });
     fireEvent.click(await screen.findByRole('button', { name: '练一下' }));
-
-    // 第 1 题：recall 直判通过 → 第 2 题表达
     fireEvent.click(await screen.findByRole('button', { name: '良好' }));
-    await screen.findByText('良好');
-    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
-
-    fireEvent.change(await screen.findByLabelText('表达答案'), {
-      target: { value: 'He decided to give up smoke.' },
-    });
+    fireEvent.click(await screen.findByRole('button', { name: '下一题' }));
+    const bank = await screen.findByTestId('scramble-chip-bank');
+    for (const tok of ['He', 'decided', 'to', 'give', 'up', 'smoking']) {
+      const btn = Array.from(bank.querySelectorAll('button')).find((b) => b.textContent === tok);
+      fireEvent.click(btn!);
+    }
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
-
-    // 失败弹窗：错误原文 + 未计入话术；卡上红字同在
-    const dialog = await screen.findByRole('dialog', { name: '批改未完成' });
-    expect(within(dialog).getByText('AI 批改暂时不可用 本次作答未计入，可重试。')).toBeVisible();
-    expect(screen.getByRole('alert').textContent).toContain('AI 批改暂时不可用');
-
-    // 返回修改：关弹窗回编辑态，输入保留
-    fireEvent.click(within(dialog).getByRole('button', { name: '返回修改' }));
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    });
-    expect(screen.getByLabelText('表达答案')).toHaveValue('He decided to give up smoke.');
-    expect(screen.getByLabelText('表达答案')).toBeEnabled();
+    expect(await screen.findByText(/批改失败/)).toBeVisible();
   });
+
 });

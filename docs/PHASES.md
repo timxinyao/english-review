@@ -47,3 +47,10 @@
 | 2026-09-25 | iOS 主屏 Web App：SVG 图标（暖橙几何 E.）→ Chromium 导出 favicon/180/192/512；apple-touch-icon + apple-mobile-web-app-* 元数据；全面屏安全区 pb-safe/pt-safe-lg + 顶栏刷新按钮（invalidateQueries 不打断会话） | 用户要求 |
 | 2026-09-25 | el-cli 统一管理 CLI（import-cli 并入：preview/commit + find/show/set/archive/restore/pause/resume/reset/master/stats/backup）+ `.agents/skills/library-english`（先查→告知后果→确认→执行；"删除"=归档）；errorHandler 修复框架级 4xx 误报 500 | 用户确认两 skill 方案，生产 12 步实测通过 |
 | 2026-09-25 | 模型×思考全矩阵基准（7 任务×2 模型×4-5 档，判定 3 轮/生成 2 轮独立调用无重试）定策略：生成类全 flash+off（思考档超时劣化）、cloze 判定 flash+off、judge flash+low、批改唯一例外 main+medium（100%·14s vs flash 最高 89%）；发现并修复 GLM"不传 thinking=自发思考"（off 必须显式 disabled，65s→9s）。报告：docs/MODEL_BENCHMARK.md（活文档，含换模型指南）；新策略全量 Eval 20/20 | 用户要求实测排列组合 |
+
+## Phase 13 — Scramble Production
+
+- 状态：done
+- 留档：`docs/phases/phase-13-scramble-production.md`
+- 规格：`docs/superpowers/specs/2026-10-28-multi-item-scramble-production-design.md`
+

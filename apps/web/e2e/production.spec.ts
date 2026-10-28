@@ -54,24 +54,18 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
         break;
       }
 
-      // 1) 表达题卡（give up）
+      // 1) 拼词表达题卡（give up）
       if (await page.getByText('长期的压力让我想放弃。').isVisible()) {
         productionDone = true;
-        await expect(page.getByText('必须使用：give up')).toBeVisible();
-        await page.getByLabel('表达答案').fill('The constant stress makes me want to give up.');
+        await expect(page.getByText('give up')).toBeVisible();
+        const bank = page.getByTestId('scramble-chip-bank');
+        for (const tok of ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up']) {
+          await bank.getByRole('button', { name: tok, exact: true }).click();
+        }
         await page.getByRole('button', { name: '提交' }).click();
+        await expect(page.getByTestId('scramble-result')).toBeVisible();
         await expect(page.getByText('通过', { exact: true })).toBeVisible();
-        // pass 时 corrected = 原句（diff 全 same）
-        await expect(page.getByText('The constant stress makes me want to give up.')).toBeVisible();
-        await expect(page.getByText('参考表达', { exact: true })).toBeVisible();
-        // betterVersion 折叠在参考表达 details 内（手机反馈层级降压）：点开再断言
-        await page.getByText('参考表达', { exact: true }).click();
-        await expect(
-          page.getByText('Constant stress is making me feel like giving up.'),
-        ).toBeVisible();
-        await expect(page.getByText('已存入个人例句')).toBeVisible();
-        // 表达题手动下一题
-        await page.getByRole('button', { name: '下一题' }).click();
+        await page.getByRole('button', { name: '继续' }).click();
         continue;
       }
 
@@ -200,14 +194,22 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
     await expect(page.getByText('放弃', { exact: true })).toBeVisible(); // 释义揭示
     await page.getByRole('button', { name: '下一题' }).click();
 
-    // 第 2 题 表达题：答包含 give up 的句子 → 通过 + diff
-    const textarea = page.getByLabel('表达答案');
-    await expect(textarea).toBeVisible();
-    await textarea.fill('He decided to give up smoking.');
+    // 第 2 题 拼词表达（库存题面可能是压力句或吸烟句）
+    await expect(page.getByTestId('scramble-chip-bank')).toBeVisible();
+    const bank1 = page.getByTestId('scramble-chip-bank');
+    const giveUpTokens = ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up'];
+    const smokeTokens = ['He', 'decided', 'to', 'give', 'up', 'smoking', 'last', 'year'];
+    const tokens1 = (await page.getByText('长期的压力让我想放弃。').count())
+      ? giveUpTokens
+      : smokeTokens;
+    for (const tok of tokens1) {
+      const btn = bank1.getByRole('button', { name: tok, exact: true });
+      if (await btn.count()) await btn.first().click();
+    }
     await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByTestId('scramble-result')).toBeVisible();
     await expect(page.getByText('通过', { exact: true })).toBeVisible();
-    await expect(page.getByText('He decided to give up smoking.').first()).toBeVisible();
-    await page.getByRole('button', { name: '下一题' }).click();
+    await page.getByRole('button', { name: '继续' }).click();
 
     await expect(page.getByText('练习完成')).toBeVisible();
     await page.getByRole('button', { name: '返回详情' }).click();
@@ -235,7 +237,7 @@ test.describe('Phase 9（Task 10）：练一下按有效造句目标选择性出
     await expect(page.getByRole('heading', { name: 'stable' })).toBeVisible();
     await expect(page.getByText('The connection has been stable all week.')).toBeVisible();
     await expect(page.getByText('稳定的', { exact: true })).toHaveCount(0); // 释义揭示前不泄露
-    await expect(page.getByLabel('表达答案')).toHaveCount(0); // 默认关：无表达题
+    await expect(page.getByTestId('scramble-chip-bank')).toHaveCount(0); // 默认关：无表达题
     await expect(page.getByLabel('填空答案')).toHaveCount(0); // V2：练习不再出旧填空
 
     await page.getByRole('button', { name: '良好' }).click();
@@ -260,14 +262,16 @@ test.describe('Phase 9（Task 10）：练一下按有效造句目标选择性出
     await expect(page.getByText('讲得通', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '下一题' }).click();
 
-    // 第 2 题 表达：fake 批改按 mustUse 判定（含 "make sense" → 通过）
-    await expect(page.getByText('必须使用：make sense')).toBeVisible();
-    const textarea = page.getByLabel('表达答案');
-    await expect(textarea).toBeVisible();
-    await textarea.fill('It does make sense to me.');
+    // 第 2 题 拼词表达（make sense）
+    await expect(page.getByText('make sense')).toBeVisible();
+    const bank2 = page.getByTestId('scramble-chip-bank');
+    for (const tok of ['His', 'explanation', 'makes', 'complete', 'sense', 'to', 'me']) {
+      await bank2.getByRole('button', { name: tok, exact: true }).click();
+    }
     await page.getByRole('button', { name: '提交' }).click();
+    await expect(page.getByTestId('scramble-result')).toBeVisible();
     await expect(page.getByText('通过', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '下一题' }).click();
+    await page.getByRole('button', { name: '继续' }).click();
     await expect(page.getByText('练习完成')).toBeVisible();
     await expect(page.getByLabel('填空答案')).toHaveCount(0);
   });

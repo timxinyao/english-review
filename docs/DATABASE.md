@@ -273,3 +273,10 @@ Prompt 正文**不进入数据库**。数据库仅保存某次 AI 产物所使�
 - 防止数据库 Prompt 与代码 Schema 产生版本漂移。
 
 如后续确有在线 A/B Prompt 管理需求，应先形成真实痛点，再单独评审；V1.2 不提前设计。
+
+### Scramble 相关表（Phase 13）
+
+- `question_items`：多目标题与学习项关联
+- `review_task_items`：Today 任务参与项与分项结果
+- `attempt_item_results`：分项作答审计
+- `app_metadata.production_scramble_v1`：一次性 cutover 标记

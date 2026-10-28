@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
 import type { PracticeAnswerRequest, PracticeAnswerResponse, PracticeQuestion } from '@el/shared';
-import { ProductionQuestionCard } from '../../components/production-question-card';
 import { ScrambleQuestionCard } from '../../components/scramble-question-card';
 import { HighlightText } from '../../components/highlight-text';
 import { Button } from '../../components/ui/button';
@@ -171,8 +170,6 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
   const productionError =
     answer.isError && !result ? (answer.error?.message ?? '批改失败，请重试。') : null;
   // 练一下无正式状态（超时无竞态概念）：错误码仅用于失败弹窗文案分支
-  const productionErrorCode =
-    answer.isError && !result && answer.error instanceof ApiError ? answer.error.code : null;
 
   return (
     <section className="space-y-4">
@@ -235,18 +232,9 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
                 onSubmitTokens={(selectedTokens) => submit({ selectedTokens })}
                 onAdvance={advance}
               />
-            ) : 'mustUse' in current ? (
-              <ProductionQuestionCard
-                question={current}
-                result={result}
-                pending={answer.isPending}
-                error={productionError}
-                errorCode={productionErrorCode}
-                onSubmitText={(text) => submit({ answerText: text })}
-                onCancelGrading={() => answer.cancel()}
-                onAdvance={advance}
-              />
-            ) : null}
+            ) : (
+              <p className="text-sm text-destructive">表达题格式无效，请重新开始练习。</p>
+            )}
           </article>
         </div>
       )}

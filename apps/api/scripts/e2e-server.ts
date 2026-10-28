@@ -10,6 +10,7 @@ import { buildApp } from '../src/app.js';
 import {
   learningExamples,
   learningItems,
+  questionItems,
   questions,
   readArticleItems,
   readArticles,
@@ -218,8 +219,12 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
       promptText: '长期的压力让我想放弃。',
       contextText: null,
       payloadJson: JSON.stringify({
-        mustUse: 'give up',
-        referenceAnswer: 'The constant stress makes me want to give up.',
+        schema: 'scramble_v1',
+        targets: [{ learningItemId: 'e2e-item-give-up', surface: 'give up', tokens: ['give', 'up'] }],
+        zhPrompt: '长期的压力让我想放弃。',
+        referenceTokens: ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up'],
+        distractors: ['quit', 'pressure'],
+        acceptableMorphology: [],
         acceptanceNotes: '允许正常时态和人称变化。',
       }),
       correctOptionId: null,
@@ -232,6 +237,15 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
       lastUsedAt: null,
       retiredAt: null,
       createdAt,
+    })
+    .run();
+  db.insert(questionItems)
+    .values({
+      id: 'e2e-qi-give-up',
+      questionId: 'e2e-q-give-up',
+      learningItemId: 'e2e-item-give-up',
+      sortIndex: 0,
+      createdAt: createdAt,
     })
     .run();
   // 撤销重练的替换题（Phase 8 Task 5 E2E）：同 item 另一道 production。
@@ -247,8 +261,12 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
       promptText: '他去年决定放弃吸烟。',
       contextText: null,
       payloadJson: JSON.stringify({
-        mustUse: 'give up',
-        referenceAnswer: 'He decided to give up smoking last year.',
+        schema: 'scramble_v1',
+        targets: [{ learningItemId: 'e2e-item-give-up', surface: 'give up', tokens: ['give', 'up'] }],
+        zhPrompt: '他去年决定放弃吸烟。',
+        referenceTokens: ['He', 'decided', 'to', 'give', 'up', 'smoking', 'last', 'year'],
+        distractors: ['quit', 'cigarette'],
+        acceptableMorphology: [],
         acceptanceNotes: '允许正常时态和人称变化。',
       }),
       correctOptionId: null,
@@ -261,6 +279,15 @@ function seedGiveUp(db: AppDatabase, now: Date): boolean {
       lastUsedAt: '2026-09-01T00:00:00.000Z',
       retiredAt: null,
       createdAt,
+    })
+    .run();
+  db.insert(questionItems)
+    .values({
+      id: 'e2e-qi-give-up-2',
+      questionId: 'e2e-q-give-up-2',
+      learningItemId: 'e2e-item-give-up',
+      sortIndex: 0,
+      createdAt: createdAt,
     })
     .run();
   // Phase 9（Task 8）V2 练一下种子：practice start 必取一道 understanding 作 Recall
@@ -528,8 +555,12 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
       promptText: '他的解释完全讲得通。',
       contextText: null,
       payloadJson: JSON.stringify({
-        mustUse: 'make sense',
-        referenceAnswer: 'His explanation makes complete sense to me.',
+        schema: 'scramble_v1',
+        targets: [{ learningItemId: 'e2e-item-make-sense', surface: 'make sense', tokens: ['make', 'sense'] }],
+        zhPrompt: '他的解释完全讲得通。',
+        referenceTokens: ['His', 'explanation', 'makes', 'complete', 'sense', 'to', 'me'],
+        distractors: ['feel', 'reason'],
+        acceptableMorphology: ['make', 'makes'],
         acceptanceNotes: '允许正常时态和人称变化。',
       }),
       correctOptionId: null,
@@ -542,6 +573,15 @@ export function seedE2eData(db: AppDatabase, now = new Date()): boolean {
       lastUsedAt: null,
       retiredAt: null,
       createdAt,
+    })
+    .run();
+  db.insert(questionItems)
+    .values({
+      id: 'e2e-qi-make-sense-p',
+      questionId: 'e2e-q-make-sense-p',
+      learningItemId: 'e2e-item-make-sense',
+      sortIndex: 0,
+      createdAt: createdAt,
     })
     .run();
   seedGiveUp(db, now);
@@ -1035,8 +1075,12 @@ export function seedV2Journeys(db: AppDatabase, now = new Date()): boolean {
       meaning: '出发',
       promptText: '我们天一亮就出发。',
       payload: {
-        mustUse: 'set off',
-        referenceAnswer: 'We set off at dawn.',
+        schema: 'scramble_v1',
+        targets: [{ learningItemId: 'e2e-item-set-off', surface: 'set off', tokens: ['set', 'off'] }],
+        zhPrompt: '我们天一亮就出发。',
+        referenceTokens: ['We', 'set', 'off', 'at', 'dawn'],
+        distractors: ['leave', 'start'],
+        acceptableMorphology: [],
         acceptanceNotes: '允许正常时态和人称变化。',
       },
       correctOptionId: null,
@@ -1097,6 +1141,18 @@ export function seedV2Journeys(db: AppDatabase, now = new Date()): boolean {
         lastUsedAt: null,
         retiredAt: null,
         createdAt,
+      })
+      .run();
+  }
+  for (const q of journeyQuestions) {
+    if (q.type !== 'production') continue;
+    db.insert(questionItems)
+      .values({
+        id: `e2e-qi-${q.id}`,
+        questionId: q.id,
+        learningItemId: q.itemId,
+        sortIndex: 0,
+        createdAt: nowIso,
       })
       .run();
   }

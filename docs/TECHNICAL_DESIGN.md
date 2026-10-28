@@ -679,3 +679,9 @@ V1.2 不要求 Docker。若未来确有环境一致性痛点，可以单独评�
 | DEVELOPMENT.md | 开发流程、TDD、测试流、lint 与提交门禁。 | 过程约束。 |
 | PHASES.md | 阶段划分、进度与留档事实源。 | 进度以它为准。 |
 | AGENTS.md | Coding Agent 工作规则。 | 开发时必须遵守。 |
+
+### Scramble Production（Phase 13）
+
+- 题型 payload：`scramble_v1`（`referenceTokens` / `targets` / `distractors`）。
+- 作答：`selectedTokens`；本地 `judgeScramble`；响应含 `itemResults`。
+- 表：`question_items`、`review_task_items`、`attempt_item_results`；cutover key `production_scramble_v1`。

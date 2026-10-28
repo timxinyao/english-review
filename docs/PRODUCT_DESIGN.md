@@ -1,5 +1,7 @@
 # English Learning Tool V2 — Product Design
 
+> **Phase 13（2026-10-28）：** 正式 Production 为多词条拼词（`scramble_v1`）：中文题干 + 词芯片点选组句（含干扰项）；可一次覆盖 2–3 个学习项并按项回写；不再使用整句打字造句或挖空填目标词。
+
 > 产品行为、学习机制与交互基线
 
 **Version 2 · 2026-09-30**

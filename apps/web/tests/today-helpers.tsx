@@ -144,8 +144,10 @@ export function makeProductionTask(overrides: Partial<TodayTaskView> = {}): Toda
     supplementaryExamples: [],
     question: {
       questionId: 'q-prod',
+      kind: 'scramble',
       zhPrompt: '长期的压力让我想放弃。',
-      mustUse: 'give up',
+      targets: [{ learningItemId: 'item-give-up', surface: 'give up' }],
+      chips: ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up', 'quit'],
     },
     ...overrides,
   };
@@ -278,27 +280,26 @@ export function makeWrongAnswer(overrides: Partial<AnswerResponse> = {}): Answer
   };
 }
 
-/** 表达题批改结果（pass：corrected = 原句，diff 全 same） */
+/** 拼词表达题结果（scramble_v1：无 AI diff / 不入个人例句） */
 export function makeProductionAnswer(overrides: Partial<AnswerResponse> = {}): AnswerResponse {
   return {
     result: 'pass',
     correct: true,
     gaveUp: false,
     selectedOptionId: null,
-    submittedAnswerText: 'The constant stress makes me want to give up.',
+    submittedAnswerText: 'The constant stress makes me want to give up',
     referenceAnswer: null,
     answerNote: null,
-    explanation: '目标表达使用正确。',
+    explanation: null,
     correctOptionId: null,
     completeSentence: null,
     acceptedAnswer: null,
-    correction: {
-      segments: [{ text: 'The constant stress makes me want to give up.', type: 'same' }],
-      correctedSentence: 'The constant stress makes me want to give up.',
-      betterVersion: null,
-      betterVersionKind: null,
-    },
-    personalExampleSaved: true,
+    correction: null,
+    personalExampleSaved: false,
+    itemResults: [
+      { learningItemId: 'item-give-up', surface: 'give up', result: 'pass' },
+    ],
+    referenceTokens: ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up'],
     reinforcementAdded: false,
     progress: { completed: 1, total: 3 },
     completed: null,

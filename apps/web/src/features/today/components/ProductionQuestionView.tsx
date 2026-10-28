@@ -3,8 +3,6 @@ import type {
   ProductionQuestionView as ProductionQuestion,
   TodayTaskView,
 } from '@el/shared';
-import { ApiError } from '../../../lib/api';
-import { ProductionQuestionCard } from '../../../components/production-question-card';
 import { ScrambleQuestionCard } from '../../../components/scramble-question-card';
 import { useAnswer } from '../api';
 
@@ -25,7 +23,7 @@ function isScramble(
 }
 
 /**
- * 表达题：scramble_v1 走拼词卡；迁移期仍兼容旧打字造句视图。
+ * 表达题：scramble_v1 拼词卡（打字造句已退役）。
  */
 export function ProductionQuestionView({
   task,
@@ -38,46 +36,29 @@ export function ProductionQuestionView({
   const answer = useAnswer();
 
   const error = answer.isError && !result ? (answer.error?.message ?? '批改失败，请重试。') : null;
-  const errorCode =
-    answer.isError && !result && answer.error instanceof ApiError ? answer.error.code : null;
 
-  if (isScramble(question)) {
+  if (!isScramble(question)) {
     return (
-      <ScrambleQuestionCard
-        variant="today"
-        question={question}
-        result={result}
-        pending={answer.isPending}
-        error={error}
-        onSubmitTokens={(selectedTokens) => {
-          onSubmitted?.(task.taskId);
-          answer.mutate(
-            { taskId: task.taskId, body: { selectedTokens } },
-            { onSuccess: onAnswered },
-          );
-        }}
-        onGiveUp={() => {
-          onSubmitted?.(task.taskId);
-          answer.mutate({ taskId: task.taskId, body: { giveUp: true } }, { onSuccess: onAnswered });
-        }}
-        onAdvance={onAdvance}
-      />
+      <p className="text-sm text-destructive">
+        此表达题不是拼词格式，请刷新或重新开始今日复习。
+      </p>
     );
   }
 
   return (
-    <ProductionQuestionCard
+    <ScrambleQuestionCard
       variant="today"
       question={question}
       result={result}
       pending={answer.isPending}
       error={error}
-      errorCode={errorCode}
-      onSubmitText={(answerText) => {
+      onSubmitTokens={(selectedTokens) => {
         onSubmitted?.(task.taskId);
-        answer.mutate({ taskId: task.taskId, body: { answerText } }, { onSuccess: onAnswered });
+        answer.mutate(
+          { taskId: task.taskId, body: { selectedTokens } },
+          { onSuccess: onAnswered },
+        );
       }}
-      onCancelGrading={() => answer.cancel()}
       onGiveUp={() => {
         onSubmitted?.(task.taskId);
         answer.mutate({ taskId: task.taskId, body: { giveUp: true } }, { onSuccess: onAnswered });

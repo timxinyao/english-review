@@ -360,3 +360,8 @@ Prompt 的优化必须可复现。以后用户让 Coding Agent “把批改调�
 - Production 批改失败：保存用户输入，允许重试，不推进 Stage。
 - Read 失败：不影响 Today 完成状态。
 - Prompt 加载/校验失败：服务启动失败，不能静默退回未知旧 Prompt。
+
+### generate_production_scramble / check_production_scramble
+
+- 生成：多目标参考句 token 序列 + 干扰项；服务端规则校验目标子序列。
+- 批改：默认规则 `judgeScramble`（词序 + 目标覆盖）；AI check 仅作可选补充（当前主路径为规则）。

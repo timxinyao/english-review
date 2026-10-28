@@ -140,9 +140,10 @@ function duplicate(req: ProviderRequest): string {
 
 
 function productionScramble(req: ProviderRequest): string {
+  // `targets_json` 模板变量的未序列化来源（renderPrompt 契约）；兼容旧形态的预序列化字符串
   let targets: { id?: string; target?: string; meaning?: string }[] = [];
   try {
-    const raw = req.vars.targets_json;
+    const raw = req.vars.targets ?? req.vars.targets_json;
     targets = typeof raw === "string" ? JSON.parse(raw) : Array.isArray(raw) ? raw : [];
   } catch {
     targets = [];

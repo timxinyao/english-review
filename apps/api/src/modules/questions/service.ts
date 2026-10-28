@@ -90,6 +90,15 @@ export function countQuestionStock(db: DbExecutor, itemId: string, type: Questio
  * 取出即置 status='active'、use_count+1、last_used_at=now（同步执行，可在事务内调用）。
  * 无库存返回 null。
  */
+function isScrambleProductionPayload(payloadJson: string): boolean {
+  try {
+    const parsed = JSON.parse(payloadJson) as { schema?: string };
+    return parsed?.schema === 'scramble_v1';
+  } catch {
+    return false;
+  }
+}
+
 export function acquireQuestion(
   db: DbExecutor,
   itemId: string,
@@ -99,7 +108,7 @@ export function acquireQuestion(
 ): QuestionRow | null {
   if (type === 'cloze') throw appError('CONFLICT', 'V2 不再分配填空题');
   const excluded = excludeQuestionIds ?? [];
-  const candidate = db
+  const candidates = db
     .select()
     .from(questions)
     .where(
@@ -112,7 +121,9 @@ export function acquireQuestion(
     )
     // SQLite：IS NULL DESC 让 NULL 排最前（从未使用优先），其次按时间升序
     .orderBy(sql`${questions.lastUsedAt} IS NULL DESC`, questions.lastUsedAt)
-    .get();
+    .all()
+    .filter((q) => (type === 'production' ? isScrambleProductionPayload(q.payloadJson) : true));
+  const candidate = candidates[0];
   if (!candidate) return null;
 
   const nowIso = now.toISOString();
@@ -466,15 +477,6 @@ export async function generateProductionScramble(
     }
   }
 
-  const targets_json = JSON.stringify(
-    items.map((it) => ({
-      id: it.id,
-      type: it.type,
-      target: it.target,
-      meaning: it.meaning,
-    })),
-  );
-
   const {
     data,
     meta,
@@ -482,7 +484,17 @@ export async function generateProductionScramble(
   } = await completeStructured<GenerateProductionScrambleResult>(
     { provider: runtime.provider, config: runtime.config, registry: runtime.registry },
     'generateProductionScramble',
-    { targets_json, content_level: contentLevel },
+    // `targets_json` 模板变量的契约：传未序列化的 targets（renderPrompt 负责 JSON 化；
+    // 预序列化的 targets_json 会让真实模型收到 null——mock 直读 vars 测不出来）
+    {
+      targets: items.map((it) => ({
+        id: it.id,
+        type: it.type,
+        target: it.target,
+        meaning: it.meaning,
+      })),
+      content_level: contentLevel,
+    },
   );
 
   if (data.target_surfaces.length !== items.length) {

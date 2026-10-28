@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { MASTERED_STABILITY_DAYS } from '@el/shared';
 import type { AppDatabase } from '../../src/db/client.js';
-import { learningItems, questions, reviewStates } from '../../src/db/schema.js';
+import { learningItems, questionItems, questions, reviewStates } from '../../src/db/schema.js';
 import { advanceCard, cardFromSnapshot, ratingOf } from '../../src/modules/review/fsrs-engine.js';
 import type {
   DbExecutor,
@@ -98,10 +98,51 @@ function rowToDim(row: typeof reviewStates.$inferSelect): DimSnapshot {
 export interface FakeDepsOptions {
   /** `${itemId}:${type}` 命中时 AI 生成抛错 */
   generateFailFor?: Set<string>;
-  /** 表达题批改直接抛错（模拟 AI 失败路径） */
+  /** scramble 生成直接抛错（prepare 路径） */
+  scrambleGenerateFail?: boolean;
+  /** 表达题批改直接抛错（遗留；scramble 本地判定不再走此路径） */
   productionFail?: boolean;
-  /** 自定义批改结果（默认：mustUse 归一化包含于答案 → pass，否则 fail） */
+  /** 自定义批改结果（遗留 free-typing） */
   productionEval?: (question: QuestionRow, answerText: string) => ProductionEvaluation;
+}
+
+/** Build a deterministic single/multi-item scramble_v1 payload for tests */
+export function fakeScramblePayload(
+  items: Array<{ id: string; target: string; meaning?: string }>,
+): {
+  schema: 'scramble_v1';
+  targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
+  zhPrompt: string;
+  referenceTokens: string[];
+  distractors: string[];
+  acceptableMorphology: string[];
+  acceptanceNotes: string;
+} {
+  const targets = items.map((it) => {
+    const tokens = it.target.trim().split(/\s+/).filter(Boolean);
+    return { learningItemId: it.id, surface: it.target, tokens };
+  });
+  const ref: string[] = ['Please'];
+  for (const t of targets) ref.push(...t.tokens);
+  ref.push('today');
+  return {
+    schema: 'scramble_v1',
+    targets,
+    zhPrompt: `请用 ${items.map((i) => i.target).join(' / ')} 表达这个意思。`,
+    referenceTokens: ref,
+    distractors: ['never', 'always'],
+    acceptableMorphology: [],
+    acceptanceNotes: '允许变化。',
+  };
+}
+
+function isScramblePayloadJson(payloadJson: string): boolean {
+  try {
+    const p = JSON.parse(payloadJson) as { schema?: string };
+    return p?.schema === 'scramble_v1';
+  } catch {
+    return false;
+  }
 }
 
 const FAKE_PROMPT_META = { key: 'check_production', version: 1, hash: 'fake-hash', model: 'fake' };
@@ -190,6 +231,7 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
         )
         .all()
         .filter((q) => !excluded.includes(q.id))
+        .filter((q) => (type === 'production' ? isScramblePayloadJson(q.payloadJson) : true))
         .sort((a, b) => {
           // 从未使用优先，其次 lastUsedAt 最旧
           if (a.lastUsedAt === null && b.lastUsedAt !== null) return -1;
@@ -234,8 +276,12 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
           })
           .run();
       } else if (type === 'production') {
+        if (opts.scrambleGenerateFail) throw new Error('模拟 scramble 生成失败（fake）');
         const item = db.select().from(learningItems).where(eq(learningItems.id, itemId)).get();
         const target = item?.target ?? 'target';
+        const payload = fakeScramblePayload([
+          { id: itemId, target, meaning: item?.meaning ?? 'fake' },
+        ]);
         db.insert(questions)
           .values({
             id,
@@ -243,15 +289,11 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
             type,
             status: 'fresh',
             meaningSnapshot: item?.meaning ?? 'fake',
-            promptText: `请使用（${target}）完成表达。`,
+            promptText: payload.zhPrompt,
             contextText: null,
-            payloadJson: JSON.stringify({
-              mustUse: target,
-              referenceAnswer: `They ${target} naturally.`,
-              acceptanceNotes: '允许变化。',
-            }),
+            payloadJson: JSON.stringify(payload),
             correctOptionId: null,
-            promptKey: 'generate_production_prompt',
+            promptKey: 'generate_production_scramble',
             promptVersion: 1,
             promptHash: 'fake-hash',
             model: 'fake',
@@ -259,6 +301,15 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
             correctCount: 0,
             lastUsedAt: null,
             retiredAt: null,
+            createdAt: nowIso,
+          })
+          .run();
+        db.insert(questionItems)
+          .values({
+            id: `qi-${id}`,
+            questionId: id,
+            learningItemId: itemId,
+            sortIndex: 0,
             createdAt: nowIso,
           })
           .run();
@@ -345,6 +396,55 @@ export function createFakeDeps(opts: FakeDepsOptions = {}): TodayDeps {
         candidate: { eligible: false, source: null, qualityScore: 0, reason: 'fake' },
         promptMeta: FAKE_PROMPT_META,
       };
+    },
+    async generateScramble(db: AppDatabase, items) {
+      if (opts.scrambleGenerateFail) throw new Error('模拟 scramble 生成失败（fake）');
+      if (opts.generateFailFor) {
+        for (const it of items) {
+          if (opts.generateFailFor.has(`${it.id}:production`)) {
+            throw new Error('AI 生成失败（fake）');
+          }
+        }
+      }
+      const nowIso = new Date().toISOString();
+      const id = `gen-scramble-${randomUUID()}`;
+      const payload = fakeScramblePayload(
+        items.map((it) => ({ id: it.id, target: it.target, meaning: it.meaning })),
+      );
+      const primary = items[0]!;
+      const row = {
+        id,
+        learningItemId: primary.id,
+        type: 'production' as const,
+        status: 'fresh' as const,
+        meaningSnapshot: primary.meaning,
+        promptText: payload.zhPrompt,
+        contextText: null,
+        payloadJson: JSON.stringify(payload),
+        correctOptionId: null,
+        promptKey: 'generate_production_scramble',
+        promptVersion: 1,
+        promptHash: 'fake-hash',
+        model: 'fake',
+        useCount: 0,
+        correctCount: 0,
+        lastUsedAt: null,
+        retiredAt: null,
+        createdAt: nowIso,
+      };
+      db.insert(questions).values(row).run();
+      items.forEach((it, index) => {
+        db.insert(questionItems)
+          .values({
+            id: `qi-${id}-${index}`,
+            questionId: id,
+            learningItemId: it.id,
+            sortIndex: index,
+            createdAt: nowIso,
+          })
+          .run();
+      });
+      return row as QuestionRow;
     },
   };
 }

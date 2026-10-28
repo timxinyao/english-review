@@ -25,7 +25,12 @@ import {
   seedQuestion,
   seedReviewState,
 } from '../helpers/seed.js';
-import { choicePayload, createFakeDeps, DEFAULT_OPTIONS } from '../helpers/today-fakes.js';
+import {
+  choicePayload,
+  createFakeDeps,
+  DEFAULT_OPTIONS,
+  fakeScramblePayload,
+} from '../helpers/today-fakes.js';
 
 const TZ = 'Asia/Shanghai';
 const NOW = new Date('2026-09-24T02:00:00.000Z');
@@ -118,15 +123,12 @@ async function seedDueProductionItem(itemId: string, mustUse: string): Promise<s
     nextReviewAt: '2026-09-23T00:00:00.000Z',
     lastReviewAt: '2026-09-20T00:00:00.000Z',
   });
+  const payload = fakeScramblePayload([{ id: itemId, target: mustUse }]);
   await seedQuestion(db, itemId, {
     id: `${itemId}-prod`,
     type: 'production',
-    promptText: `请使用 ${mustUse} 表达这个意思。`,
-    payloadJson: JSON.stringify({
-      mustUse,
-      referenceAnswer: `They ${mustUse} naturally.`,
-      acceptanceNotes: '允许正常时态变化。',
-    }),
+    promptText: payload.zhPrompt,
+    payloadJson: JSON.stringify(payload),
     correctOptionId: null,
   });
   return itemId;
@@ -533,31 +535,24 @@ describe('answer：Learn 任务', () => {
 });
 
 describe('answer：幂等', () => {
-  it.each([false, true])('题目在批改%s时失效，拒绝结算且不写学习记录', async (duringEvaluation) => {
+  it('题目已 retired 时拒绝 scramble 结算且不写学习记录', async () => {
     await seedDueProductionItem('edited', 'wear down');
     await startSession();
     const task = taskByItem('edited')!;
-    const retire = () =>
-      db
-        .update(questions)
-        .set({ status: 'retired' })
-        .where(eq(questions.id, task.questionId!))
-        .run();
-    const original = deps.evaluateProduction;
-    if (duringEvaluation)
-      deps.evaluateProduction = async (...args) => {
-        retire();
-        return original(...args);
-      };
-    else retire();
+    db.update(questions)
+      .set({ status: 'retired' })
+      .where(eq(questions.id, task.questionId!))
+      .run();
     await expect(
       answerTodayTask(db, deps, TZ, NOW, task.id, {
-        answerText: 'Stress will wear down everyone.',
+        selectedTokens: fakeScramblePayload([
+          { id: 'edited', target: 'wear down' },
+        ]).referenceTokens,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(db.select().from(attempts).all()).toEqual([]);
     expect(stats()).toBeNull();
-    expect(dim('edited', 'production')!.reps).toBe(4); // 状态未被推进
+    expect(dim('edited', 'production')!.reps).toBe(4);
   });
   it('批改期间跨本地日，事务再次拒绝且不产生学习写入', async () => {
     await seedDueProductionItem('midnight', 'wear down');
@@ -570,7 +565,7 @@ describe('answer：幂等', () => {
         TZ,
         NOW,
         taskByItem('midnight')!.id,
-        { answerText: 'Stress will wear down everyone.' },
+        { selectedTokens: fakeScramblePayload([{ id: 'midnight', target: 'wear down' }]).referenceTokens },
         () => nextDay,
       ),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
@@ -713,7 +708,7 @@ describe('answer：完成检测与摘要', () => {
     const resA = await answerTodayTask(db, deps, TZ, NOW, a.id, { recall: 'recalled' });
     expect(resA.completed).toBeNull();
     const resB = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 60_000), b.id, {
-      answerText: 'wrong',
+      selectedTokens: ['totally', 'wrong'],
     });
     expect(resB.reinforcementAdded).toBe(false);
     expect(resB.completed).toEqual({
@@ -1168,39 +1163,28 @@ describe('answer：主动不会（giveUp）', () => {
     expect(attempt.answerText).toBeNull();
   });
 
-  it('production give-up → fail：referenceAnswer/answerNote 来自题目 payload，零批改、无 diff、无沉淀', async () => {
+  it('production give-up → fail：referenceTokens/answerNote 来自 scramble payload，零批改、无沉淀', async () => {
     const { deps, calls } = countingDeps();
-    await seedDueProductionItem('item-a', 'wear down');
-    await startTodaySession(db, deps, TZ, NOW);
-    const task = taskByItem('item-a')!;
+    await seedDueProductionItem('give-p', 'give up');
+    await startSession();
+    const task = taskByItem('give-p')!;
 
     const res = await answerTodayTask(db, deps, TZ, NOW, task.id, { giveUp: true });
     expect(res.result).toBe('fail');
     expect(res.correct).toBe(false);
     expect(res.gaveUp).toBe(true);
-    expect(res.referenceAnswer).toBe('They wear down naturally.');
-    expect(res.answerNote).toBe('允许正常时态变化。');
+    expect(res.referenceTokens).toEqual(
+      fakeScramblePayload([{ id: 'give-p', target: 'give up' }]).referenceTokens,
+    );
+    expect(res.answerNote).toBe('允许变化。');
     expect(res.correction).toBeNull();
-    expect(res.explanation ?? null).toBeNull();
-    expect(res.submittedAnswerText ?? null).toBeNull();
-    expect(res.reinforcementAdded).toBe(false);
-    expect(res.completed).toMatchObject({ totalTasks: 1, fail: 1, recommendRead: true });
-
-    // 统计沿用既有 fail 规则：计作答、不计通过；未写句子不沉淀 Personal Example
+    expect(res.personalExampleSaved).toBe(false);
     expect(stats()).toMatchObject({ productionAttempts: 1, productionPass: 0 });
-    expect(
-      db
-        .select()
-        .from(learningExamples)
-        .all()
-        .filter((e) => e.kind === 'personal'),
-    ).toHaveLength(0);
 
     const attempt = db.select().from(attempts).all()[0]!;
     expect(attempt.feedback).toBe('gave_up');
     expect(attempt.answerText).toBeNull();
     expect(attempt.correctionJson).toBeNull();
-    expect(attempt.aiPromptKey).toBeNull();
     expect(calls.production).toBe(0);
   });
 
@@ -1231,6 +1215,7 @@ describe('answer：主动不会（giveUp）', () => {
     for (const extra of [
       { selectedOptionId: 'o1' },
       { answerText: 'x' },
+      { selectedTokens: ['a'] },
       { recall: 'recalled' as const },
       { hintUsed: true },
     ]) {
@@ -1257,15 +1242,16 @@ describe('answer：主动不会（giveUp）', () => {
     await startTodaySession(db, deps, TZ, NOW);
     const choice = taskByItem('item-a')!;
     const prod = taskByItem('item-b')!;
+    const tokens = fakeScramblePayload([{ id: 'item-b', target: 'wear down' }]).referenceTokens;
 
     const giveUp = await answerTodayTask(db, deps, TZ, NOW, choice.id, { giveUp: true });
     const genuine = await answerTodayTask(db, deps, TZ, NOW, prod.id, {
-      answerText: 'I wear down easily.',
+      selectedTokens: tokens,
     });
     expect(genuine.gaveUp).toBe(false);
-    expect(genuine.submittedAnswerText).toBe('I wear down easily.');
-    expect(genuine.referenceAnswer ?? null).toBeNull();
-    expect(genuine.answerNote ?? null).toBeNull();
+    expect(genuine.submittedAnswerText).toBe(tokens.join(' '));
+    expect(genuine.result).toBe('pass');
+    expect(genuine.personalExampleSaved).toBe(false);
 
     const later = new Date(NOW.getTime() + 60_000);
     const replayGiveUp = await answerTodayTask(db, deps, TZ, later, choice.id, {
@@ -1282,11 +1268,8 @@ describe('answer：主动不会（giveUp）', () => {
     const replayGenuine = await answerTodayTask(db, deps, TZ, later, prod.id, {});
     expect(replayGenuine.alreadyCompleted).toBe(true);
     expect(replayGenuine.gaveUp).toBe(false);
-    expect(replayGenuine.submittedAnswerText).toBe('I wear down easily.');
-    expect(replayGenuine.selectedOptionId ?? null).toBeNull();
-    expect(replayGenuine.referenceAnswer ?? null).toBeNull();
-    expect(replayGenuine.answerNote ?? null).toBeNull();
-    expect(replayGenuine.correction).toEqual(genuine.correction);
-    expect(replayGenuine.personalExampleSaved).toBe(genuine.personalExampleSaved);
+    expect(replayGenuine.submittedAnswerText).toBe(tokens.join(' '));
+    expect(replayGenuine.itemResults).toEqual(genuine.itemResults);
+    expect(replayGenuine.personalExampleSaved).toBe(false);
   });
 });

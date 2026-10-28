@@ -61,8 +61,12 @@ const SOURCE_EXAMPLE = 'The connection has been stable all week.';
 const MEANING = '测试释义';
 
 const PROD_PAYLOAD = JSON.stringify({
-  mustUse: 'stable',
-  referenceAnswer: 'The connection is stable.',
+  schema: 'scramble_v1',
+  targets: [{ learningItemId: 'PLACEHOLDER', surface: 'stable', tokens: ['stable'] }],
+  zhPrompt: '请使用 stable 描述一个稳定的连接。',
+  referenceTokens: ['The', 'connection', 'is', 'stable'],
+  distractors: ['link', 'weak'],
+  acceptableMorphology: ['stable', 'stably'],
   acceptanceNotes: '允许变化。',
 });
 
@@ -120,10 +124,14 @@ async function seedV2Item(db: AppDatabase, itemId: string, opts: SeedOpts = {}):
     });
   }
   if (productionStock) {
+    const payload = JSON.parse(PROD_PAYLOAD) as {
+      targets: Array<{ learningItemId: string }>;
+    };
+    payload.targets[0]!.learningItemId = itemId;
     await seedQuestion(db, itemId, {
       type: 'production',
       promptText: '请使用 stable 描述一个稳定的连接。',
-      payloadJson: PROD_PAYLOAD,
+      payloadJson: JSON.stringify(payload),
       correctOptionId: null,
     });
   }
@@ -167,8 +175,10 @@ describe('POST /api/library/:id/practice（start，V2：Recall + 可选 Producti
     const prod = body.questions[1]!;
     if (prod.qtype !== 'production') throw new Error('unreachable');
     expect(prod.zhPrompt).toBe('请使用 stable 描述一个稳定的连接。');
-    expect(prod.mustUse).toBe('stable');
-    expect(JSON.stringify(res.json())).not.toContain('The connection is stable.');
+    if (!('kind' in prod) || prod.kind !== 'scramble') throw new Error('expected scramble');
+    expect(prod.targets[0]!.surface).toBe('stable');
+    expect(prod.chips.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(res.json())).not.toContain('referenceTokens');
     expect(JSON.stringify(res.json())).not.toContain(MEANING);
   });
 
@@ -404,7 +414,7 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
     expect(both.statusCode).toBe(400); // 直判与 Hint 互斥，不得静默取 recall
   });
 
-  it('表达题：correction 返回、优质句沉淀 personal、attempt 携带 prompt 元数据、零状态影响', async () => {
+  it('表达题 scramble：selectedTokens 判分、揭示 referenceTokens、零状态影响、不沉淀 personal', async () => {
     const ctx = await newCtx(async (db) => {
       await seedV2Item(db, 'pr-13', { type: 'word', override: 1, pLevel: 4 });
     });
@@ -413,6 +423,7 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
     );
     const prod = start.questions[1]!;
     if (prod.qtype !== 'production') throw new Error('unreachable');
+    if (!('kind' in prod) || prod.kind !== 'scramble') throw new Error('expected scramble');
 
     const stateBefore = ctx.db
       .select()
@@ -421,31 +432,25 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
       .all();
 
     const res = await post(ctx, `/api/library/pr-13/practice/${prod.questionId}/answer`, {
-      answerText: 'The bridge is stable enough for now.',
+      selectedTokens: ['The', 'connection', 'is', 'stable'],
     });
     expect(res.statusCode).toBe(200);
     const body = PracticeAnswerResponse.parse(res.json());
     expect(body.result).toBe('pass');
-    expect(body.meaning).toBeNull(); // production 无 recall 揭示
-    expect(body.correction).toEqual({
-      segments: [{ text: 'The bridge is stable enough for now.', type: 'same' }],
-      correctedSentence: 'The bridge is stable enough for now.',
-      betterVersion: null,
-      betterVersionKind: null,
-    });
-    expect(body.personalExampleSaved).toBe(true);
+    expect(body.meaning).toBeNull();
+    expect(body.correction).toBeNull();
+    expect(body.personalExampleSaved).toBe(false);
+    expect(body.referenceTokens).toEqual(['The', 'connection', 'is', 'stable']);
+    expect(body.itemResults?.[0]?.result).toBe('pass');
 
-    // personal example 沉淀（PRODUCT §4.4：练一下仍可入长期资产）
     const personal = ctx.db
       .select()
       .from(learningExamples)
       .where(eq(learningExamples.learningItemId, 'pr-13'))
       .all()
       .filter((e) => e.kind === 'personal');
-    expect(personal).toHaveLength(1);
-    expect(personal[0]!.text).toBe('The bridge is stable enough for now.');
+    expect(personal).toHaveLength(0);
 
-    // attempt：mode=library_practice、无 review_task、无补强、元数据齐全
     const attempt = ctx.db
       .select()
       .from(attempts)
@@ -454,16 +459,15 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
     expect(attempt.mode).toBe('library_practice');
     expect(attempt.reviewTaskId).toBeNull();
     expect(attempt.result).toBe('pass');
-    expect(attempt.aiPromptKey).toBe('check_production');
+    expect(attempt.aiPromptKey).toBeNull();
 
-    // 零状态影响 + 不写 daily_stats
     expect(
       ctx.db.select().from(reviewStates).where(eq(reviewStates.learningItemId, 'pr-13')).all(),
     ).toEqual(stateBefore);
     expect(ctx.db.select().from(dailyStats).all()).toHaveLength(0);
   });
 
-  it('表达题批改失败 → AI_PROVIDER_ERROR 且零写入（可重试）', async () => {
+  it('表达题 scramble 词序错误 → fail 且写入 attempt（无 AI）', async () => {
     const ctx = await newCtx(async (db) => {
       await seedV2Item(db, 'pr-14', { type: 'chunk' });
     });
@@ -471,15 +475,13 @@ describe('POST /api/library/:id/practice/:questionId/answer（V2）', () => {
       (await post(ctx, '/api/library/pr-14/practice')).json(),
     );
     const prod = start.questions[1]!;
-
-    const failing = practiceFakes({ productionFail: true });
-    setPracticeDepsForTests(failing);
     const res = await post(ctx, `/api/library/pr-14/practice/${prod.questionId}/answer`, {
-      answerText: 'some text',
+      selectedTokens: ['stable', 'is', 'connection', 'The'],
     });
-    expect(res.statusCode).toBe(502);
-    expect(res.json().error.code).toBe('AI_PROVIDER_ERROR');
-    expect(ctx.db.select().from(attempts).all()).toHaveLength(0);
+    expect(res.statusCode).toBe(200);
+    const body = PracticeAnswerResponse.parse(res.json());
+    expect(body.result).toBe('fail');
+    expect(ctx.db.select().from(attempts).all()).toHaveLength(1);
   });
 
   it('旧 cloze 库存题直答 → 409（V2 练习已不支持填空）', async () => {

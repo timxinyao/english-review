@@ -16,6 +16,7 @@ import type {
   QuestionPoolType,
   QuestionRow,
 } from '../questions/service.js';
+import { judgeScramble } from '../questions/scramble-judge.js';
 import { maybeSavePersonalExample, trimProductionHistory } from '../learning-items/service.js';
 import { effectiveProductionEnabled } from '../review/goals.js';
 
@@ -170,15 +171,73 @@ function toRecallQuestion(
   };
 }
 
-/** production 题行 → 表达题视图（不泄漏 referenceAnswer） */
-function toProductionQuestion(question: QuestionRow, target: string): PracticeQuestion {
-  const payload = safePayload(question);
-  return {
-    qtype: 'production',
-    questionId: question.id,
-    zhPrompt: question.promptText ?? '',
-    mustUse: typeof payload.mustUse === 'string' && payload.mustUse ? payload.mustUse : target,
-  };
+/** Deterministic chip shuffle (same seed idea as Today). */
+function shuffleChips(chips: string[], seed: string): string[] {
+  const arr = [...chips];
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    h ^= h << 13;
+    h ^= h >>> 17;
+    h ^= h << 5;
+    const j = Math.abs(h) % (i + 1);
+    const tmp = arr[i]!;
+    arr[i] = arr[j]!;
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+function parseScramblePayload(question: QuestionRow): {
+  schema: 'scramble_v1';
+  targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
+  zhPrompt: string;
+  referenceTokens: string[];
+  distractors: string[];
+  acceptableMorphology: string[];
+  acceptanceNotes: string;
+} | null {
+  try {
+    const parsed = JSON.parse(question.payloadJson) as Record<string, unknown>;
+    if (!parsed || parsed.schema !== 'scramble_v1') return null;
+    if (!Array.isArray(parsed.targets) || !Array.isArray(parsed.referenceTokens)) return null;
+    return parsed as {
+      schema: 'scramble_v1';
+      targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
+      zhPrompt: string;
+      referenceTokens: string[];
+      distractors: string[];
+      acceptableMorphology: string[];
+      acceptanceNotes: string;
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** production 题行 → scramble 视图（不泄漏 referenceTokens） */
+function toProductionQuestion(question: QuestionRow, _target: string): PracticeQuestion {
+  const scramble = parseScramblePayload(question);
+  if (scramble) {
+    return {
+      qtype: 'production',
+      kind: 'scramble',
+      questionId: question.id,
+      zhPrompt: scramble.zhPrompt || question.promptText || '',
+      targets: scramble.targets.map((t) => ({
+        learningItemId: t.learningItemId,
+        surface: t.surface,
+      })),
+      chips: shuffleChips(
+        [...scramble.referenceTokens, ...(scramble.distractors ?? [])],
+        question.id,
+      ),
+    };
+  }
+  throw appError('CONFLICT', '该题目已失效，请刷新后重试');
 }
 
 /** 事务外取题：无库存时懒生成（AI 失败返回 null，不抛出） */
@@ -352,84 +411,74 @@ export async function answerLibraryPractice(
     };
   }
 
-  // ---- 表达题：实时批改 + Personal Example 沉淀（事务外批改失败零写入） ----
-  if (!body.answerText) {
-    throw appError('VALIDATION_ERROR', '表达题必须提交 answerText');
+  // ---- Scramble production：本地 judge；不沉淀 Personal Example（spec §4.3.6）----
+  const scramble = parseScramblePayload(question);
+  if (!scramble) {
+    throw appError('CONFLICT', '该题目已失效，无法作答');
   }
-  let evaluation: ProductionEvaluation;
-  try {
-    evaluation = await deps.evaluateProduction(db, question, body.answerText);
-  } catch (err) {
-    if (err instanceof AppError && err.code !== 'AI_PROVIDER_ERROR') throw err;
-    throw appError('AI_PROVIDER_ERROR', '批改失败，请重试');
+  if (!body.selectedTokens || body.selectedTokens.length === 0) {
+    throw appError('VALIDATION_ERROR', '表达题必须提交 selectedTokens');
   }
-
-  const personalSaved = db.transaction((tx) => {
+  const judged = judgeScramble({
+    selectedTokens: body.selectedTokens,
+    referenceTokens: scramble.referenceTokens,
+    targets: scramble.targets.map((t) => ({
+      learningItemId: t.learningItemId,
+      tokens: t.tokens,
+    })),
+    acceptableMorphology: scramble.acceptableMorphology ?? [],
+  });
+  const result = judged.taskResult;
+  const correct = result === 'pass';
+  const itemResults = judged.itemResults.map((r) => ({
+    learningItemId: r.learningItemId,
+    surface:
+      scramble.targets.find((t) => t.learningItemId === r.learningItemId)?.surface ??
+      r.learningItemId,
+    result: r.result,
+  }));
+  const attemptId = randomUUID();
+  db.transaction((tx) => {
     tx.insert(attempts)
       .values({
-        id: randomUUID(),
+        id: attemptId,
         reviewTaskId: null,
         learningItemId: itemId,
         questionId: question.id,
         mode: 'library_practice',
-        answerText: body.answerText!,
+        answerText: body.selectedTokens!.join(' '),
         selectedOptionId: null,
-        result: evaluation.result,
+        result,
         viewedSource: 0,
         feedback: null,
-        correctionJson: JSON.stringify({
-          segments: evaluation.segments,
-          corrected: evaluation.correctedSentence,
-          better: evaluation.betterVersion,
-          betterVersionKind: evaluation.betterVersionKind,
-          personalExampleSource: evaluation.candidate.source,
-        }),
-        explanation: evaluation.explanation,
-        betterVersion: evaluation.betterVersion,
-        aiPromptKey: evaluation.promptMeta.key,
-        aiPromptVersion: evaluation.promptMeta.version,
-        aiPromptHash: evaluation.promptMeta.hash,
-        aiModel: evaluation.promptMeta.model,
+        correctionJson: null,
+        explanation: scramble.acceptanceNotes || null,
+        betterVersion: null,
+        aiPromptKey: null,
+        aiPromptVersion: null,
+        aiPromptHash: null,
+        aiModel: null,
         preStateJson: null,
         postStateJson: null,
         createdAt: nowIso,
         voidedAt: null,
       })
       .run();
-    // 候选明确选择 corrected/polish 版本；rewrite 参考表达不自动进入 Personal Example（PRODUCT §4.4）
-    const saved = maybeSavePersonalExample(
-      tx,
-      itemId,
-      {
-        result: evaluation.result,
-        eligible: evaluation.candidate.eligible,
-        source: evaluation.candidate.source,
-        qualityScore: evaluation.candidate.qualityScore,
-        correctedSentence: evaluation.correctedSentence,
-        originalText: body.answerText!,
-        betterVersion: evaluation.betterVersion,
-        betterVersionKind: evaluation.betterVersionKind,
-      },
-      now,
-    );
     trimProductionHistory(tx, itemId);
-    return saved;
   });
 
   return {
-    result: evaluation.result,
-    correct: evaluation.result !== 'fail',
+    result,
+    correct,
     meaning: null,
-    explanation: evaluation.explanation,
+    explanation: scramble.acceptanceNotes || null,
     correctOptionId: null,
     completeSentence: null,
     acceptedAnswer: null,
-    correction: {
-      segments: evaluation.segments,
-      correctedSentence: evaluation.correctedSentence,
-      betterVersion: evaluation.betterVersion,
-      betterVersionKind: evaluation.betterVersionKind,
-    },
-    personalExampleSaved: personalSaved.saved,
+    correction: null,
+    personalExampleSaved: false,
+    itemResults,
+    referenceTokens: scramble.referenceTokens,
   };
 }
+

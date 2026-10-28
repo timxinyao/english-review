@@ -42,25 +42,32 @@ import {
 import type { AppDatabase } from '../../db/client.js';
 import { JobLockTimeoutError, withJobLock } from '../../db/job-lock.js';
 import {
+  attemptItemResults,
   attempts,
   dailyStats,
   learningExamples,
   learningItems,
+  questionItems,
   questions,
   reviewSessions,
   reviewStates,
+  reviewTaskItems,
   reviewTasks,
   settings,
 } from '../../db/schema.js';
 import { AppError, appError } from '../../lib/errors.js';
+import { judgeScramble } from '../questions/scramble-judge.js';
 import {
+  generateProductionScramble,
   invalidateQuestions,
   type DbExecutor,
   type DbTx,
   type ProductionEvaluation,
   type QuestionPoolType,
   type QuestionRow,
+  type ScrambleItemInput,
 } from '../questions/service.js';
+import { groupProductionItems } from './scramble-group.js';
 import { effectiveProductionEnabled, isMastered } from '../review/goals.js';
 import { INACTIVE_SNAPSHOT } from '../review/service.js';
 import {
@@ -114,6 +121,14 @@ export interface StateSnapshot {
   replacedPersonalExample?: ExampleRowSnapshot | null;
   /** 仅 post：本次结算被裁剪的表达历史 attempt 行快照（普通撤销在 10 条边界恢复；旧快照无此字段） */
   prunedProductionAttempts?: AttemptRowSnapshot[];
+  /** Multi-item scramble: other participants (primary item uses top-level fields) */
+  participants?: Array<{
+    learningItemId: string;
+    reviewStates: StateSnapshot['reviewStates'];
+    itemStatus: string;
+    queueState: string;
+    needsReinforcement?: 0 | 1;
+  }>;
 }
 
 export type AdvanceKind = 'pass' | 'basic_pass' | 'fail';
@@ -174,6 +189,11 @@ export interface TodayDeps {
     question: QuestionRow,
     answerText: string,
   ): Promise<ProductionEvaluation>;
+  /** Multi-item scramble generation (1–3 items); optional for tests that only cover U */
+  generateScramble?(
+    db: AppDatabase,
+    items: ScrambleItemInput[],
+  ): Promise<QuestionRow>;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +275,11 @@ export async function loadRealTodayDeps(): Promise<TodayDeps> {
         question,
         answerText,
       )) as ProductionEvaluation,
+    generateScramble: async (db, items) =>
+      generateProductionScramble(
+        { db, runtime: getAiRuntime() as never },
+        items,
+      ),
   };
 }
 
@@ -637,6 +662,103 @@ function productionReveal(question: QuestionRow): {
   };
 }
 
+
+/** Deterministic chip shuffle seeded by questionId (stable across prepares). */
+function shuffleChips(chips: string[], seed: string): string[] {
+  const arr = [...chips];
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    h ^= h << 13;
+    h ^= h >>> 17;
+    h ^= h << 5;
+    const j = Math.abs(h) % (i + 1);
+    const tmp = arr[i]!;
+    arr[i] = arr[j]!;
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+function parseScramblePayload(question: QuestionRow): {
+  schema: 'scramble_v1';
+  targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
+  zhPrompt: string;
+  referenceTokens: string[];
+  distractors: string[];
+  acceptableMorphology: string[];
+  acceptanceNotes: string;
+} | null {
+  try {
+    const parsed = JSON.parse(question.payloadJson) as Record<string, unknown>;
+    if (!parsed || parsed.schema !== 'scramble_v1') return null;
+    if (!Array.isArray(parsed.targets) || !Array.isArray(parsed.referenceTokens)) return null;
+    return parsed as {
+      schema: 'scramble_v1';
+      targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
+      zhPrompt: string;
+      referenceTokens: string[];
+      distractors: string[];
+      acceptableMorphology: string[];
+      acceptanceNotes: string;
+    };
+  } catch {
+    return null;
+  }
+}
+
+function scrambleViewFromQuestion(question: QuestionRow): TodayTaskView['question'] {
+  const payload = parseScramblePayload(question);
+  if (!payload) return null;
+  const chips = shuffleChips(
+    [...payload.referenceTokens, ...(payload.distractors ?? [])],
+    question.id,
+  );
+  return {
+    questionId: question.id,
+    kind: 'scramble',
+    zhPrompt: payload.zhPrompt || question.promptText || '',
+    targets: payload.targets.map((t) => ({
+      learningItemId: t.learningItemId,
+      surface: t.surface,
+    })),
+    chips,
+  };
+}
+
+function loadTaskParticipantIds(exec: DbExecutor, taskId: string, primaryItemId: string): string[] {
+  const rows = exec
+    .select()
+    .from(reviewTaskItems)
+    .where(eq(reviewTaskItems.reviewTaskId, taskId))
+    .orderBy(asc(reviewTaskItems.sortIndex))
+    .all();
+  if (rows.length === 0) return [primaryItemId];
+  return rows.map((r) => r.learningItemId);
+}
+
+function snapshotParticipants(
+  exec: DbExecutor,
+  primaryItemId: string,
+  participantIds: string[],
+): StateSnapshot['participants'] {
+  const others = participantIds.filter((id) => id !== primaryItemId);
+  if (others.length === 0) return undefined;
+  return others.map((id) => {
+    const snap = snapshotOf(exec, id);
+    return {
+      learningItemId: id,
+      reviewStates: snap.reviewStates,
+      itemStatus: snap.itemStatus,
+      queueState: snap.queueState,
+      needsReinforcement: snap.needsReinforcement,
+    };
+  });
+}
+
 function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
   const item = exec
     .select()
@@ -692,14 +814,18 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
       textWithBlank: question.promptText ?? question.contextText ?? '',
     };
   } else if (question && question.type === 'production') {
-    // 表达题视图：只暴露中文题干与 must_use；reference_answer 绝不下发（AI_RULES §9）
-    const payload = safePayload(question);
-    if (typeof payload.mustUse === 'string' && payload.mustUse) {
-      questionView = {
-        questionId: question.id,
-        zhPrompt: question.promptText ?? '',
-        mustUse: payload.mustUse,
-      };
+    // Scramble view preferred; never send referenceTokens pre-answer.
+    questionView = scrambleViewFromQuestion(question);
+    if (!questionView) {
+      // Legacy free-typing payload (should be gone after cutover)
+      const payload = safePayload(question);
+      if (typeof payload.mustUse === 'string' && payload.mustUse) {
+        questionView = {
+          questionId: question.id,
+          zhPrompt: question.promptText ?? '',
+          mustUse: payload.mustUse,
+        };
+      }
     }
   }
 
@@ -1110,24 +1236,52 @@ async function startTodaySessionInner(
   const learnItems = newCandidates.slice(0, remainingQuota);
 
   // ---- 3) 先创建所有 pending 任务；取题只在 prepare 阶段进行 ----
-  // 到期复习软上限（PRODUCT V2 规则 2026-10-27）：按 next_review_at 最早优先截取，
-  // 超出部分保持 due 计入积压，之后每天 Session 重新纳入；Learn 按新学额度独立入队不占上限。
+  // Soft-cap: Understanding 1:1; Production grouped 2–3 items per task (= 1 slot).
   const reviewLimit = readTodayReviewLimit(db);
-  const plans: PlanTask[] = [];
+  type PlanTaskExt = PlanTask & { participantIds?: string[] };
+  const plans: PlanTaskExt[] = [];
   let queuedReviews = 0;
-  for (const row of dueRows) {
-    if (row.state.dimension === 'production' && !effectiveProductionEnabled(row.item)) continue;
+
+  const understandingDue = dueRows.filter((row) => row.state.dimension === 'understanding');
+  const productionDue = dueRows.filter(
+    (row) =>
+      row.state.dimension === 'production' && effectiveProductionEnabled(row.item),
+  );
+
+  for (const row of understandingDue) {
     if (reviewLimit !== TODAY_REVIEW_LIMIT_UNLIMITED && queuedReviews >= reviewLimit) break;
     queuedReviews += 1;
-    const dimension = row.state.dimension as Dimension;
     plans.push({
       itemId: row.item.id,
-      dimension,
-      taskType: dimension === 'understanding' ? 'understanding' : 'production',
+      dimension: 'understanding',
+      taskType: 'understanding',
       questionId: null,
       origin: 'base',
     });
   }
+
+  if (reviewLimit === TODAY_REVIEW_LIMIT_UNLIMITED || queuedReviews < reviewLimit) {
+    const remainingSlots =
+      reviewLimit === TODAY_REVIEW_LIMIT_UNLIMITED
+        ? Number.POSITIVE_INFINITY
+        : reviewLimit - queuedReviews;
+    const groups = groupProductionItems(
+      productionDue.map((row) => ({ id: row.item.id, row })),
+    ).slice(0, remainingSlots === Number.POSITIVE_INFINITY ? undefined : remainingSlots);
+    for (const group of groups) {
+      queuedReviews += 1;
+      const ids = group.map((g) => g.id);
+      plans.push({
+        itemId: ids[0]!,
+        dimension: 'production',
+        taskType: 'production',
+        questionId: null,
+        origin: 'base',
+        participantIds: ids,
+      });
+    }
+  }
+
   for (const item of learnItems) {
     plans.push({
       itemId: item.id,
@@ -1168,9 +1322,10 @@ async function startTodaySessionInner(
         })
         .run();
       ordered.forEach((p, index) => {
+        const taskId = randomUUID();
         tx.insert(reviewTasks)
           .values({
-            id: randomUUID(),
+            id: taskId,
             sessionId,
             learningItemId: p.itemId,
             dimension: p.dimension,
@@ -1184,6 +1339,24 @@ async function startTodaySessionInner(
             createdAt: nowIso,
           })
           .run();
+        const participantIds =
+          (p as PlanTaskExt).participantIds ??
+          (p.taskType === 'production' ? [p.itemId] : null);
+        if (participantIds && participantIds.length > 0) {
+          participantIds.forEach((itemId, sortIndex) => {
+            tx.insert(reviewTaskItems)
+              .values({
+                id: randomUUID(),
+                reviewTaskId: taskId,
+                learningItemId: itemId,
+                role: sortIndex === 0 ? 'primary' : 'participant',
+                result: null,
+                sortIndex,
+                createdAt: nowIso,
+              })
+              .run();
+          });
+        }
       });
       const session = tx
         .select()
@@ -1369,12 +1542,24 @@ export async function prepareTodayTask(
   const validQuestion = (exec: DbExecutor, task: TaskRow, meaning: string): boolean => {
     if (!task.questionId) return false;
     const question = exec.select().from(questions).where(eq(questions.id, task.questionId)).get();
-    return Boolean(
-      question &&
-      question.learningItemId === task.learningItemId &&
-      question.type === (task.taskType === 'learn' ? 'understanding' : task.taskType) &&
-      (question.status === 'fresh' || question.status === 'active') &&
-      question.meaningSnapshot === meaning,
+    if (
+      !question ||
+      question.type !== (task.taskType === 'learn' ? 'understanding' : task.taskType) ||
+      (question.status !== 'fresh' && question.status !== 'active')
+    ) {
+      return false;
+    }
+    if (task.taskType === 'production') {
+      const scramble = parseScramblePayload(question);
+      if (!scramble) return false;
+      if (question.learningItemId !== task.learningItemId) return false;
+      const expected = loadTaskParticipantIds(exec, task.id, task.learningItemId);
+      const got = scramble.targets.map((t) => t.learningItemId);
+      if (expected.length !== got.length) return false;
+      return expected.every((id, i) => id === got[i]);
+    }
+    return (
+      question.learningItemId === task.learningItemId && question.meaningSnapshot === meaning
     );
   };
 
@@ -1404,14 +1589,61 @@ export async function prepareTodayTask(
         current.task.taskType === 'learn'
           ? 'understanding'
           : (current.task.taskType as QuestionKind);
-      const question = await acquireWithGenerate(
-        db,
-        deps,
-        current.task.learningItemId,
-        type,
-        now,
-        excluded,
-      );
+      let question: QuestionRow | null = null;
+      if (type === 'production') {
+        const participantIds = loadTaskParticipantIds(
+          db,
+          current.task.id,
+          current.task.learningItemId,
+        );
+        const itemRows = participantIds.map((id) => {
+          const row = db.select().from(learningItems).where(eq(learningItems.id, id)).get();
+          if (!row) throw appError('CONFLICT', '任务已失效，请刷新今日学习');
+          return row;
+        });
+        // Prefer stock only for single-item; multi-item always generate for this set.
+        if (participantIds.length === 1) {
+          question = await acquireWithGenerate(
+            db,
+            deps,
+            current.task.learningItemId,
+            type,
+            now,
+            excluded,
+          );
+        }
+        if (!question) {
+          if (!deps.generateScramble) {
+            throw appError('AI_PROVIDER_ERROR', '题目暂时无法生成，请稍后重试');
+          }
+          try {
+            question = await deps.generateScramble(
+              db,
+              itemRows.map((row) => ({
+                id: row.id,
+                type: row.type,
+                target: row.target,
+                meaning: row.meaning,
+              })),
+            );
+          } catch (err) {
+            if (err instanceof AppError && err.code === 'CONFLICT') throw err;
+            console.warn(
+              `[today] scramble 生成失败（task=${current.task.id}）：${(err as Error).message}`,
+            );
+            throw appError('AI_PROVIDER_ERROR', '题目暂时无法生成，请稍后重试');
+          }
+        }
+      } else {
+        question = await acquireWithGenerate(
+          db,
+          deps,
+          current.task.learningItemId,
+          type,
+          now,
+          excluded,
+        );
+      }
       if (!question) throw appError('AI_PROVIDER_ERROR', '题目暂时无法生成，请稍后重试');
       const bound = db.transaction((tx) => {
         const latest = validate(tx);
@@ -1435,9 +1667,14 @@ export async function prepareTodayTask(
           !freshQuestion ||
           freshQuestion.learningItemId !== latest.item.id ||
           freshQuestion.type !== type ||
-          freshQuestion.meaningSnapshot !== latest.item.meaning ||
           (freshQuestion.status !== 'fresh' && freshQuestion.status !== 'active')
         ) {
+          throw appError('CONFLICT', '题目已失效，请重试');
+        }
+        if (type !== 'production' && freshQuestion.meaningSnapshot !== latest.item.meaning) {
+          throw appError('CONFLICT', '题目已失效，请重试');
+        }
+        if (type === 'production' && !parseScramblePayload(freshQuestion)) {
           throw appError('CONFLICT', '题目已失效，请重试');
         }
         tx.update(reviewTasks)
@@ -1567,6 +1804,25 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
   // 表达题：回放首次批改 correction 与首次 personalExampleSaved（post 快照 exampleId）
   const correction = isProduction ? parseCorrectionView(attempt?.correctionJson ?? null) : null;
   const post = parseSnapshot(attempt?.postStateJson ?? null);
+  const scramble = question && isProduction ? parseScramblePayload(question) : null;
+  const itemResultRows =
+    attempt && isProduction
+      ? exec
+          .select()
+          .from(attemptItemResults)
+          .where(eq(attemptItemResults.attemptId, attempt.id))
+          .all()
+      : [];
+  const replayItemResults =
+    scramble && itemResultRows.length > 0
+      ? itemResultRows.map((r) => ({
+          learningItemId: r.learningItemId,
+          surface:
+            scramble.targets.find((t) => t.learningItemId === r.learningItemId)?.surface ??
+            r.learningItemId,
+          result: (r.result === 'pass' ? 'pass' : 'fail') as 'pass' | 'fail',
+        }))
+      : null;
   return {
     result,
     outcomeSource: (attempt?.outcomeSource as AnswerResponse['outcomeSource']) ?? null,
@@ -1574,8 +1830,12 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
     gaveUp,
     selectedOptionId: attempt?.selectedOptionId ?? null,
     submittedAnswerText: attempt?.answerText ?? null,
-    referenceAnswer: production?.referenceAnswer ?? null,
-    answerNote: production?.answerNote ?? null,
+    referenceAnswer:
+      production?.referenceAnswer ??
+      (scramble && stored === 'fail' ? scramble.referenceTokens.join(' ') : null),
+    answerNote:
+      production?.answerNote ??
+      (scramble && stored === 'fail' ? scramble.acceptanceNotes ?? null : null),
     alreadyCompleted: true,
     explanation: attempt?.explanation ?? null,
     correctOptionId: question && !isCloze && !isProduction ? question.correctOptionId : null,
@@ -1583,6 +1843,8 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
     acceptedAnswer: reveal?.acceptedAnswer ?? null,
     correction,
     personalExampleSaved: isProduction ? Boolean(post?.personalExampleId) : false,
+    itemResults: replayItemResults,
+    referenceTokens: scramble && stored === 'fail' ? scramble.referenceTokens : null,
     reinforcementAdded: false,
     progress: session ? progressOf(exec, session.id) : { completed: 0, total: 0 },
     completed: session && session.completedAt !== null ? buildSummary(exec, session) : null,
@@ -1643,6 +1905,7 @@ export async function answerTodayTask(
     if (
       body.selectedOptionId !== undefined ||
       body.answerText !== undefined ||
+      body.selectedTokens !== undefined ||
       body.recall !== undefined ||
       body.hintUsed !== undefined
     ) {
@@ -1652,8 +1915,8 @@ export async function answerTodayTask(
     if (isCloze && !body.answerText) {
       throw appError('VALIDATION_ERROR', '填空题必须提交 answerText');
     }
-    if (isProduction && !body.answerText) {
-      throw appError('VALIDATION_ERROR', '表达题必须提交 answerText');
+    if (isProduction && !(body.selectedTokens && body.selectedTokens.length > 0)) {
+      throw appError('VALIDATION_ERROR', '表达题必须提交 selectedTokens');
     }
     if (!isCloze && !isProduction && !isRecallTask && !body.selectedOptionId) {
       throw appError('VALIDATION_ERROR', '选择题必须提交 selectedOptionId');
@@ -1663,21 +1926,36 @@ export async function answerTodayTask(
     }
   }
 
-  // ---- 事务外：评估（giveUp 不调用任何判定/批改；表达题走 check_production 实时批改）----
-  let production: ProductionEvaluation | null = null;
+  // ---- 事务外：评估（giveUp 不调用判定；scramble 本地 judge，无 AI）----
+  let scrambleJudge: ReturnType<typeof judgeScramble> | null = null;
+  let scramblePayload = question && isProduction ? parseScramblePayload(question) : null;
   let outcome: EvaluateOutcome;
   if (giveUp) {
     // 主动不会：直接按 fail 结算，零生产/填空/选择判定调用（TECHNICAL_DESIGN §7.5）
     outcome = { correct: false };
-  } else if (question && isProduction) {
-    try {
-      production = await deps.evaluateProduction(db, question, body.answerText!);
-    } catch (err) {
-      // 批改失败：不写任何数据，保留用户输入由前端重试（AI_RULES §14）
-      if (err instanceof AppError && err.code !== 'AI_PROVIDER_ERROR') throw err;
-      throw appError('AI_PROVIDER_ERROR', '批改失败，请重试');
+    if (question && isProduction && scramblePayload) {
+      scrambleJudge = {
+        taskResult: 'fail',
+        itemResults: scramblePayload.targets.map((t) => ({
+          learningItemId: t.learningItemId,
+          result: 'fail' as const,
+        })),
+      };
     }
-    outcome = { correct: production.result !== 'fail' };
+  } else if (question && isProduction) {
+    if (!scramblePayload) {
+      throw appError('CONFLICT', '题目已失效，请刷新今日学习');
+    }
+    scrambleJudge = judgeScramble({
+      selectedTokens: body.selectedTokens!,
+      referenceTokens: scramblePayload.referenceTokens,
+      targets: scramblePayload.targets.map((t) => ({
+        learningItemId: t.learningItemId,
+        tokens: t.tokens,
+      })),
+      acceptableMorphology: scramblePayload.acceptableMorphology ?? [],
+    });
+    outcome = { correct: scrambleJudge.taskResult === 'pass' };
   } else if (question && isCloze) {
     outcome = await deps.evaluateCloze(db, question, body.answerText!);
   } else if (isRecallTask && body.recall) {
@@ -1703,7 +1981,7 @@ export async function answerTodayTask(
     result = 'fail';
     outcomeSource = isRecallTask ? 'forgot' : null;
   } else if (isProduction) {
-    result = production!.result;
+    result = scrambleJudge!.taskResult;
   } else if (isRecallTask) {
     if (body.recall) {
       outcomeSource = body.recall;
@@ -1768,7 +2046,11 @@ export async function answerTodayTask(
     }
 
     const itemId = task.learningItemId;
+    const participantIdsForSnap = isProduction
+      ? loadTaskParticipantIds(tx, task.id, itemId)
+      : [itemId];
     const pre = snapshotOf(tx, itemId);
+    pre.participants = snapshotParticipants(tx, itemId, participantIdsForSnap);
     const reinforcementIds: string[] = [];
     // easy（三档「简单」）= pass + tooEasy（FSRS Easy 评分）；learn 首答与非 learn 复习共用映射
     const easyRecall = isRecallTask && body.recall === 'easy';
@@ -1800,6 +2082,41 @@ export async function answerTodayTask(
         .set({ newItemsStarted: session.newItemsStarted + 1 })
         .where(eq(reviewSessions.id, session.id))
         .run();
+    } else if (isProduction && scrambleJudge) {
+      // Multi-item scramble: advance Production FSRS per participant; 1 task = 1 formal slot.
+      const participantIds = loadTaskParticipantIds(tx, task.id, itemId);
+      const resultByItem = new Map(
+        scrambleJudge.itemResults.map((r) => [r.learningItemId, r.result]),
+      );
+      for (const pid of participantIds) {
+        const itemResult = resultByItem.get(pid) ?? 'fail';
+        deps.advance(
+          tx,
+          pid,
+          'production',
+          { kind: itemResult },
+          now,
+        );
+        tx.update(reviewTaskItems)
+          .set({ result: itemResult })
+          .where(
+            and(
+              eq(reviewTaskItems.reviewTaskId, task.id),
+              eq(reviewTaskItems.learningItemId, pid),
+            ),
+          )
+          .run();
+      }
+      bumpDailyStats(
+        tx,
+        session.sessionDate,
+        {
+          formal: 1,
+          productionAttempts: 1,
+          productionPass: result === 'pass' ? 1 : 0,
+        },
+        nowIso,
+      );
     } else {
       // 普通复习：review.advanceReviewState（FSRS）推进该维度（含 streak 写回与 mastered 判定）。
       // easy（三档「简单」）：结算等同 pass 计入通过，评分映射为 FSRS Easy（间隔更长）。
@@ -1861,61 +2178,45 @@ export async function answerTodayTask(
     // post 快照（两维 review 状态 + item.status + 新增补强任务 id）
     const post = snapshotOf(tx, task.learningItemId);
     post.reinforcementTaskIds = reinforcementIds;
+    post.participants = snapshotParticipants(tx, itemId, participantIdsForSnap);
 
-    // 表达题：按候选明确选择的 corrected/polish 句沉淀 Personal Example（PRODUCT §3.2/§7.5），
-    // post 快照记录本次写入的 exampleId（坏题撤销依据）与被替换例句行（普通撤销恢复）
-    let personalSaved: PersonalExampleSaveResult = SKIP_PERSONAL;
-    if (isProduction && production) {
-      personalSaved = maybeSavePersonalExample(
-        tx,
-        task.learningItemId,
-        {
-          result: production.result,
-          eligible: production.candidate.eligible,
-          source: production.candidate.source,
-          qualityScore: production.candidate.qualityScore,
-          correctedSentence: production.correctedSentence,
-          originalText: body.answerText!,
-          betterVersion: production.betterVersion,
-          betterVersionKind: production.betterVersionKind,
-        },
-        now,
-      );
-      if (personalSaved.exampleId) {
-        post.personalExampleId = personalSaved.exampleId;
-        post.personalExampleText =
-          tx
-            .select({ text: learningExamples.text })
-            .from(learningExamples)
-            .where(eq(learningExamples.id, personalSaved.exampleId))
-            .get()?.text ?? null;
-      }
-      if (personalSaved.replacedExampleSnapshot) {
-        post.replacedPersonalExample = personalSaved.replacedExampleSnapshot;
-      }
-    }
+    // Scramble production does not auto-save Personal Example (spec §4.3.6).
+    const personalSaved: PersonalExampleSaveResult = SKIP_PERSONAL;
 
     const reveal = question && isCloze ? clozeReveal(question) : null;
     // 主动不会的表达题揭示：参考句/用法说明取自绑定题目 payload（仅作答后返回）；
     // 2026-10-27 挫败反馈：非主动不会的 fail 同样揭示（diff/解释之外补参考句与用法，
     // 不新增 AI 调用）；pass / basic_pass 不揭示
     const failProductionReveal =
-      !giveUp && isProduction && production?.result === 'fail' && question
+      !giveUp && isProduction && result === 'fail' && question && !scramblePayload
         ? productionReveal(question)
         : null;
     const giveUpProductionReveal =
-      giveUp && question && isProduction ? productionReveal(question) : null;
+      giveUp && question && isProduction && !scramblePayload
+        ? productionReveal(question)
+        : null;
     const productionRevealOut = failProductionReveal ?? giveUpProductionReveal;
+    const scrambleReferenceTokens =
+      scramblePayload && result === 'fail'
+        ? scramblePayload.referenceTokens
+        : null;
+    const scrambleItemResults =
+      scrambleJudge && scramblePayload
+        ? scrambleJudge.itemResults.map((r) => ({
+            learningItemId: r.learningItemId,
+            surface:
+              scramblePayload.targets.find((t) => t.learningItemId === r.learningItemId)
+                ?.surface ?? r.learningItemId,
+            result: r.result,
+          }))
+        : null;
     const explanation = question
-      ? giveUp
-        ? // 主动不会：表达题无批改说明（揭示走 payload 参考句/用法说明）；选择/填空揭示解释
-          isProduction
-          ? null
-          : revealExplanation(question, false)
-        : isProduction
-          ? production!.explanation
+      ? isProduction
+        ? scramblePayload?.acceptanceNotes || null
+        : giveUp
+          ? revealExplanation(question, false)
           : revealExplanation(question, correct)
-      : null; // 未绑题的 recall 自评/giveUp 无题面解释可揭示
+      : null;
     const attemptId = randomUUID();
     tx.insert(attempts)
       .values({
@@ -1925,7 +2226,9 @@ export async function answerTodayTask(
         // 未绑题的 recall 作答允许 question_id=null（列本就可空，schema set null）
         questionId: question?.id ?? null,
         mode: 'today',
-        answerText: body.answerText ?? null,
+        answerText:
+          body.answerText ??
+          (body.selectedTokens ? body.selectedTokens.join(' ') : null),
         // recall 直判时归一化丢弃并存选项，避免统计层误读
         selectedOptionId: isRecallTask && body.recall ? null : (body.selectedOptionId ?? null),
         result,
@@ -1933,29 +2236,34 @@ export async function answerTodayTask(
         // 主动不会持久化为 gave_up（与事后人工反馈互斥，DATABASE.md §8）
         feedback: giveUp ? 'gave_up' : null,
         outcomeSource,
-        correctionJson: production
-          ? JSON.stringify({
-              segments: production.segments,
-              corrected: production.correctedSentence,
-              better: production.betterVersion,
-              betterVersionKind: production.betterVersionKind,
-              personalExampleSource: production.candidate.source,
-            })
-          : null,
+        correctionJson: null,
         explanation,
-        betterVersion: production?.betterVersion ?? null,
-        // 表达题记录 check_production 实际 Prompt 元数据（PRODUCT 可追溯实体要求）；
-        // 选择/填空题的 AI 兜底由 questions 模块内部处理，此处置空
-        aiPromptKey: production?.promptMeta.key ?? null,
-        aiPromptVersion: production?.promptMeta.version ?? null,
-        aiPromptHash: production?.promptMeta.hash ?? null,
-        aiModel: production?.promptMeta.model ?? null,
+        betterVersion: null,
+        aiPromptKey: null,
+        aiPromptVersion: null,
+        aiPromptHash: null,
+        aiModel: null,
         preStateJson: JSON.stringify(pre),
         postStateJson: JSON.stringify(post),
         createdAt: nowIso,
         voidedAt: null,
       })
       .run();
+
+    if (isProduction && scrambleJudge) {
+      for (const ir of scrambleJudge.itemResults) {
+        tx.insert(attemptItemResults)
+          .values({
+            id: randomUUID(),
+            attemptId,
+            learningItemId: ir.learningItemId,
+            result: ir.result,
+            detailJson: null,
+            createdAt: nowIso,
+          })
+          .run();
+      }
+    }
 
     // 造句历史裁剪：保留该 item 最近 10 条 production attempts（PRODUCT §7.5）；
     // 被裁剪行快照在裁剪后补写进 post 快照（DATABASE §8：撤销期间保留恢复快照）
@@ -2000,22 +2308,22 @@ export async function answerTodayTask(
       gaveUp: giveUp,
       // 真实作答回传提交内容（与 attempt 落库一致：recall 直判的选项已归一丢弃）；giveUp 为 null
       selectedOptionId: isRecallTask && body.recall ? null : (body.selectedOptionId ?? null),
-      submittedAnswerText: body.answerText ?? null,
-      referenceAnswer: productionRevealOut?.referenceAnswer ?? null,
-      answerNote: productionRevealOut?.answerNote ?? null,
+      submittedAnswerText:
+        body.answerText ?? (body.selectedTokens ? body.selectedTokens.join(' ') : null),
+      referenceAnswer:
+        productionRevealOut?.referenceAnswer ??
+        (scrambleReferenceTokens ? scrambleReferenceTokens.join(' ') : null),
+      answerNote:
+        productionRevealOut?.answerNote ??
+        (result === 'fail' ? scramblePayload?.acceptanceNotes ?? null : null),
       explanation,
       correctOptionId: question && !isCloze && !isProduction ? question.correctOptionId : null,
       completeSentence: reveal?.completeSentence ?? null,
       acceptedAnswer: reveal?.acceptedAnswer ?? null,
-      correction: production
-        ? {
-            segments: production.segments,
-            correctedSentence: production.correctedSentence,
-            betterVersion: production.betterVersion,
-            betterVersionKind: production.betterVersionKind,
-          }
-        : null,
+      correction: null,
       personalExampleSaved: personalSaved.saved,
+      itemResults: scrambleItemResults,
+      referenceTokens: isProduction ? scrambleReferenceTokens : null,
       reinforcementAdded,
       progress: progressOf(tx, session.id),
       completed: completedSummary,
@@ -2138,6 +2446,31 @@ export function reportBadQuestion(
     const pre = parseSnapshot(attempt.preStateJson);
     if (pre) restoreSnapshot(tx, task.learningItemId, pre, nowIso);
 
+    // Multi-item scramble: restore other participants from pre.participants
+    for (const part of pre?.participants ?? []) {
+      restoreSnapshot(
+        tx,
+        part.learningItemId,
+        {
+          reviewStates: part.reviewStates,
+          itemStatus: part.itemStatus,
+          queueState: part.queueState,
+          needsReinforcement: part.needsReinforcement,
+        },
+        nowIso,
+      );
+    }
+
+    // Void attempt_item_results for this attempt
+    tx.update(attemptItemResults)
+      .set({ result: 'void' })
+      .where(eq(attemptItemResults.attemptId, attempt.id))
+      .run();
+    tx.update(reviewTaskItems)
+      .set({ result: 'void' })
+      .where(eq(reviewTaskItems.reviewTaskId, task.id))
+      .run();
+
     // 3) 取消本次结算新增的补强任务
     const post = parseSnapshot(attempt.postStateJson);
     for (const rid of post?.reinforcementTaskIds ?? []) {
@@ -2248,16 +2581,39 @@ export async function undoTodayTask(
     throw appError('CONFLICT', '已有更新的作答，无法撤销该任务');
   }
 
-  // 只有造句换题；Recall/Learn 及遗留非造句题复用原绑定，不消耗题库或调用 AI。
-  const replacement =
-    task.taskType === 'production'
-      ? await acquireWithGenerate(db, deps, task.learningItemId, 'production', now, [
-          task.questionId ?? '',
-        ])
-      : null;
-  if (task.taskType === 'production' && !replacement) {
-    // 没有可用新题：保持原作答与会话不变，提示重试（PRODUCT §5.1）
-    throw appError('CONFLICT', '暂时没有可用的新题，请稍后重试');
+  // Scramble production: regenerate for the same participant set; other types reuse binding.
+  let replacement: QuestionRow | null = null;
+  if (task.taskType === 'production') {
+    const participantIds = loadTaskParticipantIds(db, task.id, task.learningItemId);
+    if (participantIds.length === 1) {
+      replacement = await acquireWithGenerate(db, deps, task.learningItemId, 'production', now, [
+        task.questionId ?? '',
+      ]);
+    }
+    if (!replacement) {
+      if (!deps.generateScramble) {
+        throw appError('CONFLICT', '暂时没有可用的新题，请稍后重试');
+      }
+      const itemRows = participantIds.map((id) => {
+        const row = db.select().from(learningItems).where(eq(learningItems.id, id)).get();
+        if (!row) throw appError('CONFLICT', '暂时没有可用的新题，请稍后重试');
+        return row;
+      });
+      try {
+        replacement = await deps.generateScramble(
+          db,
+          itemRows.map((row) => ({
+            id: row.id,
+            type: row.type,
+            target: row.target,
+            meaning: row.meaning,
+          })),
+        );
+      } catch (err) {
+        console.warn(`[today] undo scramble 生成失败：${(err as Error).message}`);
+        throw appError('CONFLICT', '暂时没有可用的新题，请稍后重试');
+      }
+    }
   }
 
   const nowIso = now.toISOString();
@@ -2323,6 +2679,26 @@ export async function undoTodayTask(
     // 1) 恢复 pre 快照：两维 review 状态、item.status/queue_state、Read 补强旗
     restoreSnapshot(tx, task.learningItemId, pre, nowIso);
 
+    // Multi-item scramble: restore other participants from pre.participants
+    for (const part of pre?.participants ?? []) {
+      restoreSnapshot(
+        tx,
+        part.learningItemId,
+        {
+          reviewStates: part.reviewStates,
+          itemStatus: part.itemStatus,
+          queueState: part.queueState,
+          needsReinforcement: part.needsReinforcement,
+        },
+        nowIso,
+      );
+    }
+
+    tx.update(attemptItemResults)
+      .set({ result: 'void' })
+      .where(eq(attemptItemResults.attemptId, attempt.id))
+      .run();
+
     // 2) 只取消本次结算记录的补强任务（已取消的跳过）
     for (const rid of post?.reinforcementTaskIds ?? []) {
       tx.update(reviewTasks)
@@ -2380,9 +2756,10 @@ export async function undoTodayTask(
         ),
       )
       .get()?.m;
+    const newTaskId = randomUUID();
     tx.insert(reviewTasks)
       .values({
-        id: randomUUID(),
+        id: newTaskId,
         sessionId: task.sessionId,
         learningItemId: task.learningItemId,
         dimension: task.dimension,
@@ -2396,6 +2773,37 @@ export async function undoTodayTask(
         createdAt: nowIso,
       })
       .run();
+    if (task.taskType === 'production') {
+      const oldLinks = tx
+        .select()
+        .from(reviewTaskItems)
+        .where(eq(reviewTaskItems.reviewTaskId, task.id))
+        .orderBy(asc(reviewTaskItems.sortIndex))
+        .all();
+      const links =
+        oldLinks.length > 0
+          ? oldLinks
+          : [
+              {
+                learningItemId: task.learningItemId,
+                role: 'primary',
+                sortIndex: 0,
+              },
+            ];
+      for (const link of links) {
+        tx.insert(reviewTaskItems)
+          .values({
+            id: randomUUID(),
+            reviewTaskId: newTaskId,
+            learningItemId: link.learningItemId,
+            role: link.role,
+            result: null,
+            sortIndex: link.sortIndex,
+            createdAt: nowIso,
+          })
+          .run();
+      }
+    }
 
     // 7) 重新激活已完成的会话
     tx.update(reviewSessions)

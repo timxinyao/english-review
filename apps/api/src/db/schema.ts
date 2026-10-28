@@ -292,6 +292,76 @@ export const appMetadata = sqliteTable('app_metadata', {
   updatedAt: text('updated_at').notNull(),
 });
 
+
+// ---------- review_task_items (multi-item scramble Production) ----------
+
+export const reviewTaskItems = sqliteTable(
+  "review_task_items",
+  {
+    id: text("id").primaryKey(),
+    reviewTaskId: text("review_task_id")
+      .notNull()
+      .references(() => reviewTasks.id, { onDelete: "cascade" }),
+    learningItemId: text("learning_item_id")
+      .notNull()
+      .references(() => learningItems.id, { onDelete: "cascade" }),
+    role: text("role").notNull(), // primary | participant
+    result: text("result"), // pass | fail | void | null
+    sortIndex: integer("sort_index").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => ({
+    taskItemUq: uniqueIndex("uq_review_task_items_task_item").on(t.reviewTaskId, t.learningItemId),
+    itemIdx: index("idx_review_task_items_item").on(t.learningItemId),
+  }),
+);
+
+// ---------- question_items (scramble multi-target) ----------
+
+export const questionItems = sqliteTable(
+  "question_items",
+  {
+    id: text("id").primaryKey(),
+    questionId: text("question_id")
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    learningItemId: text("learning_item_id")
+      .notNull()
+      .references(() => learningItems.id, { onDelete: "cascade" }),
+    sortIndex: integer("sort_index").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => ({
+    qItemUq: uniqueIndex("uq_question_items_q_item").on(t.questionId, t.learningItemId),
+    itemIdx: index("idx_question_items_item").on(t.learningItemId),
+  }),
+);
+
+// ---------- attempt_item_results (per-target writeback audit) ----------
+
+export const attemptItemResults = sqliteTable(
+  "attempt_item_results",
+  {
+    id: text("id").primaryKey(),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id, { onDelete: "cascade" }),
+    learningItemId: text("learning_item_id")
+      .notNull()
+      .references(() => learningItems.id, { onDelete: "cascade" }),
+    result: text("result").notNull(), // pass | fail | void
+    detailJson: text("detail_json"),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => ({
+    attemptItemUq: uniqueIndex("uq_attempt_item_results_attempt_item").on(
+      t.attemptId,
+      t.learningItemId,
+    ),
+    itemIdx: index("idx_attempt_item_results_item").on(t.learningItemId),
+  }),
+);
+
 // ---------- push_subscriptions（§12，Web Push 批改通知）----------
 
 /** endpoint 唯一（同一浏览器重复 subscribe 走 upsert）；p256dh/auth 为 PushSubscription 密钥 */

@@ -138,6 +138,53 @@ function duplicate(req: ProviderRequest): string {
   });
 }
 
+
+function productionScramble(req: ProviderRequest): string {
+  let targets: { id?: string; target?: string; meaning?: string }[] = [];
+  try {
+    const raw = req.vars.targets_json;
+    targets = typeof raw === "string" ? JSON.parse(raw) : Array.isArray(raw) ? raw : [];
+  } catch {
+    targets = [];
+  }
+  if (targets.length === 0) {
+    targets = [{ id: "x", target: str(req.vars.target, "target"), meaning: str(req.vars.meaning, "meaning") }];
+  }
+  const surfaces = targets.map((t) => str(t.target, "target"));
+  const meanings = targets.map((t) => str(t.meaning, "meaning")).join("、");
+  // Build a simple English token sequence that contains each target's tokens in order.
+  const reference_tokens: string[] = ["People"];
+  for (const surface of surfaces) {
+    const parts = surface.split(/\s+/).filter(Boolean);
+    reference_tokens.push("often", ...parts, "here");
+  }
+  reference_tokens.push("daily");
+  const n = reference_tokens.length;
+  const distractorCount = Math.max(1, Math.round(n * 0.4));
+  const distractors = Array.from({ length: distractorCount }, (_, i) => `noise${i + 1}`);
+  const morph: string[] = [];
+  for (const surface of surfaces) {
+    for (const w of surface.split(/\s+/)) {
+      if (w) morph.push(w, `${w}s`);
+    }
+  }
+  return JSON.stringify({
+    zh_prompt: `请用所给词块表达：${meanings}`,
+    reference_tokens,
+    distractors,
+    acceptable_morphology: morph,
+    acceptance_notes: "mock scramble",
+    target_surfaces: surfaces,
+  });
+}
+
+function checkProductionScramble(_req: ProviderRequest): string {
+  return JSON.stringify({
+    explanation: "mock：规则判定已完成。",
+    item_overrides: [],
+  });
+}
+
 export function createMockProvider(): AiProvider {
   return {
     name: 'mock',
@@ -153,6 +200,10 @@ export function createMockProvider(): AiProvider {
           return productionPrompt(req);
         case 'checkProduction':
           return checkProduction(req);
+        case 'generateProductionScramble':
+          return productionScramble(req);
+        case 'checkProductionScramble':
+          return checkProductionScramble(req);
         case 'generateRead':
           return read(req);
         case 'judgeDuplicateMeaning':

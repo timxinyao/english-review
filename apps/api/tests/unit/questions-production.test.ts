@@ -39,8 +39,8 @@ function recordingMockRuntime() {
   return { runtime: buildMockRuntime(rec.provider), prompts: rec.prompts };
 }
 
-describe('generateQuestionsForItem：production（单题结构）', () => {
-  it('生成表达题入库：promptText=zh_prompt、payload 含 mustUse/referenceAnswer/acceptanceNotes、context/correct_option 为空', async () => {
+describe('generateQuestionsForItem：production（scramble）', () => {
+  it('生成 scramble 表达题：promptKey=generate_production_scramble、payload schema=scramble_v1', async () => {
     const itemId = await seededItem();
     const runtime = buildMockRuntime();
     const rows = await generateQuestionsForItem({ db, runtime }, itemId, 'production', 1);
@@ -48,38 +48,48 @@ describe('generateQuestionsForItem：production（单题结构）', () => {
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     const registry = loadPromptRegistry(join(process.cwd(), 'prompts'));
-    const prompt = registry.get('generate_production_prompt')!;
+    const prompt = registry.get('generate_production_scramble')!;
     expect(row.type).toBe('production');
     expect(row.status).toBe('fresh');
     expect(row.meaningSnapshot).toBe('逐渐消耗');
     expect(row.contextText).toBeNull();
     expect(row.correctOptionId).toBeNull();
-    expect(row.promptKey).toBe('generate_production_prompt');
+    expect(row.promptKey).toBe('generate_production_scramble');
     expect(row.promptVersion).toBe(prompt.version);
     expect(row.promptHash).toBe(prompt.hash);
-    expect(row.model).toBe(FALLBACK_MODELS.max) // 生成任务 alias=max（后台槽主模型），无 key → glm-5.3; // 无 key 环境 → fallback 常量（自动发现不可用）
-    expect(row.promptText).toBeTruthy(); // zh_prompt
+    expect(row.model).toBe(FALLBACK_MODELS.max);
+    expect(row.promptText).toBeTruthy();
     const payload = JSON.parse(row.payloadJson) as {
-      mustUse: string;
-      referenceAnswer: string;
-      acceptanceNotes: string;
+      schema: string;
+      zhPrompt: string;
+      targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
+      referenceTokens: string[];
+      distractors: string[];
     };
-    expect(payload.mustUse).toBe('wear down');
-    expect(payload.referenceAnswer).toBeTruthy();
-    expect(payload.acceptanceNotes).toBeTruthy();
-    expect(JSON.stringify(payload)).not.toContain('reference_answer');
+    expect(payload.schema).toBe('scramble_v1');
+    expect(payload.zhPrompt).toBeTruthy();
+    expect(payload.targets).toHaveLength(1);
+    expect(payload.targets[0]!.learningItemId).toBe(itemId);
+    expect(payload.targets[0]!.surface.toLowerCase()).toContain('wear');
+    expect(payload.referenceTokens.length).toBeGreaterThan(0);
+    expect(payload.distractors.length).toBeGreaterThan(0);
+    expect(JSON.stringify(payload)).not.toContain('mustUse');
+    expect(JSON.stringify(payload)).not.toContain('referenceAnswer');
   });
 
-  it('count=2 连续生成两题，第二批 Prompt 携带首批 zh_prompt（避免重复）', async () => {
+  it('count=2 连续生成两道 scramble 题（各一次 AI 调用）', async () => {
     const itemId = await seededItem();
     const { runtime, prompts } = recordingMockRuntime();
     const rows = await generateQuestionsForItem({ db, runtime }, itemId, 'production', 2);
 
     expect(rows).toHaveLength(2);
     expect(prompts).toHaveLength(2);
-    expect(prompts[1]).toContain('recent_prompts_json');
-    expect(prompts[1]).toContain(rows[0]!.promptText!); // 第一批 zh_prompt 进入第二批 recent_prompts
+    expect(prompts[0]).toContain('targets_json');
+    expect(prompts[1]).toContain('拼词表达题');
     expect(rows[0]!.id).not.toBe(rows[1]!.id);
+    for (const row of rows) {
+      expect(JSON.parse(row.payloadJson).schema).toBe('scramble_v1');
+    }
   });
 
   it('provider 失败抛错且不入库；runtime 为 null → AI_PROVIDER_ERROR', async () => {

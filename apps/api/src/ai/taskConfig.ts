@@ -58,6 +58,19 @@ export const TASK_MODEL_POLICY: Record<AiTask, TaskModelPolicy> = {
     temperature: 0.8,
     thinking: 'off',
   },
+  generateProductionScramble: {
+    alias: 'max',
+    provider: 'background',
+    temperature: 0.7,
+    thinking: 'off',
+  },
+  checkProductionScramble: {
+    alias: 'flash',
+    temperature: 0.2,
+    thinking: 'off',
+    timeoutMs: 30_000,
+    totalBudgetMs: 60_000,
+  },
   // 批改（2026-10-06 切 DeepSeek flash）：flash+max = 42/42=100% · avg 13.8s · p50 6.3s。
   // DeepSeek 端点忽略 budget_tokens，档位差异只来自 max_tokens 上限（budget+GLM_MAX_TOKENS）：
   // max 档上限 24576，消灭 low/medium/high 思考打满上限的「缺文本」失败（93-95%）。

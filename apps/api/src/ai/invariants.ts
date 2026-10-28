@@ -96,6 +96,38 @@ export function checkAiOutput(
       }
       break;
     }
+    case 'generateProductionScramble': {
+      const out = output as {
+        reference_tokens: string[];
+        target_surfaces: string[];
+        distractors: string[];
+      };
+      if (out.reference_tokens.length > 24) {
+        violations.push(`reference_tokens 长度 ${out.reference_tokens.length} > 24`);
+      }
+      const refLower = out.reference_tokens.map((t) => t.toLowerCase());
+      for (const surface of out.target_surfaces) {
+        const parts = surface.toLowerCase().split(/\s+/).filter(Boolean);
+        let ti = 0;
+        for (const tok of refLower) {
+          if (tok === parts[ti]) {
+            ti += 1;
+            if (ti === parts.length) break;
+          }
+        }
+        if (ti !== parts.length) {
+          violations.push(`reference_tokens 未按序覆盖 target_surface "${surface}"`);
+        }
+      }
+      const n = out.reference_tokens.length;
+      const d = out.distractors.length;
+      if (n > 0 && (d < Math.floor(n * 0.25) || d > Math.ceil(n * 0.6))) {
+        // soft band around 30–50%; allow slight mock slack
+        violations.push(`distractors 数量 ${d} 不在 reference 长度 ${n} 的约 30%–50% 带`);
+      }
+      break;
+    }
+    case 'checkProductionScramble':
     case 'checkCloze':
     case 'judgeDuplicateMeaning':
       break;

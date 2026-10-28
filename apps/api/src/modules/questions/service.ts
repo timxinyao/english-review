@@ -5,16 +5,24 @@ import {
   ClozePayload,
   CONTENT_LEVELS,
   DEFAULT_CONTENT_LEVEL,
+  ScramblePayload,
   type BetterVersionKind,
   type CheckClozeResult,
   type CheckProductionResult,
   type CorrectionSegment,
   type GenerateProductionPromptResult,
+  type GenerateProductionScrambleResult,
   type GenerateUnderstandingQuestionsResult,
   type ReviewDimension,
 } from '@el/shared';
 import type { AppDatabase } from '../../db/client.js';
-import { learningExamples, learningItems, questions, settings } from '../../db/schema.js';
+import {
+  learningExamples,
+  learningItems,
+  questionItems,
+  questions,
+  settings,
+} from '../../db/schema.js';
 import { appError } from '../../lib/errors.js';
 import { completeStructured } from '../../ai/complete.js';
 import type { AiRuntime } from '../../ai/runtime.js';
@@ -220,55 +228,13 @@ export async function generateQuestionsForItem(
   let rows: QuestionRow[];
 
   if (type === 'production') {
-    // generate_production_prompt 为单题结构（AI_RULES §9）：count 道题 = count 次调用，
-    // 每次把本批已生成的 zh_prompt 并入 recent_prompts 避免重复
+    // Scramble generation (Phase 13): one AI call per question; single-item targets.
     rows = [];
-    let model = '';
-    const recentPrompts = recentProductionPrompts(db, itemId, 5);
     for (let i = 0; i < count; i += 1) {
-      const {
-        data,
-        meta,
-        model: usedModel,
-      } = await completeStructured<GenerateProductionPromptResult>(
-        aiDeps,
-        'generateProductionPrompt',
-        {
-          type: item.type,
-          target: item.target,
-          meaning: item.meaning,
-          content_level: readContentLevel(db),
-          source_example: sourceExample.text,
-          extra_examples: extraExamples,
-          recent_prompts: recentPrompts,
-        },
-      );
-      recentPrompts.push(data.zh_prompt);
-      if (!model) model = usedModel;
-      rows.push({
-        id: randomUUID(),
-        learningItemId: itemId,
-        type: 'production',
-        status: 'fresh',
-        meaningSnapshot: item.meaning,
-        promptText: data.zh_prompt,
-        contextText: null,
-        payloadJson: JSON.stringify({
-          mustUse: data.must_use,
-          referenceAnswer: data.reference_answer,
-          acceptanceNotes: data.acceptance_notes,
-        }),
-        correctOptionId: null,
-        promptKey: meta.key,
-        promptVersion: meta.version,
-        promptHash: meta.hash,
-        model,
-        useCount: 0,
-        correctCount: 0,
-        lastUsedAt: null,
-        retiredAt: null,
-        createdAt: nowIso,
-      });
+      const row = await generateProductionScramble(deps, [
+        { id: item.id, type: item.type, target: item.target, meaning: item.meaning },
+      ]);
+      rows.push(row);
     }
   } else {
     const { data, meta, model } = await completeStructured<GenerateUnderstandingQuestionsResult>(
@@ -296,6 +262,11 @@ export async function generateQuestionsForItem(
       retiredAt: null,
       createdAt: nowIso,
     }));
+  }
+
+  // Scramble production already persisted inside generateProductionScramble.
+  if (type === 'production') {
+    return rows;
   }
 
   // 校验：题目 meaning_snapshot 必须锁定当前义项（AI_RULES §4.2）
@@ -435,6 +406,162 @@ export async function evaluateCloze(
   } catch {
     return { correct: false, canonicalAnswer: canonical, usedAi: true };
   }
+}
+
+
+// ---------- scramble production generate (Phase 13) ----------
+
+export type ScrambleItemInput = {
+  id: string;
+  type: string;
+  target: string;
+  meaning: string;
+};
+
+function tokenizeSurface(surface: string): string[] {
+  return surface
+    .trim()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function orderedSubsequencePresent(haystack: string[], needle: string[]): boolean {
+  if (needle.length === 0) return false;
+  let ti = 0;
+  for (const tok of haystack) {
+    if (tok.toLowerCase() === needle[ti]!.toLowerCase()) {
+      ti += 1;
+      if (ti === needle.length) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Generate one scramble production question for 1–3 learning items.
+ * AI call is outside any write transaction; rows written atomically with question_items.
+ */
+export async function generateProductionScramble(
+  deps: GenerateQuestionsDeps,
+  items: ScrambleItemInput[],
+): Promise<QuestionRow> {
+  const { db, runtime } = deps;
+  if (!runtime) throw appError('AI_PROVIDER_ERROR', 'AI runtime 未初始化，无法生成题目');
+  if (items.length < 1 || items.length > 3) {
+    throw appError('VALIDATION_ERROR', 'scramble 目标数量必须为 1～3');
+  }
+
+  const contentLevel = readContentLevel(db);
+  for (const it of items) {
+    const row = db.select().from(learningItems).where(eq(learningItems.id, it.id)).get();
+    if (!row) throw appError('NOT_FOUND', `学习项不存在：${it.id}`);
+    const examples = db
+      .select()
+      .from(learningExamples)
+      .where(eq(learningExamples.learningItemId, it.id))
+      .all();
+    if (!examples.some((e) => e.kind === 'source')) {
+      throw appError('INTERNAL', `学习项缺少 source 例句：${it.id}`);
+    }
+  }
+
+  const targets_json = JSON.stringify(
+    items.map((it) => ({
+      id: it.id,
+      type: it.type,
+      target: it.target,
+      meaning: it.meaning,
+    })),
+  );
+
+  const {
+    data,
+    meta,
+    model,
+  } = await completeStructured<GenerateProductionScrambleResult>(
+    { provider: runtime.provider, config: runtime.config, registry: runtime.registry },
+    'generateProductionScramble',
+    { targets_json, content_level: contentLevel },
+  );
+
+  if (data.target_surfaces.length !== items.length) {
+    throw appError('INTERNAL', 'scramble 生成的 target_surfaces 数量与输入不一致');
+  }
+
+  const targets = items.map((it, idx) => {
+    const surface = data.target_surfaces[idx] ?? it.target;
+    return {
+      learningItemId: it.id,
+      surface,
+      tokens: tokenizeSurface(surface),
+    };
+  });
+
+  for (const t of targets) {
+    if (!orderedSubsequencePresent(data.reference_tokens, t.tokens)) {
+      throw appError(
+        'INTERNAL',
+        `scramble 参考句未按序覆盖目标「${t.surface}」`,
+      );
+    }
+  }
+
+  const payload = ScramblePayload.parse({
+    schema: 'scramble_v1',
+    targets,
+    zhPrompt: data.zh_prompt,
+    referenceTokens: data.reference_tokens,
+    distractors: data.distractors,
+    acceptableMorphology: data.acceptable_morphology,
+    acceptanceNotes: data.acceptance_notes,
+  });
+
+  const primary = items[0]!;
+  const nowIso = new Date().toISOString();
+  const row: QuestionRow = {
+    id: randomUUID(),
+    learningItemId: primary.id,
+    type: 'production',
+    status: 'fresh',
+    meaningSnapshot: primary.meaning,
+    promptText: payload.zhPrompt,
+    contextText: null,
+    payloadJson: JSON.stringify(payload),
+    correctOptionId: null,
+    promptKey: meta.key,
+    promptVersion: meta.version,
+    promptHash: meta.hash,
+    model,
+    useCount: 0,
+    correctCount: 0,
+    lastUsedAt: null,
+    retiredAt: null,
+    createdAt: nowIso,
+  };
+
+  db.transaction((tx) => {
+    for (const it of items) {
+      const current = tx.select().from(learningItems).where(eq(learningItems.id, it.id)).get();
+      if (!current || current.target !== it.target || current.meaning !== it.meaning) {
+        throw appError('CONFLICT', '学习项已修改，旧题目生成结果已失效');
+      }
+    }
+    tx.insert(questions).values(row).run();
+    items.forEach((it, index) => {
+      tx.insert(questionItems)
+        .values({
+          id: randomUUID(),
+          questionId: row.id,
+          learningItemId: it.id,
+          sortIndex: index,
+          createdAt: nowIso,
+        })
+        .run();
+    });
+  });
+
+  return row;
 }
 
 // ---------- 表达题批改（check_production，AI_RULES §10）----------

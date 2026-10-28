@@ -5,6 +5,7 @@ import type {
 } from '@el/shared';
 import { ApiError } from '../../../lib/api';
 import { ProductionQuestionCard } from '../../../components/production-question-card';
+import { ScrambleQuestionCard } from '../../../components/scramble-question-card';
 import { useAnswer } from '../api';
 
 interface Props {
@@ -17,9 +18,14 @@ interface Props {
   onAdvance: () => void;
 }
 
+function isScramble(
+  q: ProductionQuestion,
+): q is Extract<ProductionQuestion, { kind: 'scramble' }> {
+  return 'kind' in q && q.kind === 'scramble';
+}
+
 /**
- * 表达题（PRODUCT §7.3/§7.4）：受控中文提示 + 实时批改；
- * 渲染逻辑在全局 ProductionQuestionCard；批改失败保留输入可重试（弹窗文案按错误码分支）。
+ * 表达题：scramble_v1 走拼词卡；迁移期仍兼容旧打字造句视图。
  */
 export function ProductionQuestionView({
   task,
@@ -35,6 +41,30 @@ export function ProductionQuestionView({
   const errorCode =
     answer.isError && !result && answer.error instanceof ApiError ? answer.error.code : null;
 
+  if (isScramble(question)) {
+    return (
+      <ScrambleQuestionCard
+        variant="today"
+        question={question}
+        result={result}
+        pending={answer.isPending}
+        error={error}
+        onSubmitTokens={(selectedTokens) => {
+          onSubmitted?.(task.taskId);
+          answer.mutate(
+            { taskId: task.taskId, body: { selectedTokens } },
+            { onSuccess: onAnswered },
+          );
+        }}
+        onGiveUp={() => {
+          onSubmitted?.(task.taskId);
+          answer.mutate({ taskId: task.taskId, body: { giveUp: true } }, { onSuccess: onAnswered });
+        }}
+        onAdvance={onAdvance}
+      />
+    );
+  }
+
   return (
     <ProductionQuestionCard
       variant="today"
@@ -44,8 +74,6 @@ export function ProductionQuestionView({
       error={error}
       errorCode={errorCode}
       onSubmitText={(answerText) => {
-        // 提交即挂账：切后台后 fetch 可能被冻结/掐断（onSuccess 不到场），
-        // TodayPage 凭挂账在回前台刷新后补看批改反馈（2026-10-05）
         onSubmitted?.(task.taskId);
         answer.mutate({ taskId: task.taskId, body: { answerText } }, { onSuccess: onAnswered });
       }}

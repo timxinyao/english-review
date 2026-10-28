@@ -20,11 +20,28 @@ export const ClozeQuestionView = z.object({
 });
 export type ClozeQuestionView = z.infer<typeof ClozeQuestionView>;
 
-export const ProductionQuestionView = z.object({
+/** Client-safe scramble view (no referenceTokens) */
+export const ScrambleQuestionView = z.object({
+  questionId: z.string(),
+  kind: z.literal('scramble'),
+  zhPrompt: z.string(),
+  targets: z
+    .array(z.object({ learningItemId: z.string(), surface: z.string() }))
+    .min(1)
+    .max(3),
+  chips: z.array(z.string().min(1)).min(2),
+});
+export type ScrambleQuestionView = z.infer<typeof ScrambleQuestionView>;
+
+/** Legacy free-typing view kept during migration; cutover stops serving it */
+export const LegacyProductionQuestionView = z.object({
   questionId: z.string(),
   zhPrompt: z.string(),
   mustUse: z.string(),
 });
+export type LegacyProductionQuestionView = z.infer<typeof LegacyProductionQuestionView>;
+
+export const ProductionQuestionView = z.union([ScrambleQuestionView, LegacyProductionQuestionView]);
 export type ProductionQuestionView = z.infer<typeof ProductionQuestionView>;
 
 export const TodayTaskView = z.object({
@@ -144,6 +161,8 @@ export const AnswerRequest = z
   .object({
     selectedOptionId: z.string().min(1).optional(),
     answerText: z.string().min(1).max(500).optional(),
+    /** Scramble token sequence (scramble_v1); mutually exclusive with free answerText */
+    selectedTokens: z.array(z.string().min(1)).min(1).max(32).optional(),
     viewedSource: z.boolean().optional(),
     /** Understanding Recall Card：三档自评（2026-10-03 Anki 式；与 selectedOptionId 二选一）。
      *  recalled=良好（pass，跳一步）/ easy=简单（pass，跳两步）/ forgot=重来（fail） */
@@ -161,6 +180,7 @@ export const AnswerRequest = z
     const conflicts = Object.entries({
       selectedOptionId: val.selectedOptionId,
       answerText: val.answerText,
+      selectedTokens: val.selectedTokens,
       recall: val.recall,
       hintUsed: val.hintUsed,
     }).filter(([, v]) => v !== undefined);
@@ -202,6 +222,19 @@ export const AnswerResponse = z.object({
   correction: CorrectionView.nullable(),
   /** 本次 corrected 句子是否已存入 Personal Example */
   personalExampleSaved: z.boolean(),
+  /** Per-target scramble results; null/absent for non-scramble */
+  itemResults: z
+    .array(
+      z.object({
+        learningItemId: z.string(),
+        surface: z.string(),
+        result: z.enum(['pass', 'fail']),
+      }),
+    )
+    .nullable()
+    .optional(),
+  /** Reference tokens revealed only after submit / giveUp */
+  referenceTokens: z.array(z.string()).nullable().optional(),
   reinforcementAdded: z.boolean(),
   progress: TodayProgress,
   /** 本次作答使会话完成时给出摘要 */

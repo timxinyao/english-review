@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Volume2 } from 'lucide-react';
 import type { PracticeAnswerRequest, PracticeAnswerResponse, PracticeQuestion } from '@el/shared';
 import { ProductionQuestionCard } from '../../components/production-question-card';
+import { ScrambleQuestionCard } from '../../components/scramble-question-card';
 import { HighlightText } from '../../components/highlight-text';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
@@ -225,7 +226,16 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
                 onSubmit={submit}
                 onAdvance={advance}
               />
-            ) : (
+            ) : 'kind' in current && current.kind === 'scramble' ? (
+              <ScrambleQuestionCard
+                question={current}
+                result={result}
+                pending={answer.isPending}
+                error={productionError}
+                onSubmitTokens={(selectedTokens) => submit({ selectedTokens })}
+                onAdvance={advance}
+              />
+            ) : 'mustUse' in current ? (
               <ProductionQuestionCard
                 question={current}
                 result={result}
@@ -236,7 +246,7 @@ export function PracticeView({ itemId, onExit }: PracticeViewProps) {
                 onCancelGrading={() => answer.cancel()}
                 onAdvance={advance}
               />
-            )}
+            ) : null}
           </article>
         </div>
       )}

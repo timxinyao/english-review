@@ -163,6 +163,28 @@ export function reconstructFromSegments(segments: readonly CorrectionSegment[]):
   return { original, corrected };
 }
 
+// ---------- generate_production_scramble ----------
+
+export const GenerateProductionScrambleResult = z.object({
+  zh_prompt: z.string().min(1),
+  reference_tokens: z.array(z.string().min(1)).min(1).max(24),
+  distractors: z.array(z.string().min(1)),
+  acceptable_morphology: z.array(z.string().min(1)),
+  acceptance_notes: z.string(),
+  target_surfaces: z.array(z.string().min(1)).min(1).max(3),
+});
+export type GenerateProductionScrambleResult = z.infer<typeof GenerateProductionScrambleResult>;
+
+// ---------- check_production_scramble ----------
+
+export const CheckProductionScrambleResult = z.object({
+  explanation: z.string(),
+  item_overrides: z
+    .array(z.object({ learning_item_id: z.string(), result: z.enum(['pass', 'fail']) }))
+    .optional(),
+});
+export type CheckProductionScrambleResult = z.infer<typeof CheckProductionScrambleResult>;
+
 // ---------- generate_read ----------
 
 export const ReadCoverageEntry = z.object({
@@ -201,6 +223,8 @@ export const AI_TASKS = [
   'checkCloze',
   'generateProductionPrompt',
   'checkProduction',
+  'generateProductionScramble',
+  'checkProductionScramble',
   'generateRead',
   'judgeDuplicateMeaning',
 ] as const;
@@ -238,6 +262,16 @@ export const AI_TASK_CATALOG: Record<AiTask, AiTaskSpec> = {
     promptKey: 'check_production',
     responseSchemaName: 'CheckProductionResult',
   },
+  generateProductionScramble: {
+    task: 'generateProductionScramble',
+    promptKey: 'generate_production_scramble',
+    responseSchemaName: 'GenerateProductionScrambleResult',
+  },
+  checkProductionScramble: {
+    task: 'checkProductionScramble',
+    promptKey: 'check_production_scramble',
+    responseSchemaName: 'CheckProductionScrambleResult',
+  },
   generateRead: {
     task: 'generateRead',
     promptKey: 'generate_read',
@@ -257,6 +291,8 @@ export const AI_RESPONSE_SCHEMAS: Record<string, z.ZodTypeAny> = {
   CheckClozeResult,
   GenerateProductionPromptResult,
   CheckProductionResult,
+  GenerateProductionScrambleResult,
+  CheckProductionScrambleResult,
   GenerateReadResult,
   JudgeDuplicateMeaningResult,
 };

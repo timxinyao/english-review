@@ -24,6 +24,10 @@ export interface QuestionAnswerResult {
   /** 表达题主动不会揭示：参考句与目标用法说明 */
   referenceAnswer?: string | null;
   answerNote?: string | null;
+  /** 拼词题每目标结果 */
+  itemResults?: Array<{ learningItemId: string; surface: string; result: "pass" | "fail" }> | null;
+  /** 拼词题提交后揭示的参考 token */
+  referenceTokens?: string[] | null;
 }
 
 /** 表达题判定文案与克制配色（PRODUCT §7.4/§12；basic_pass 用 warning 语义色） */

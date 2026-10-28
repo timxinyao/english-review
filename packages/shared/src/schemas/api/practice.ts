@@ -5,14 +5,14 @@ import { ChoiceQuestionView, CorrectionView } from './today.js';
 // 不改正式进度，不造补强，不计 Today/热力图；word 默认关 / chunk 默认开 production，
 // 由 learning_items.production_enabled_override 覆盖（effectiveProductionEnabled）。
 
-export const PracticeQuestion = z.discriminatedUnion('qtype', [
+export const PracticeQuestion = z.union([
   z.object({
     qtype: z.literal('recall'),
     questionId: z.string(),
     target: z.string(),
-    /** 原句（Recall 卡展示；null=无 source example） */
+    /** Source example for Recall card; null when absent */
     context: z.string().nullable(),
-    /** Hint 模式降级用的选择题面（Today Recall Card 同款）；释义绝不在此下发 */
+    /** Hint-mode choice face (same as Today Recall); meaning never sent here */
     hint: ChoiceQuestionView,
   }),
   z.object({
@@ -20,6 +20,17 @@ export const PracticeQuestion = z.discriminatedUnion('qtype', [
     questionId: z.string(),
     zhPrompt: z.string(),
     mustUse: z.string(),
+  }),
+  z.object({
+    qtype: z.literal('production'),
+    kind: z.literal('scramble'),
+    questionId: z.string(),
+    zhPrompt: z.string(),
+    targets: z
+      .array(z.object({ learningItemId: z.string(), surface: z.string() }))
+      .min(1)
+      .max(3),
+    chips: z.array(z.string().min(1)).min(2),
   }),
 ]);
 export type PracticeQuestion = z.infer<typeof PracticeQuestion>;
@@ -37,6 +48,7 @@ export const PracticeAnswerRequest = z
     /** Hint 模式提交的选择题标识（仅随 selectedOptionId） */
     hintUsed: z.boolean().optional(),
     answerText: z.string().min(1).max(500).optional(),
+    selectedTokens: z.array(z.string().min(1)).min(1).max(32).optional(),
   })
   .superRefine((v, ctx) => {
     if (v.recall && v.selectedOptionId) {
@@ -60,5 +72,16 @@ export const PracticeAnswerResponse = z.object({
   acceptedAnswer: z.string().nullable(),
   correction: CorrectionView.nullable(),
   personalExampleSaved: z.boolean(),
+  itemResults: z
+    .array(
+      z.object({
+        learningItemId: z.string(),
+        surface: z.string(),
+        result: z.enum(['pass', 'fail']),
+      }),
+    )
+    .nullable()
+    .optional(),
+  referenceTokens: z.array(z.string()).nullable().optional(),
 });
 export type PracticeAnswerResponse = z.infer<typeof PracticeAnswerResponse>;

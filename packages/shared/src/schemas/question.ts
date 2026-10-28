@@ -39,3 +39,22 @@ export const Question = z.object({
   createdAt: z.string().min(1),
 });
 export type Question = z.infer<typeof Question>;
+
+/** Scramble production payload_json (scramble_v1; server-side, includes reference) */
+export const ScrambleTarget = z.object({
+  learningItemId: z.string().min(1),
+  surface: z.string().min(1),
+  tokens: z.array(z.string().min(1)).min(1),
+});
+export type ScrambleTarget = z.infer<typeof ScrambleTarget>;
+
+export const ScramblePayload = z.object({
+  schema: z.literal('scramble_v1'),
+  targets: z.array(ScrambleTarget).min(1).max(3),
+  zhPrompt: z.string().min(1),
+  referenceTokens: z.array(z.string().min(1)).min(1).max(24),
+  distractors: z.array(z.string().min(1)),
+  acceptableMorphology: z.array(z.string().min(1)).default([]),
+  acceptanceNotes: z.string().default(''),
+});
+export type ScramblePayload = z.infer<typeof ScramblePayload>;

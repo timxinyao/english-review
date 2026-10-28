@@ -18,15 +18,17 @@ afterAll(() => {
 });
 
 describe('真实仓库 Prompt 文件', () => {
-  it('加载全部 7 个 Prompt，key 唯一且与目录一致', () => {
+  it('加载全部 9 个 Prompt，key 唯一且与目录一致', () => {
     const registry = loadPromptRegistry(PROMPTS_DIR);
-    expect(registry.size).toBe(7);
+    expect(registry.size).toBe(9);
     expect([...registry.keys()].sort()).toEqual(
       [
         'check_cloze',
         'check_production',
+        'check_production_scramble',
         'generate_cloze',
         'generate_production_prompt',
+        'generate_production_scramble',
         'generate_read',
         'generate_understanding',
         'judge_duplicate_meaning',

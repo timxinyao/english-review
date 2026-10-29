@@ -17,6 +17,7 @@ description: 通过对话把用户想学的英语单词/词块导入 English Rev
 - `target`：英文原文，保留用户的写法，不要翻译
 - `meaning`：中文释义，**只取用户当前要学的这一个义项**（一词多义时问一下用户，或按上下文选并注明）
 - `source_example`：真实自然的英文例句（优先用用户给的原文句子；没有则你造一个简单自然的，标注"我造的"）
+- `source_example_translation`：整理新词时一并填写完整原句的自然中文译文；优先保留用户给的准确译文，否则由你翻译并标注"我译的，可改"。不要把 target 的词义当成整句译文。旧 JSON 缺少此字段仍可导入；给既有词补译文使用正常预览/合并，不用覆盖恢复，也不重置进度。已有非空译文在合并时保留，需更正时由用户明确编辑。
 - 可选：`extra_examples`（补充例句数组）、`source`（出处，如 "Avatar S01E12"）、`source_url`、`tags`（字符串数组）、`notes`（中文备注）
 
 组装成（每批建议 ≤ 20 条，太多就分批）：
@@ -30,6 +31,7 @@ description: 通过对话把用户想学的英语单词/词块导入 English Rev
       "target": "wear down",
       "meaning": "逐渐使……疲惫；消耗",
       "source_example": "It wears you down.",
+      "source_example_translation": "这会让你精疲力尽。",
       "extra_examples": [],
       "source": "Avatar S01E12",
       "tags": ["Avatar"],

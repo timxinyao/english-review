@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray, or, sql } from 'drizzle-orm';
 import {
   ChoicePayload,
   ClozePayload,
   CONTENT_LEVELS,
   DEFAULT_CONTENT_LEVEL,
   ScramblePayload,
+  scrambleTargetPositions,
   type BetterVersionKind,
   type CheckClozeResult,
   type CheckProductionResult,
   type CorrectionSegment,
-  type GenerateProductionPromptResult,
   type GenerateProductionScrambleResult,
   type GenerateUnderstandingQuestionsResult,
   type ReviewDimension,
@@ -23,6 +23,7 @@ import {
   questions,
   settings,
 } from '../../db/schema.js';
+import { judgeScramble } from './scramble-judge.js';
 import { appError } from '../../lib/errors.js';
 import { completeStructured } from '../../ai/complete.js';
 import type { AiRuntime } from '../../ai/runtime.js';
@@ -57,7 +58,16 @@ export function invalidateQuestions(
     .set({ status: 'retired', retiredAt: nowIso })
     .where(
       and(
-        eq(questions.learningItemId, learningItemId),
+        or(
+          eq(questions.learningItemId, learningItemId),
+          inArray(
+            questions.id,
+            tx
+              .select({ questionId: questionItems.questionId })
+              .from(questionItems)
+              .where(eq(questionItems.learningItemId, learningItemId)),
+          ),
+        ),
         inArray(questions.status, ['fresh', 'active']),
       ),
     )
@@ -68,6 +78,20 @@ export function invalidateQuestions(
 
 /** fresh + active 状态的题数（可进入练习池的库存） */
 export function countQuestionStock(db: DbExecutor, itemId: string, type: QuestionPoolType): number {
+  if (type === 'production') {
+    return db
+      .select()
+      .from(questions)
+      .where(
+        and(
+          eq(questions.learningItemId, itemId),
+          eq(questions.type, type),
+          inArray(questions.status, ['fresh', 'active']),
+        ),
+      )
+      .all()
+      .filter(isSingleItemScramble).length;
+  }
   const row = db
     .select({ total: sql<number>`count(*)` })
     .from(questions)
@@ -84,21 +108,34 @@ export function countQuestionStock(db: DbExecutor, itemId: string, type: Questio
 
 // ---------- 取题 ----------
 
+/** Persisted payloads cross the same schema/evidence boundary as freshly generated ones. */
+export function parseScramblePayload(question: QuestionRow): ScramblePayload | null {
+  try {
+    const parsed = ScramblePayload.safeParse(JSON.parse(question.payloadJson));
+    if (!parsed.success) return null;
+    const payload = parsed.data;
+    const coverage = judgeScramble({ ...payload, selectedTokens: payload.referenceTokens });
+    return coverage.taskResult === 'pass' ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSingleItemScramble(question: QuestionRow): boolean {
+  const payload = parseScramblePayload(question);
+  return (
+    payload !== null &&
+    payload.targets.length === 1 &&
+    payload.targets[0]!.learningItemId === question.learningItemId
+  );
+}
+
 /**
  * 从练习池取一题：fresh/active 中按 last_used_at 最旧优先（null 最先，从未用过的先出）。
  * excludeQuestionIds：跳过指定题目（Today 撤销替代题必须与原题不同，TECHNICAL_DESIGN §7.5）。
  * 取出即置 status='active'、use_count+1、last_used_at=now（同步执行，可在事务内调用）。
  * 无库存返回 null。
  */
-function isScrambleProductionPayload(payloadJson: string): boolean {
-  try {
-    const parsed = JSON.parse(payloadJson) as { schema?: string };
-    return parsed?.schema === 'scramble_v1';
-  } catch {
-    return false;
-  }
-}
-
 export function acquireQuestion(
   db: DbExecutor,
   itemId: string,
@@ -122,7 +159,7 @@ export function acquireQuestion(
     // SQLite：IS NULL DESC 让 NULL 排最前（从未使用优先），其次按时间升序
     .orderBy(sql`${questions.lastUsedAt} IS NULL DESC`, questions.lastUsedAt)
     .all()
-    .filter((q) => (type === 'production' ? isScrambleProductionPayload(q.payloadJson) : true));
+    .filter((q) => (type === 'production' ? isSingleItemScramble(q) : true));
   const candidate = candidates[0];
   if (!candidate) return null;
 
@@ -168,21 +205,6 @@ function recentQuestionSummaries(
   return rows
     .reverse()
     .map((r) => [r.contextText, r.promptText].filter((t): t is string => Boolean(t)).join(' | '));
-}
-
-/** 该 item 最近 limit 道表达题的中文题干（generate_production_prompt 的 recent_prompts 变量） */
-function recentProductionPrompts(db: AppDatabase, itemId: string, limit: number): string[] {
-  const rows = db
-    .select({ promptText: questions.promptText })
-    .from(questions)
-    .where(and(eq(questions.learningItemId, itemId), eq(questions.type, 'production')))
-    .orderBy(desc(questions.createdAt), desc(questions.id))
-    .limit(limit)
-    .all();
-  return rows
-    .reverse()
-    .map((r) => r.promptText)
-    .filter((t): t is string => Boolean(t));
 }
 
 /**
@@ -419,7 +441,6 @@ export async function evaluateCloze(
   }
 }
 
-
 // ---------- scramble production generate (Phase 13) ----------
 
 export type ScrambleItemInput = {
@@ -435,18 +456,6 @@ function tokenizeSurface(surface: string): string[] {
     .split(/\s+/)
     .map((t) => t.trim())
     .filter(Boolean);
-}
-
-function orderedSubsequencePresent(haystack: string[], needle: string[]): boolean {
-  if (needle.length === 0) return false;
-  let ti = 0;
-  for (const tok of haystack) {
-    if (tok.toLowerCase() === needle[ti]!.toLowerCase()) {
-      ti += 1;
-      if (ti === needle.length) return true;
-    }
-  }
-  return false;
 }
 
 /**
@@ -477,11 +486,7 @@ export async function generateProductionScramble(
     }
   }
 
-  const {
-    data,
-    meta,
-    model,
-  } = await completeStructured<GenerateProductionScrambleResult>(
+  const { data, meta, model } = await completeStructured<GenerateProductionScrambleResult>(
     { provider: runtime.provider, config: runtime.config, registry: runtime.registry },
     'generateProductionScramble',
     // `targets_json` 模板变量的契约：传未序列化的 targets（renderPrompt 负责 JSON 化；
@@ -511,11 +516,8 @@ export async function generateProductionScramble(
   });
 
   for (const t of targets) {
-    if (!orderedSubsequencePresent(data.reference_tokens, t.tokens)) {
-      throw appError(
-        'INTERNAL',
-        `scramble 参考句未按序覆盖目标「${t.surface}」`,
-      );
+    if (scrambleTargetPositions(data.reference_tokens, t.tokens) === null) {
+      throw appError('INTERNAL', `scramble 参考句未按序覆盖目标「${t.surface}」`);
     }
   }
 

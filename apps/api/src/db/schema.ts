@@ -57,6 +57,7 @@ export const learningExamples = sqliteTable(
       .references(() => learningItems.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull(), // source | extra | personal
     text: text('text').notNull(),
+    translation: text('translation'), // optional saved Chinese translation of this exact sentence
     originalText: text('original_text'),
     betterText: text('better_text'),
     pinned: integer('pinned').notNull().default(0),

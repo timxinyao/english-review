@@ -211,6 +211,9 @@ describe('LibraryDetail 详情', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('释义已变化，是否重置学习进度？');
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog.contains(document.activeElement)).toBe(true);
 
     fireEvent.click(within(dialog).getByRole('button', { name: '确定' }));
     await waitFor(() => {
@@ -268,6 +271,31 @@ describe('LibraryDetail 详情', () => {
     await waitFor(() => {
       expect(resetProgress).toHaveBeenCalledWith('item-1');
     });
+  });
+
+  it('locks destructive confirmation while pending, then shows retryable failure inside it', async () => {
+    let reject!: (reason: Error) => void;
+    resetProgress.mockImplementationOnce(
+      () =>
+        new Promise((_, no) => {
+          reject = no;
+        }),
+    );
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '更多' }));
+    fireEvent.click(screen.getByRole('button', { name: '重置进度' }));
+    const dialog = screen.getByRole('dialog');
+    const submit = within(dialog).getByRole('button', { name: '确定' });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    await waitFor(() => expect(resetProgress).toHaveBeenCalledTimes(1));
+    expect(within(dialog).getByRole('button', { name: '取消' })).toBeDisabled();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(dialog);
+    expect(dialog).toBeVisible();
+    reject(new Error('暂时无法重置，请重试'));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('暂时无法重置');
+    expect(within(dialog).getByRole('button', { name: '确定' })).toBeEnabled();
   });
 
   it('paused 显示恢复（resume），archived 显示恢复（restore）且非 destructive', async () => {

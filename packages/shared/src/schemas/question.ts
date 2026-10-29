@@ -42,19 +42,26 @@ export type Question = z.infer<typeof Question>;
 
 /** Scramble production payload_json (scramble_v1; server-side, includes reference) */
 export const ScrambleTarget = z.object({
-  learningItemId: z.string().min(1),
-  surface: z.string().min(1),
-  tokens: z.array(z.string().min(1)).min(1),
+  learningItemId: z.string().trim().min(1),
+  surface: z.string().trim().min(1),
+  tokens: z.array(z.string().trim().min(1)).min(1),
 });
 export type ScrambleTarget = z.infer<typeof ScrambleTarget>;
 
 export const ScramblePayload = z.object({
   schema: z.literal('scramble_v1'),
-  targets: z.array(ScrambleTarget).min(1).max(3),
-  zhPrompt: z.string().min(1),
-  referenceTokens: z.array(z.string().min(1)).min(1).max(24),
-  distractors: z.array(z.string().min(1)),
-  acceptableMorphology: z.array(z.string().min(1)).default([]),
+  targets: z
+    .array(ScrambleTarget)
+    .min(1)
+    .max(3)
+    .refine(
+      (targets) => new Set(targets.map((target) => target.learningItemId)).size === targets.length,
+      'Scramble target ids must be unique',
+    ),
+  zhPrompt: z.string().trim().min(1),
+  referenceTokens: z.array(z.string().trim().min(1)).min(1).max(24),
+  distractors: z.array(z.string().trim().min(1)),
+  acceptableMorphology: z.array(z.string().trim().min(1)).default([]),
   acceptanceNotes: z.string().default(''),
 });
 export type ScramblePayload = z.infer<typeof ScramblePayload>;

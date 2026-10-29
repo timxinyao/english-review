@@ -40,9 +40,11 @@ export function ProductionHistoryList({ history }: { history: HistoryEntry[] }) 
                 {RESULT_LABELS[entry.result]}
               </span>
             </div>
-            {entry.originalText && entry.originalText !== entry.correctedSentence && (
-              <p className="text-xs text-muted-foreground">原句：{entry.originalText}</p>
-            )}
+            {entry.originalText &&
+              entry.correctedSentence &&
+              entry.originalText !== entry.correctedSentence && (
+                <p className="text-xs text-muted-foreground">原句：{entry.originalText}</p>
+              )}
             {entry.betterVersion && (
               <p className="text-xs text-muted-foreground">
                 {entry.betterVersionKind === 'rewrite' ? '参考表达：' : '更自然：'}

@@ -93,22 +93,11 @@ describe('AppShell iOS 兼容', () => {
     expect(library.container.querySelector('nav.fixed')?.classList.contains('hidden')).toBe(false);
   });
 
-  it('顶栏有刷新按钮，点击整页刷新（location.reload）', async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const reloadSpy = vi.fn();
-    Object.defineProperty(window, 'location', {
-      value: { ...window.location, reload: reloadSpy },
-      writable: true,
-    });
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>
-        <MemoryRouter>{children}</MemoryRouter>
-      </QueryClientProvider>
-    );
-    render(<AppShell />, { wrapper });
+  it('refresh invalidates server state without hard reloading or losing drafts', async () => {
+    const { client } = renderShell();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
     await userEvent.click(screen.getByRole('button', { name: '刷新' }));
-    await new Promise((r) => setTimeout(r, 400)); // onRefresh 内 300ms 延迟后 reload
-    expect(reloadSpy).toHaveBeenCalledOnce();
+    expect(invalidate).toHaveBeenCalledOnce();
   });
 });
 

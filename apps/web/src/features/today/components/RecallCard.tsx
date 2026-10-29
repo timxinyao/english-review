@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AnswerRequest, AnswerResponse, TodayTaskView } from '@el/shared';
 import { Volume2 } from 'lucide-react';
@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button';
 import { HighlightText } from '../../../components/highlight-text';
 import { todayKeys, useAnswer } from '../api';
 import { speak } from '../../../lib/tts';
+import { haptic } from '../../../lib/haptics';
 
 interface Props {
   task: TodayTaskView;
@@ -67,6 +68,10 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
   const answer = useAnswer();
   const queryClient = useQueryClient();
   const [revealed, setRevealed] = useState(false);
+  const meaningRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (revealed) meaningRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [revealed]);
 
   const frozen = result !== null;
   const word = task.item;
@@ -85,6 +90,8 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
 
   function submit(body: AnswerRequest) {
     // 三档评分即前进：正常流不进入 frozen（§7.1）；仅刷新失败时回落冻结反馈兜底
+    if (answer.isPending) return;
+    haptic('confirm');
     answer.mutate(
       { taskId: task.taskId, body },
       { onSuccess: (result) => onAnswered(result, { autoAdvance: true }) },
@@ -93,7 +100,7 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
 
   /** 词行（含手动发音） */
   const wordRow = (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pr-9">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <h3 className="study-title min-w-0">{word.target}</h3>
       {word.type === 'word' && word.ipa !== null && (
         <span className="text-sm text-muted-foreground">{word.ipa}</span>
@@ -113,7 +120,7 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
     <div className="flex min-h-0 flex-1 flex-col">
       {answerError}
       {/* 滚动区：词行 + 学习内容/揭示/反馈 */}
-      <div className="min-h-0 flex-1 space-y-7 overflow-y-auto pr-1" data-slot="body">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto sm:space-y-7 pr-1" data-slot="body">
         {wordRow}
 
         {/* 原句默认展示（understanding 不再有"查看原句"，API 侧也不再因 viewedSource 降档） */}
@@ -126,7 +133,7 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
 
         {/* 显示答案后自评（recall 直判）：meaning/notes 留在滚动区 */}
         {!frozen && revealed && (
-          <div className="space-y-6 border-t border-border/70 pt-6">
+          <div ref={meaningRef} className="reveal-in space-y-6 border-t border-border/70 pt-6">
             <p className="text-lg leading-relaxed text-foreground">{word.meaning}</p>
             {word.notes ? (
               <details className="text-sm" open>
@@ -150,6 +157,7 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
           <Button
             className="w-full"
             onClick={() => {
+              haptic('selection');
               setRevealed(true);
               if (localStorage.getItem('el:auto-pronounce') !== '0') {
                 void speak(word.target, { userGesture: true });

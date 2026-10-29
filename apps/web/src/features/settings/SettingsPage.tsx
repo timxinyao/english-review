@@ -5,9 +5,11 @@ import type { AiModelsResponse, Settings, UpdateSettingsRequest } from '@el/shar
 import { ChevronDown } from 'lucide-react';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
+import { Button } from '../../components/ui/button';
 import { Select } from '../../components/ui/select';
 import { BackupSection } from './components/BackupSection';
 import { NotificationSection } from './components/NotificationSection';
+import { FeedbackSection } from './components/FeedbackSection';
 
 const SOURCE_LABEL: Record<AiModelsResponse['models']['flash']['source'], string> = {
   auto: '自动选择',
@@ -29,6 +31,8 @@ const TASK_LABEL: Record<string, string> = {
   generateProductionPrompt: '表达题生成',
   generateRead: 'Read 生成',
   checkProduction: '表达批改',
+  generateProductionScramble: '拼词题生成',
+  checkProductionScramble: '拼词补充判定',
   checkCloze: '填空兜底判定',
   judgeDuplicateMeaning: '导入重复判定',
 };
@@ -242,7 +246,8 @@ export function SettingsPage() {
               </Select>
             </div>
             <p className="text-xs text-muted-foreground">
-              新学上限限制每天从 New Queue 引入的新词；今日复习上限限制开始复习时一次入队的到期复习题，超出的保持积压、之后每天自动安排。
+              新学上限限制每天从 New Queue
+              引入的新词；今日复习上限限制开始复习时一次入队的到期复习题，超出的保持积压、之后每天自动安排。
               {update.isError && <span className="text-destructive"> 保存失败，请重试。</span>}
               {saved && <span className="text-success"> 已保存</span>}
             </p>
@@ -252,13 +257,23 @@ export function SettingsPage() {
 
       <AiModelsSection />
 
+      <FeedbackSection />
+
+      <div className="flex items-center justify-between gap-3 rounded-xl bg-card p-4">
+        <Link
+          to="/stats"
+          className="flex min-h-11 items-center text-sm text-accent hover:underline"
+        >
+          查看统计
+        </Link>
+        <Button variant="neutral" size="sm" onClick={() => void qc.invalidateQueries()}>
+          刷新数据
+        </Button>
+      </div>
+
       <NotificationSection />
 
       <BackupSection />
-
-      <Link to="/stats" className="block text-sm text-accent hover:underline">
-        查看统计
-      </Link>
 
       {/* 低调入口：iOS 主屏 PWA 无地址栏，/tokens 色卡页由此可达 */}
       <Link to="/tokens" className="block text-xs text-muted-foreground hover:underline">

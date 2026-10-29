@@ -280,3 +280,6 @@ Prompt 正文**不进入数据库**。数据库仅保存某次 AI 产物所使�
 - `review_task_items`：Today 任务参与项与分项结果
 - `attempt_item_results`：分项作答审计
 - `app_metadata.production_scramble_v1`：一次性 cutover 标记
+
+### Phase 14 — Non-destructive multi-item rollback
+`post_state_json.prunedProductionItemResults` optionally preserves the `attempt_item_results` children of history-capped attempts alongside `prunedProductionAttempts`. Undo restores parent rows before their children in the same transaction. This is derived rollback metadata, not a new column or migration. Old snapshots without the optional field remain readable. Reverting one dimension must preserve the other dimension's later progress.

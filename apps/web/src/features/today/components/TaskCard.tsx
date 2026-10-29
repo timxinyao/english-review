@@ -125,7 +125,16 @@ export function TaskCard({ task, result, undoControl, onAnswered, onSubmitted, o
   const question = task.question;
 
   return (
-    <article className="study-card relative flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-5 pt-8 sm:p-8 sm:pt-10">
+    <article className="study-card relative flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-5 sm:p-8">
+      <p className="study-kind pr-12">
+        {task.taskType === 'learn'
+          ? '新学 · 回忆'
+          : task.taskType === 'understanding'
+            ? '理解 · 回忆'
+            : task.taskType === 'production'
+              ? '表达 · 拼句'
+              : '填空'}
+      </p>
       {/* 右上角撤销图标：悬浮于卡角（答错冻结头行已留 pr-12 避让） */}
       {undoControl && <div className="absolute right-3 top-3">{undoControl}</div>}
       {/* 已答冻结：顶部显示考的单词（learn/understanding 由 RecallCard 自带词行，不重复） */}

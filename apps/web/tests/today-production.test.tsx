@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ApiModule from '../src/lib/api';
-import { api } from '../src/lib/api';
 import {
   apiCalls,
   jsonBodyOf,

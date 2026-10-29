@@ -4,6 +4,7 @@ import {
   makeActive,
   makeChoiceTask,
   makeClozeTask,
+  makeProductionTask,
   renderTodayApp,
   stubApi,
 } from './today-helpers';
@@ -92,56 +93,35 @@ describe('Today 沉浸式卡布局', () => {
     }
   });
 
-  it('表达卡：中文提示在滚动区，textarea/提交/不会表达停靠底部 dock', async () => {
-    stubApi({
-      '/api/today': makeActive(
-        {
-          ...makeClozeTask(),
-          taskType: 'production',
-          question: {
-            questionId: 'q-prod',
-            zhPrompt: '长期的压力让我想放弃。',
-            mustUse: 'give up',
-          },
-        },
-        { completed: 1, total: 6 },
-      ),
-    });
+  it('scramble prompt and chips scroll independently of fixed submit dock', async () => {
+    stubApi({ '/api/today': makeActive(makeProductionTask(), { completed: 1, total: 6 }) });
     const { container } = renderTodayApp();
-    await screen.findByLabelText('表达答案');
-
-    const body = container.querySelector('[data-slot="body"]');
-    const dock = container.querySelector('[data-slot="dock"]');
-    expect(body!.contains(screen.getByText('长期的压力让我想放弃。'))).toBe(true);
-    expect(dock!.contains(screen.getByLabelText('表达答案'))).toBe(true);
-    expect(dock!.contains(screen.getByRole('button', { name: '提交' }))).toBe(true);
-    expect(dock!.contains(screen.getByRole('button', { name: '不会表达' }))).toBe(true);
+    await screen.findByTestId('scramble-chip-bank');
+    const body = container.querySelector('[data-slot="body"]')!;
+    const dock = container.querySelector('[data-slot="dock"]')!;
+    expect(body.className).toContain('overflow-y-auto');
+    expect(body.contains(screen.getByText('长期的压力让我想放弃。'))).toBe(true);
+    expect(body.contains(screen.getByTestId('scramble-chip-bank'))).toBe(true);
+    expect(dock.contains(screen.getByRole('button', { name: '提交' }))).toBe(true);
+    expect(dock.contains(screen.getByRole('button', { name: '不会' }))).toBe(true);
+    expect(screen.queryByLabelText('表达答案')).toBeNull();
   });
 
-  it('表达卡触屏先无滚动聚焦但不移动真实输入，点击后预定位底部区域', async () => {
-    stubApi({
-      '/api/today': makeActive({
-        ...makeClozeTask(),
-        taskType: 'production',
-        question: { questionId: 'q-prod', zhPrompt: '说一句话。', mustUse: 'raw' },
-      }),
-    });
+  it('scramble touch selects a token without opening or priming a text keyboard', async () => {
+    stubApi({ '/api/today': makeActive(makeProductionTask()) });
     renderTodayApp();
-    const input = await screen.findByLabelText('表达答案');
-    expect(input).not.toHaveFocus();
-
+    const bank = await screen.findByTestId('scramble-chip-bank');
+    const chip = bank.querySelector('button')!;
     const touch = new Event('pointerdown', { bubbles: true, cancelable: true });
     Object.defineProperty(touch, 'pointerType', { value: 'touch' });
-    const focusSpy = vi.spyOn(input, 'focus');
-    fireEvent(input, touch);
-    expect(touch.defaultPrevented).toBe(false);
-    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
-    expect(input).toHaveFocus();
-    expect(document.documentElement).toHaveAttribute('data-today-touch-pending');
+    fireEvent(chip, touch);
+    fireEvent.pointerUp(chip);
+    fireEvent.click(chip);
+    expect(chip).toBeDisabled();
+    expect(screen.getByTestId('scramble-answer-row').querySelector('button')).toHaveTextContent(
+      'The',
+    );
     expect(document.documentElement).not.toHaveAttribute('data-today-keyboard-primed');
-    fireEvent.click(input);
     expect(document.documentElement).not.toHaveAttribute('data-today-touch-pending');
-    expect(input).toHaveFocus();
-    expect(document.documentElement).toHaveAttribute('data-today-keyboard-primed');
   });
 });

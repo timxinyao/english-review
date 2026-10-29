@@ -32,7 +32,7 @@ export function ReadPage() {
         <button
           type="button"
           onClick={() => setView({ kind: 'home' })}
-          className="text-sm text-muted-foreground transition-colors hover:text-accent"
+          className="inline-flex min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-accent"
         >
           ← 返回 Read
         </button>
@@ -48,7 +48,7 @@ export function ReadPage() {
         <button
           type="button"
           onClick={() => setView(back)}
-          className="text-sm text-muted-foreground transition-colors hover:text-accent"
+          className="inline-flex min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-accent"
         >
           {view.from === 'history' ? '← 返回历史' : '← 返回 Read'}
         </button>

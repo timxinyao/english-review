@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import {
@@ -9,6 +9,7 @@ import {
 import { Star } from 'lucide-react';
 import { Textarea } from '../../components/ui/textarea';
 import { Button } from '../../components/ui/button';
+import { Dialog } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select } from '../../components/ui/select';
@@ -37,13 +38,23 @@ interface ConfirmState {
   onConfirm: () => void;
 }
 
-function ConfirmDialog({ confirm, onCancel }: { confirm: ConfirmState; onCancel: () => void }) {
+function ConfirmDialog({
+  confirm,
+  onCancel,
+  pending,
+  error,
+}: {
+  confirm: ConfirmState;
+  onCancel: () => void;
+  pending: boolean;
+  error: Error | null;
+}) {
+  const submitting = useRef(false);
+  useEffect(() => {
+    if (!pending) submitting.current = false;
+  }, [pending]);
   return (
-    <div
-      role="dialog"
-      aria-label={confirm.title}
-      className="space-y-3 rounded-lg border border-border p-4"
-    >
+    <Dialog label={confirm.title} onClose={onCancel} dismissible={!pending} className="space-y-3">
       <div className="space-y-1">
         <p className="text-sm text-foreground">{confirm.title}</p>
         {confirm.description && (
@@ -51,14 +62,27 @@ function ConfirmDialog({ confirm, onCancel }: { confirm: ConfirmState; onCancel:
         )}
       </div>
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+        <Button variant="ghost" size="sm" disabled={pending} onClick={onCancel}>
           取消
         </Button>
-        <Button size="sm" onClick={confirm.onConfirm}>
-          确定
+        <Button
+          size="sm"
+          disabled={pending}
+          onClick={() => {
+            if (submitting.current || pending) return;
+            submitting.current = true;
+            confirm.onConfirm();
+          }}
+        >
+          {pending ? '正在重置…' : '确定'}
         </Button>
       </div>
-    </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error.message || '重置失败，请重试。'}
+        </p>
+      )}
+    </Dialog>
   );
 }
 
@@ -361,6 +385,7 @@ export function LibraryDetailPage() {
     onSuccess: () => {
       setConfirm(null);
       invalidate();
+      void qc.invalidateQueries({ queryKey: todayKeys.all });
     },
   });
 
@@ -408,7 +433,7 @@ export function LibraryDetailPage() {
     <div className="space-y-6">
       <Link
         to="/library"
-        className="text-sm text-muted-foreground transition-colors hover:text-accent"
+        className="inline-flex min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-accent"
       >
         ← 返回 Library
       </Link>
@@ -661,7 +686,17 @@ export function LibraryDetailPage() {
         </>
       )}
 
-      {confirm && <ConfirmDialog confirm={confirm} onCancel={() => setConfirm(null)} />}
+      {confirm && (
+        <ConfirmDialog
+          confirm={confirm}
+          pending={reset.isPending}
+          error={reset.error}
+          onCancel={() => {
+            reset.reset();
+            setConfirm(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -685,3 +685,14 @@ V1.2 不要求 Docker。若未来确有环境一致性痛点，可以单独评�
 - 题型 payload：`scramble_v1`（`referenceTokens` / `targets` / `distractors`）。
 - 作答：`selectedTokens`；本地 `judgeScramble`；响应含 `itemResults`。
 - 表：`question_items`、`review_task_items`、`attempt_item_results`；cutover key `production_scramble_v1`。
+
+## Phase 14 — Learning integrity and device interaction
+- Due candidates are complete U tasks and P groups, ordered together before applying the task limit; idle plan and backlog use the same grouping logic.
+- A scramble answer validates chip multiplicity, participant identity and active eligibility before any write. Per-item `basic_pass` is conservative evidence, not an AI semantic grade. Exact sentence correctness remains separate from local target evidence.
+- Multi-item membership governs invalidation, goal cancellation and rollback. Rollback restores only affected dimensions and rejects overwriting later related evidence. Pruned attempt child audits are preserved with optional snapshot metadata.
+- Explicitly configured task model resolution returns its configured alias immediately; it must not make an unnecessary discovery request for unrelated aliases.
+- Web feedback is progressive enhancement only. `navigator.vibrate` availability/return value does not prove hardware feedback. Device-local opt-in and reduced-motion rules are handled in a small capability helper; unsupported Safari uses visual feedback only.
+- Shared portal dialogs contain/restore focus, trap Tab, handle dismissible Escape, inert background siblings and restore body scroll. Existing keyboard geometry is retained, while current scramble does not summon a text keyboard.
+- Library production history left-joins per-item audit by attempt and item; primary legacy fallback and void precedence are retained. This is a read-only projection, with no historical rewrite.
+- Lifecycle transitions cancel only pending linked tasks and reconcile session counts; stale U/Learn submissions and feedback cannot overwrite later/reset state. Undo checks participant eligibility before and after asynchronous generation.
+- Service-worker background update checks catch connectivity failures; controller activation never forces a page reload that could lose in-progress work.

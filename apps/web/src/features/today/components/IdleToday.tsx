@@ -1,4 +1,7 @@
 import type { TodayIdleResponse } from '@el/shared';
+import { Link } from 'react-router-dom';
+import { ArrowRight, ChevronRight } from 'lucide-react';
+import { buttonVariants } from '../../../components/ui/button';
 import { Button } from '../../../components/ui/button';
 import { useStartSession } from '../api';
 import { StartSessionDialog } from './StartSessionDialog';
@@ -14,8 +17,11 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
   const plannedTotal = reviews + newToday;
 
   return (
-    <div className="space-y-8">
-      <div className="rounded-xl border border-border bg-card p-8 text-center">
+    <div className="mx-auto max-w-xl space-y-8 pb-28 pt-5 md:pt-10">
+      <div className="space-y-4 text-center">
+        <h1 className="text-[28px] text-balance font-semibold tracking-tight leading-tight md:text-4xl">
+          每天一点，慢慢记住。
+        </h1>
         {plannedTotal > 0 ? (
           <p className="text-sm text-foreground">
             {reviews > 0 && newToday > 0
@@ -35,14 +41,21 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
         <p className="mt-2 text-xs text-muted-foreground">
           词库 {data.totalItems} · 待学 {data.newQueueCount}
         </p>
-        <Button
-          size="lg"
-          className="mt-5"
-          disabled={start.isPending}
-          onClick={() => start.mutate()}
-        >
-          {start.isPending ? '正在开始…' : '开始今日复习'}
-        </Button>
+        {plannedTotal > 0 ? (
+          <Button
+            size="lg"
+            className="mt-5 w-full h-14"
+            disabled={start.isPending}
+            onClick={() => start.mutate()}
+          >
+            {start.isPending ? '正在开始…' : '开始今日复习'}
+            <ArrowRight className="h-5 w-5" aria-hidden />
+          </Button>
+        ) : (
+          <Link to="/library" className={buttonVariants({ size: 'lg', className: 'mt-5 w-full' })}>
+            看看词库
+          </Link>
+        )}
         <p className="mt-3 text-xs text-muted-foreground">做一点也行，不必一次清完</p>
       </div>
 
@@ -59,17 +72,25 @@ export function IdleToday({ data }: { data: TodayIdleResponse }) {
       )}
 
       {data.recentlyLearned.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground">
-            Recently learned
-          </p>
-          <ul className="border-t border-border">
+        <div className="space-y-3">
+          <p className="text-base font-semibold text-foreground">最近学过</p>
+          <ul className="overflow-hidden rounded-xl bg-card divide-y divide-border">
             {data.recentlyLearned.slice(0, RECENTLY_LEARNED_MAX).map((item) => (
-              <li key={item.id} className="border-b border-border py-2.5">
-                <p className="text-sm text-foreground">{item.target}</p>
-                {item.meaning.trim() && (
-                  <p className="mt-0.5 text-[13px] text-muted-foreground">{item.meaning}</p>
-                )}
+              <li key={item.id}>
+                <Link
+                  to={`/library/${item.id}`}
+                  className="flex min-h-20 items-center justify-between gap-3 px-5 py-4 hover:bg-muted focus-visible:outline-offset-[-3px]"
+                >
+                  <div className="min-w-0">
+                    <p className="text-2xl font-literary text-foreground break-words">
+                      {item.target}
+                    </p>
+                    {item.meaning.trim() && (
+                      <p className="mt-0.5 text-[13px] text-muted-foreground">{item.meaning}</p>
+                    )}
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                </Link>
               </li>
             ))}
           </ul>

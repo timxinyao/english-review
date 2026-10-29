@@ -2,7 +2,7 @@
 
 /*
  * 全局样式唯一来源（docs/ARCHITECTURE.md §3.2）
- * 设计取值遵循 PRODUCT_DESIGN §12：暖白背景、深灰文字、
+ * 设计取值遵循 PRODUCT_DESIGN §12：冷白背景、深灰文字、
  * 低饱和暖色强调、细边框、极少阴影。
  * 新增视觉语义必须先加 token，再使用工具类。
  */
@@ -38,26 +38,26 @@
 }
 
 :root {
-  --background: #f4f3ee; /* 暖纸：PWA theme-color / manifest 同步 */
-  --foreground: #30302e;
-  --card: #fbfaf7;
-  --card-foreground: #30302e;
-  --muted: #eeece5;
-  --muted-hover: #e5e2d9;
-  --muted-foreground: #696861;
-  --accent: #ae563d; /* 陶土：兼顾暖色气质与白字可读性 */
+  --background: #f5f5f7; /* 冷白：PWA theme-color / manifest 同步 */
+  --foreground: #242528;
+  --card: #ffffff;
+  --card-foreground: #242528;
+  --muted: #eeeff2;
+  --muted-hover: #e4e5e9;
+  --muted-foreground: #686b73;
+  --accent: #a64e38; /* 陶土：兼顾暖色气质与白字可读性 */
   --accent-foreground: #ffffff;
-  --accent-hover: #974831;
-  --accent-soft: #faf4f0;
-  --border: #e2dfd6;
-  --input: #cbc7bc;
+  --accent-hover: #923e2b;
+  --accent-soft: #f5e8e1;
+  --border: #e2e3e7;
+  --input: #c5c7ce;
   --destructive: #a0473c;
   --destructive-soft: #f6e9e5;
   --success: #497054;
   --warning: #846b26;
   --diff-delete: var(--destructive);
   --diff-insert: var(--success);
-  --radius: 0.625rem;
+  --radius: 1.125rem;
   --font-ui:
     system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Noto Sans SC', sans-serif;
   --font-reading:
@@ -309,4 +309,226 @@ body {
       calc(var(--kb-prime-visible-height, 100dvh) - var(--header-block) - 0.75rem)
     );
   }
+}
+
+/* Native-feeling interaction system. Geometry stays independent of device names. */
+:root {
+  --motion-fast: 160ms;
+  --motion-enter: 240ms;
+  --chrome: #f5f5f7e8;
+}
+html {
+  color-scheme: light;
+}
+body {
+  margin: 0;
+}
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+button,
+a {
+  -webkit-touch-callout: none;
+}
+.native-chrome {
+  background: var(--chrome);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+.native-tab {
+  min-height: 3.75rem;
+  transition:
+    color var(--motion-fast),
+    background var(--motion-fast);
+}
+.native-tab[aria-current='page'] > svg {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 8px var(--accent-soft);
+  border-radius: 8px;
+}
+.native-button {
+  transition:
+    background-color var(--motion-fast),
+    opacity var(--motion-fast),
+    transform var(--motion-fast);
+}
+.native-button:active:not(:disabled),
+.word-chip:active:not(:disabled) {
+  transform: scale(0.975);
+}
+.study-card {
+  overflow: hidden;
+}
+.study-card > .study-kind {
+  margin-bottom: 1.25rem;
+}
+.study-kind {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.study-title {
+  font-size: clamp(2.25rem, 9vw, 2.75rem);
+}
+.study-example {
+  background: var(--muted);
+  border-color: var(--input);
+  border-radius: 0 12px 12px 0;
+  padding: 0.875rem 1rem;
+}
+.study-dock {
+  border-top: 0;
+  margin-top: 1.25rem;
+  padding-top: 0.5rem;
+}
+.scramble-answer {
+  min-height: 6.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--input);
+  border-radius: 14px;
+  background: var(--background);
+}
+.word-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--input);
+  background: var(--card);
+  color: var(--foreground);
+  font: 500 1rem/1.4 var(--font-ui);
+  transition:
+    opacity var(--motion-fast),
+    background-color var(--motion-fast),
+    transform var(--motion-fast);
+  overflow-wrap: anywhere;
+}
+.word-chip-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.word-chip-used {
+  opacity: 0.25;
+  border-style: dashed;
+}
+.word-chip:disabled:not(.word-chip-used) {
+  opacity: 0.6;
+}
+.dialog-backdrop {
+  animation: backdrop-in var(--motion-fast) ease-out;
+  padding-top: max(1.25rem, env(safe-area-inset-top));
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+}
+.dialog-panel {
+  max-height: calc(100dvh - 2.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+  animation: surface-in var(--motion-enter) ease-out;
+}
+.dialog-sheet {
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+}
+.reveal-in {
+  animation: surface-in var(--motion-enter) ease-out;
+}
+@keyframes surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (max-width: 767px) {
+  .native-button {
+    min-height: 44px;
+  }
+  .dialog-backdrop:has(.dialog-sheet) {
+    padding-bottom: 0;
+  }
+  .dialog-sheet {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .native-button:active,
+  .word-chip:active {
+    transform: none !important;
+  }
+}
+
+/* A real checkbox with switch semantics; the surrounding label is the touch target. */
+.native-switch {
+  appearance: none;
+  position: relative;
+  width: 46px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--muted);
+  cursor: pointer;
+  transition: background var(--motion-fast) ease-out;
+}
+.native-switch::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: 0 1px 3px var(--border);
+  transition: transform var(--motion-fast) ease-out;
+}
+.native-switch:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.native-switch:checked::before {
+  transform: translateX(18px);
+}
+.native-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.native-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }

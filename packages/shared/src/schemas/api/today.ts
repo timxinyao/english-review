@@ -99,7 +99,7 @@ export type TodayProgress = z.infer<typeof TodayProgress>;
 
 export const TodayIdleResponse = z.object({
   status: z.literal('idle'),
-  /** 到期的 item-dimension 数量 */
+  /** 到期复习任务数：U 每项一题，P 按组题后计数（不含新学）。 */
   dueItems: z.number().int(),
   /** 今日计划复习题数 = min(dueItems, todayReviewLimit)（不限制=dueItems，2026-10-27） */
   plannedReviews: z.number().int().min(0),
@@ -228,7 +228,7 @@ export const AnswerResponse = z.object({
       z.object({
         learningItemId: z.string(),
         surface: z.string(),
-        result: z.enum(['pass', 'fail']),
+        result: z.enum(['pass', 'basic_pass', 'fail']),
       }),
     )
     .nullable()

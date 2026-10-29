@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { Dialog } from '../../../components/ui/dialog';
 import { useQueryClient } from '@tanstack/react-query';
 import type { SessionTaskEntry } from '@el/shared';
 import { Undo2 } from 'lucide-react';
@@ -95,59 +95,49 @@ export function UndoAnswerControl({
         <Undo2 className="h-4 w-4" aria-hidden />
       </Button>
 
-      {target !== null &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-label="撤销最近一次作答"
-            aria-modal="true"
-            className="fixed inset-0 z-overlay flex items-center justify-center bg-foreground/20 p-4"
-            onClick={() => {
-              if (!undo.isPending) setTarget(null);
-            }}
-          >
-            <div
-              className="w-full max-w-[340px] space-y-3 rounded-xl border border-border bg-card p-4"
-              onClick={(e) => e.stopPropagation()}
+      {target !== null && (
+        <Dialog
+          label="撤销最近一次作答"
+          onClose={() => setTarget(null)}
+          dismissible={!undo.isPending}
+          className="space-y-3"
+        >
+          <p className="text-sm font-medium text-foreground">撤销最近一次作答？</p>
+          {target.word !== null ? (
+            <p className="text-sm text-foreground">
+              将撤销 <span className="font-medium">{target.word}</span>
+              <span className="text-muted-foreground">
+                （{target.typeLabel}题 · 结果：{target.resultLabel}）
+              </span>
+            </p>
+          ) : (
+            <p className="text-sm text-foreground">将撤销最近一次作答</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {target.taskType === 'production'
+              ? '撤销后立即回到这个词，换一道造句题重新作答。'
+              : '撤销后立即回到这个词重新作答。'}
+          </p>
+          {undo.isError && (
+            <p className="text-xs text-destructive" role="alert">
+              {(undo.error as Error | undefined)?.message ?? '撤销失败，请重试'}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={undo.isPending}
+              onClick={() => setTarget(null)}
             >
-              <p className="text-sm font-medium text-foreground">撤销最近一次作答？</p>
-              {target.word !== null ? (
-                <p className="text-sm text-foreground">
-                  将撤销 <span className="font-medium">{target.word}</span>
-                  <span className="text-muted-foreground">
-                    （{target.typeLabel}题 · 结果：{target.resultLabel}）
-                  </span>
-                </p>
-              ) : (
-                <p className="text-sm text-foreground">将撤销最近一次作答</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {target.taskType === 'production'
-                  ? '撤销后立即回到这个词，换一道造句题重新作答。'
-                  : '撤销后立即回到这个词重新作答。'}
-              </p>
-              {undo.isError && (
-                <p className="text-xs text-destructive" role="alert">
-                  {(undo.error as Error | undefined)?.message ?? '撤销失败，请重试'}
-                </p>
-              )}
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={undo.isPending}
-                  onClick={() => setTarget(null)}
-                >
-                  取消
-                </Button>
-                <Button size="sm" disabled={undo.isPending} onClick={confirmUndo}>
-                  {undo.isPending ? '撤销中…' : '撤销'}
-                </Button>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+              取消
+            </Button>
+            <Button size="sm" disabled={undo.isPending} onClick={confirmUndo}>
+              {undo.isPending ? '撤销中…' : '撤销'}
+            </Button>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }

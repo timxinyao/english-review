@@ -96,6 +96,7 @@ interface EditFormState {
   tagsText: string;
   notes: string;
   sourceExample: string;
+  sourceExampleTranslation: string;
   extraExamples: string[];
   personal: { id: string; text: string; pinned: boolean }[];
 }
@@ -112,6 +113,10 @@ function EditItemForm({
   onCancel: () => void;
 }) {
   const { item } = detail;
+  const originalSource = useRef({
+    text: detail.sourceExample,
+    translation: detail.sourceExampleTranslation ?? '',
+  });
   const [form, setForm] = useState<EditFormState>({
     productionEnabledOverride:
       item.productionEnabledOverride === null
@@ -127,6 +132,7 @@ function EditItemForm({
     tagsText: item.tags.join(', '),
     notes: item.notes ?? '',
     sourceExample: detail.sourceExample,
+    sourceExampleTranslation: detail.sourceExampleTranslation ?? '',
     extraExamples: [...detail.extraExamples],
     personal: detail.personalExamples.map((p) => ({ id: p.id, text: p.text, pinned: p.pinned })),
   });
@@ -155,6 +161,10 @@ function EditItemForm({
         .filter((t) => t.length > 0),
       notes: form.notes.trim() || null,
       sourceExample: form.sourceExample.trim(),
+      ...(form.sourceExample !== originalSource.current.text ||
+      form.sourceExampleTranslation !== originalSource.current.translation
+        ? { sourceExampleTranslation: form.sourceExampleTranslation.trim() || null }
+        : {}),
       extraExamples: form.extraExamples.map((s) => s.trim()).filter((s) => s.length > 0),
       personalExamples: form.personal.map((p) => ({
         id: p.id,
@@ -271,8 +281,21 @@ function EditItemForm({
           id="edit-source-example"
           rows={2}
           value={form.sourceExample}
-          onChange={(e) => setForm((f) => ({ ...f, sourceExample: e.target.value }))}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, sourceExample: e.target.value, sourceExampleTranslation: '' }))
+          }
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="edit-source-translation">原句译文（可选）</Label>
+        <Textarea
+          id="edit-source-translation"
+          rows={2}
+          value={form.sourceExampleTranslation}
+          onChange={(e) => setForm((f) => ({ ...f, sourceExampleTranslation: e.target.value }))}
+        />
+        <p className="text-xs text-muted-foreground">修改英文原句后，请同步填写对应译文。</p>
       </div>
 
       <div className="space-y-2">
@@ -514,6 +537,11 @@ export function LibraryDetailPage() {
             <div className="space-y-1">
               <h3 className="text-xs text-muted-foreground">原句（source）</h3>
               <p className="text-sm">{data.sourceExample}</p>
+              {data.sourceExampleTranslation?.trim() && (
+                <p className="whitespace-pre-line text-sm text-muted-foreground">
+                  {data.sourceExampleTranslation}
+                </p>
+              )}
             </div>
             <div className="space-y-1">
               <h3 className="text-xs text-muted-foreground">补充例句（extra）</h3>

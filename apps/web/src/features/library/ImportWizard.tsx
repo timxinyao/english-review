@@ -221,6 +221,11 @@ export function ImportWizard({ onExit }: { onExit: () => void }) {
                     </div>
                     <p className="text-sm text-muted-foreground">{candidate.meaning}</p>
                     <p className="text-xs text-muted-foreground">{candidate.source_example}</p>
+                    {candidate.source_example_translation?.trim() && (
+                      <p className="whitespace-pre-line text-xs text-muted-foreground">
+                        {candidate.source_example_translation}
+                      </p>
+                    )}
                     {productionGoalChange && (
                       <div className="space-y-1 rounded-lg border border-accent/40 p-2 text-xs text-foreground">
                         <p>

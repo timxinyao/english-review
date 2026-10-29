@@ -130,6 +130,66 @@ describe('Recall Card（understanding）', () => {
     expect(speakMock).toHaveBeenCalledWith('stable', { userGesture: true });
   });
 
+  it.each(['understanding', 'learn'] as const)(
+    '%s 原句译文仅在显示答案后揭示',
+    async (taskType) => {
+      stubApi({
+        '/api/today': makeActive(
+          makeChoiceTask({ taskType, sourceExampleTranslation: '这把梯子感觉很稳。' }),
+        ),
+      });
+      renderTodayApp();
+      await screen.findByRole('heading', { name: 'stable' });
+      expect(screen.queryByText('这把梯子感觉很稳。')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+      expect(screen.getByText('这把梯子感觉很稳。')).toBeVisible();
+      expect(screen.getByText('稳定的')).toBeVisible();
+      expect(screen.getByRole('button', { name: '良好' })).toBeEnabled();
+    },
+  );
+
+  it.each([undefined, null, '', '   '])(
+    '缺少原句译文（%s）仍可正常揭示和评分，无空译文块',
+    async (translation) => {
+      stubApi({
+        '/api/today': makeActive(makeChoiceTask({ sourceExampleTranslation: translation })),
+      });
+      renderTodayApp();
+      fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+      expect(screen.getByText('稳定的')).toBeVisible();
+      expect(screen.queryByText('原句译文')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '良好' })).toBeEnabled();
+    },
+  );
+
+  it('评分切卡后重新隐藏下一张卡的译文，不泄漏上一张译文', async () => {
+    const statuses = [
+      makeActive(makeChoiceTask({ sourceExampleTranslation: '这把梯子感觉很稳。' })),
+    ];
+    stubApi({
+      '/api/today': () =>
+        statuses.shift() ??
+        makeActive(
+          {
+            ...secondTask(),
+            sourceExample: 'She is ambitious.',
+            sourceExampleTranslation: '她很有抱负。',
+          },
+          { completed: 1, total: 2 },
+        ),
+      '/api/today/tasks/task-1/answer': recalledAnswer(),
+    });
+    renderTodayApp();
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    expect(screen.getByText('这把梯子感觉很稳。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '良好' }));
+    await screen.findByRole('heading', { name: 'ambitious' });
+    expect(screen.queryByText('这把梯子感觉很稳。')).not.toBeInTheDocument();
+    expect(screen.queryByText('她很有抱负。')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '显示答案' }));
+    expect(screen.getByText('她很有抱负。')).toBeVisible();
+  });
+
   it('自动读词偏好关闭（el:auto-pronounce=0）：显示答案不发音', async () => {
     localStorage.setItem('el:auto-pronounce', '0');
     stubApi({ '/api/today': makeActive(makeChoiceTask(), { completed: 1, total: 4 }) });
@@ -338,7 +398,11 @@ describe('Recall Card（understanding）', () => {
     let answered = false;
     stubApi({
       '/api/today': () => {
-        if (!answered) return makeActive(makeChoiceTask(), { completed: 1, total: 4 });
+        if (!answered)
+          return makeActive(makeChoiceTask({ sourceExampleTranslation: '这把梯子感觉很稳。' }), {
+            completed: 1,
+            total: 4,
+          });
         throw new Error('network down');
       },
       '/api/today/tasks/task-1/answer': () => {
@@ -353,6 +417,7 @@ describe('Recall Card（understanding）', () => {
 
     const verdict = await verdictParagraph('良好');
     expect(verdict.className).toContain('text-success');
+    expect(screen.getByText('这把梯子感觉很稳。')).toBeVisible();
     expect(screen.queryByText('重来')).not.toBeInTheDocument();
     // 刷新失败不自动前进：人工兜底入口仍在（坏题入口在「今日学习」记录上，不在卡面）
     expect(await screen.findByRole('button', { name: '下一题' })).toBeVisible();

@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as LibraryApi from '../src/features/library/api';
 import {
   archiveLibraryItem,
   fetchLibraryDetail,
+  libraryKeys,
   masterLibraryItem,
   pauseLibraryItem,
   resetLibraryItemProgress,
@@ -91,6 +92,106 @@ describe('LibraryDetail 详情', () => {
     expect(screen.queryByText('来源')).not.toBeInTheDocument();
     expect(screen.queryByText('链接')).not.toBeInTheDocument();
     expect(screen.getByText('标签')).toBeVisible();
+  });
+
+  it('原句译文在详情显示、编辑回填并保存，未改译文时不会丢失', async () => {
+    const detail = {
+      ...makeDetail(),
+      sourceExampleTranslation: '暴风雨过后，这座城市展现了韧性。',
+    };
+    detailApi.mockResolvedValue(detail);
+    renderLibraryApp('/library/item-1');
+    expect(await screen.findByText('暴风雨过后，这座城市展现了韧性。')).toBeVisible();
+    await openEditForm();
+    expect(screen.getByLabelText('原句译文（可选）')).toHaveValue(
+      '暴风雨过后，这座城市展现了韧性。',
+    );
+    fireEvent.change(screen.getByLabelText('备注'), { target: { value: '更新笔记' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({
+          notes: '更新笔记',
+        }),
+      ),
+    );
+    expect(update.mock.calls[0]![1]).not.toHaveProperty('sourceExampleTranslation');
+    expect(resetProgress).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, null])(
+    '旧详情译文为 %s 时，编辑其他字段省略译文，避免清除其他设备新补的内容',
+    async (translation) => {
+      detailApi.mockResolvedValue({ ...makeDetail(), sourceExampleTranslation: translation });
+      renderLibraryApp('/library/item-1');
+      await openEditForm();
+      fireEvent.change(screen.getByLabelText('备注'), { target: { value: '只改备注' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+      expect(update.mock.calls[0]![1]).not.toHaveProperty('sourceExampleTranslation');
+    },
+  );
+
+  it('明确清空已有译文时才提交 null', async () => {
+    detailApi.mockResolvedValue({ ...makeDetail(), sourceExampleTranslation: '原先的译文。' });
+    renderLibraryApp('/library/item-1');
+    await openEditForm();
+    fireEvent.change(screen.getByLabelText('原句译文（可选）'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({ sourceExampleTranslation: null }),
+      ),
+    );
+  });
+
+  it('编辑期间后台刷新补齐译文时，未修改的本地空字段仍保持省略', async () => {
+    const detail = makeDetail();
+    detailApi.mockResolvedValue(detail);
+    const { queryClient } = renderLibraryApp('/library/item-1');
+    await openEditForm();
+    detailApi.mockResolvedValue({
+      ...detail,
+      item: { ...detail.item, type: 'chunk', ipa: null },
+      sourceExampleTranslation: '另一设备补好的译文。',
+    });
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: libraryKeys.detail('item-1') });
+    });
+    // The live type controls IPA visibility, proving the query refresh reached the mounted form.
+    await waitFor(() => expect(screen.queryByLabelText('IPA')).not.toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('备注'), { target: { value: '只改备注' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update.mock.calls[0]![1]).not.toHaveProperty('sourceExampleTranslation');
+  });
+
+  it('修改英文原句清空旧译文，可填写对应的新译文', async () => {
+    detailApi.mockResolvedValue({
+      ...makeDetail(),
+      sourceExampleTranslation: '暴风雨过后，这座城市展现了韧性。',
+    });
+    renderLibraryApp('/library/item-1');
+    await openEditForm();
+    fireEvent.change(screen.getByLabelText('原句（source example）'), {
+      target: { value: 'She is resilient.' },
+    });
+    expect(screen.getByLabelText('原句译文（可选）')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('原句译文（可选）'), {
+      target: { value: '  她很有韧性。  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({
+          sourceExample: 'She is resilient.',
+          sourceExampleTranslation: '她很有韧性。',
+        }),
+      ),
+    );
   });
 
   it('渲染两维状态：stability 天数、阶段与下次复习时间', async () => {

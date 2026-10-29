@@ -9,7 +9,7 @@ import { loadConfig, type AppConfig } from '../../src/config.js';
 import { setTodayDepsForTests } from '../../src/modules/today/service.js';
 import { sendGradingPush } from '../../src/modules/push/service.js';
 import { createTestApp, loginCookie, type TestApp } from '../helpers/test-app.js';
-import { createFakeDeps } from '../helpers/today-fakes.js';
+import { createFakeDeps, fakeScramblePayload } from '../helpers/today-fakes.js';
 import { seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
 
 // web-push 全量 mock：sendNotification 成功/失败由各用例覆写 mockResolvedValue/mockRejectedValue
@@ -87,11 +87,7 @@ async function seedDueProduction(db: AppDatabase, itemId: string, target: string
   await seedQuestion(db, itemId, {
     type: 'production',
     promptText: `请使用 ${target} 表达这个意思。`,
-    payloadJson: JSON.stringify({
-      mustUse: target,
-      referenceAnswer: `They ${target} naturally.`,
-      acceptanceNotes: '允许正常时态变化。',
-    }),
+    payloadJson: JSON.stringify(fakeScramblePayload([{ id: itemId, target }])),
     correctOptionId: null,
   });
 }
@@ -448,7 +444,7 @@ describe('today answer 路由发送钩子（结算成功后 setImmediate 恒发�
       method: 'POST',
       url: `/api/today/tasks/${taskId}/answer`,
       headers: { cookie },
-      payload: { answerText: 'They giveup-chunk naturally.' },
+      payload: { selectedTokens: ['Please', 'giveup-chunk', 'today'] },
     });
     expect(answer.statusCode).toBe(200);
     const parsed = AnswerResponse.parse(answer.json());
@@ -470,7 +466,7 @@ describe('today answer 路由发送钩子（结算成功后 setImmediate 恒发�
       method: 'POST',
       url: `/api/today/tasks/${taskId}/answer`,
       headers: { cookie },
-      payload: { answerText: 'They giveup-chunk naturally.' },
+      payload: { selectedTokens: ['Please', 'giveup-chunk', 'today'] },
     });
     expect(replay.statusCode).toBe(200);
     expect(replay.json().alreadyCompleted).toBe(true);
@@ -514,7 +510,7 @@ describe('today answer 路由发送钩子（结算成功后 setImmediate 恒发�
       method: 'POST',
       url: `/api/today/tasks/${taskId}/answer`,
       headers: { cookie },
-      payload: { answerText: 'They giveup-chunk naturally.' },
+      payload: { selectedTokens: ['Please', 'giveup-chunk', 'today'] },
     });
     expect(res.statusCode).toBe(200);
     await new Promise((r) => setTimeout(r, 50));

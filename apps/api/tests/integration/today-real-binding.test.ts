@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { reviewTasks } from '../../src/db/schema.js';
 import { loadRealTodayDeps, setTodayDepsForTests } from '../../src/modules/today/service.js';
 import { createTestApp, loginCookie, type TestApp } from '../helpers/test-app.js';
+import { fakeScramblePayload } from '../helpers/today-fakes.js';
 import { seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
 
 /**
@@ -132,11 +133,7 @@ describe.skipIf(realDeps === null)('today 与 review/questions 真实模块绑�
       status: 'fresh',
       meaningSnapshot: '逐渐消耗',
       promptText: '长期压力让我疲惫。',
-      payloadJson: JSON.stringify({
-        mustUse: 'wear down',
-        referenceAnswer: 'Long-term stress wears me down.',
-        acceptanceNotes: '允许正常词形变化。',
-      }),
+      payloadJson: JSON.stringify(fakeScramblePayload([{ id: itemId, target: 'wear down' }])),
     });
 
     const start = await isolated.app.inject({

@@ -29,7 +29,12 @@ import {
   seedQuestion,
   seedReviewState,
 } from '../helpers/seed.js';
-import { choicePayload, createFakeDeps, DEFAULT_OPTIONS } from '../helpers/today-fakes.js';
+import {
+  choicePayload,
+  createFakeDeps,
+  fakeScramblePayload,
+  DEFAULT_OPTIONS,
+} from '../helpers/today-fakes.js';
 
 const apps: FastifyInstance[] = [];
 const dayAgo = () => new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -112,8 +117,7 @@ async function seedDueProduction(db: AppDatabase, itemId: string, target: string
     type: 'production',
     promptText: `请使用 ${target} 表达这个意思。`,
     payloadJson: JSON.stringify({
-      mustUse: target,
-      referenceAnswer: `They ${target} naturally.`,
+      ...fakeScramblePayload([{ id: itemId, target }]),
       acceptanceNotes: '允许正常时态变化。',
     }),
     correctOptionId: null,
@@ -188,8 +192,8 @@ describe('GET /api/today 契约（三态）', () => {
         .map((task) => task.learningItemId)
         .sort();
     expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
-    // 后台一次性备好全部 3 个未绑定造句题（fake deps 即时生成/取库存）
-    await vi.waitFor(() => expect(boundIds()).toEqual(['warm-p-0', 'warm-p-1', 'warm-p-2']));
+    // 后台备好覆盖 3 个参与项的 1 道组题（Phase 13）
+    await vi.waitFor(() => expect(boundIds()).toEqual(['warm-p-0']));
     // U 任务一律不预热绑定：理解题卡不依赖绑定题即时渲染
     expect(
       tasks()
@@ -199,16 +203,16 @@ describe('GET /api/today 契约（三态）', () => {
     // 重复 start 幂等：已绑定自然跳过，绑定数与任务总数不变
     expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(boundIds()).toEqual(['warm-p-0', 'warm-p-1', 'warm-p-2']);
+    expect(boundIds()).toEqual(['warm-p-0']);
     expect((await post(ctx, '/api/today/start')).statusCode).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(tasks()).toHaveLength(10);
+    expect(tasks()).toHaveLength(8);
   });
 
   it('warm continues past a failing production generation: failed task stays pending for retry', async () => {
     const ctx = await newCtx(async (db) => {
       await seedDueChoice(db, 'warm-fail-u', 'u-target');
-      for (const id of ['warm-fail-p0', 'warm-fail-p1', 'warm-fail-p2']) {
+      for (const id of ['warm-fail-p0', 'warm-fail-p1', 'warm-fail-p2', 'warm-fail-p3']) {
         // 不预置题目库存：warm 必须走 fake generate，才能注入首个 P 生成失败
         await seedItem(db, { id, type: 'chunk', target: id, queueState: 'started' });
         await seedReviewState(db, id, 'production', {
@@ -232,7 +236,7 @@ describe('GET /api/today 契约（三态）', () => {
           .filter((task) => task.questionId !== null)
           .map((task) => task.learningItemId)
           .sort(),
-      ).toEqual(['warm-fail-p1', 'warm-fail-p2']),
+      ).toEqual(['warm-fail-p3']),
     );
     const failed = ctx.db
       .select()
@@ -241,7 +245,7 @@ describe('GET /api/today 契约（三态）', () => {
       .find((task) => task.learningItemId === 'warm-fail-p0')!;
     expect(failed.questionId).toBeNull(); // 保留 pending，客户端可重试/稍后
     expect(failed.completedAt).toBeNull();
-    expect(ctx.db.select().from(reviewTasks).all()).toHaveLength(4);
+    expect(ctx.db.select().from(reviewTasks).all()).toHaveLength(3);
   });
 
   it('active 的 currentTask：选择题视图不泄漏正确答案；理解题携带 sourceExample（前端按需展示）', async () => {
@@ -327,7 +331,7 @@ describe('POST /api/today/tasks/:id/answer 契约', () => {
           ? { recall: 'recalled' }
           : isChoice
             ? { selectedOptionId: 'o1' }
-            : { answerText: 'raw' };
+            : { selectedTokens: ['Please', 'raw', 'today'] };
       const res = await post(ctx, `/api/today/tasks/${task.taskId}/answer`, payload);
       expect(res.statusCode).toBe(200);
       const parsed = AnswerResponse.parse(res.json());
@@ -551,10 +555,10 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
     expect(body.correct).toBe(false);
     expect(body.gaveUp).toBe(true);
     // 参考句与目标用法说明来自绑定题目 payload；不伪造批改 diff
-    expect(body.referenceAnswer).toBe('They wear down naturally.');
+    expect(body.referenceAnswer).toBe('Please wear down today');
     expect(body.answerNote).toBe('允许正常时态变化。');
     expect(body.correction).toBeNull();
-    expect(body.explanation ?? null).toBeNull();
+    expect(body.explanation).toBe('允许正常时态变化。');
     expect(body.submittedAnswerText ?? null).toBeNull();
     // 表达题 fail 不强制当天补强；唯一任务结算 → 会话完成摘要
     expect(body.reinforcementAdded).toBe(false);
@@ -590,7 +594,7 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
     expect(replayBody.alreadyCompleted).toBe(true);
     expect(replayBody.gaveUp).toBe(true);
     expect(replayBody.result).toBe('fail');
-    expect(replayBody.referenceAnswer).toBe('They wear down naturally.');
+    expect(replayBody.referenceAnswer).toBe('Please wear down today');
     expect(replayBody.answerNote).toBe('允许正常时态变化。');
     expect(replayBody.correction).toBeNull();
     expect(replayBody.submittedAnswerText ?? null).toBeNull();
@@ -621,7 +625,7 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
     const listed = await get(ctx, '/api/today/tasks');
     expect(listed.statusCode).toBe(200);
     const body = listed.json() as { tasks: Array<{ result: unknown; task: unknown }> };
-    expect(body.tasks).toHaveLength(3);
+    expect(body.tasks).toHaveLength(2);
     for (const entry of body.tasks) {
       expect(entry.result).toBeNull();
       const view = JSON.stringify(entry.task);
@@ -646,12 +650,14 @@ describe('POST /api/today/tasks/:id/answer 主动不会（giveUp）', () => {
     );
     const genuineRes = AnswerResponse.parse(
       (
-        await post(ctx, `/api/today/tasks/${prodId}/answer`, { answerText: 'I wear down easily.' })
+        await post(ctx, `/api/today/tasks/${prodId}/answer`, {
+          selectedTokens: ['Please', 'wear', 'down', 'today'],
+        })
       ).json(),
     );
     // 真实作答：新字段携带已提交内容，不携带 give-up 揭示
     expect(genuineRes.gaveUp).toBe(false);
-    expect(genuineRes.submittedAnswerText).toBe('I wear down easily.');
+    expect(genuineRes.submittedAnswerText).toBe('Please wear down today');
     expect(genuineRes.selectedOptionId ?? null).toBeNull();
     expect(genuineRes.referenceAnswer ?? null).toBeNull();
     expect(genuineRes.answerNote ?? null).toBeNull();

@@ -687,6 +687,7 @@ V1.2 不要求 Docker。若未来确有环境一致性痛点，可以单独评�
 - 表：`question_items`、`review_task_items`、`attempt_item_results`；cutover key `production_scramble_v1`。
 
 ## Phase 14 — Learning integrity and device interaction
+- Source-sentence translation is optional stored content, not runtime AI output. `learning_examples.translation` is added by migration 0011; import/export uses `source_example_translation`, Today and Library DTOs use optional nullable `sourceExampleTranslation`. Same-source import only fills missing translations and preserves progress; conflicts are visible and existing translations are retained. Source edits clear stale translations unless a replacement is explicitly supplied. Backups include optional example `translation` and accept older files without it.
 - Due candidates are complete U tasks and P groups, ordered together before applying the task limit; idle plan and backlog use the same grouping logic.
 - A scramble answer validates chip multiplicity, participant identity and active eligibility before any write. Per-item `basic_pass` is conservative evidence, not an AI semantic grade. Exact sentence correctness remains separate from local target evidence.
 - Multi-item membership governs invalidation, goal cancellation and rollback. Rollback restores only affected dimensions and rejects overwriting later related evidence. Pruned attempt child audits are preserved with optional snapshot metadata.

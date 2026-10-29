@@ -59,4 +59,4 @@ Screenshots are external QA artifacts, not bundled application assets. The local
 - The supported browser API exposed screenshots but no continuous video recording. No continuous recording or synthetic video is presented as evidence.
 - Deterministic assembly is not free-form grammar correction. Legitimate alternative word orders may be rejected; target-surface semantic alignment still depends on generated content. Existing FSRS parameters were not retuned and improved long-term retention is not claimed.
 
-No migrations, historical regrading, production data access, new audio feature, authentication change or deployment are part of this upgrade.
+The original upgrade above did not include migrations, historical regrading, production data access, a new audio feature, authentication changes or deployment. The subsequently requested source-translation follow-up adds nullable migration 0011; see [SOURCE_TRANSLATION_QA.md](SOURCE_TRANSLATION_QA.md). It still does not reset learning progress or add runtime AI translation.

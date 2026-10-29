@@ -48,6 +48,7 @@
 | learning_item_id | FK | → learning_items |
 | kind | text | `source` / `extra` / `personal` |
 | text | text | 实际进入长期库的 corrected 或 polish 版本，由批改候选 source 明确选择 |
+| translation | text nullable | 可选中文译文，与本行 text 对应；0011 非破坏新增，既有行默认 NULL。不影响复习状态或历史。 |
 | original_text | text nullable | personal 原始用户输入 |
 | better_text | text nullable | 可选润色版本 |
 | pinned | integer | 仅 personal 有效 |

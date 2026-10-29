@@ -845,7 +845,7 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
     .where(eq(learningExamples.learningItemId, task.learningItemId))
     .orderBy(asc(learningExamples.sortOrder), asc(learningExamples.createdAt))
     .all();
-  const sourceExample = examples.find((e) => e.kind === 'source')?.text ?? null;
+  const source = examples.find((e) => e.kind === 'source');
 
   let supplementaryExamples: string[] = [];
   if (task.taskType === 'learn') {
@@ -916,7 +916,8 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
       ipa: item.ipa,
       notes: item.notes,
     },
-    sourceExample,
+    sourceExample: source?.text ?? null,
+    sourceExampleTranslation: source?.translation ?? null,
     supplementaryExamples,
     question: questionView,
   };

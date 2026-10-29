@@ -49,7 +49,12 @@ export function failingForTargetProvider(failTarget: string): AiProvider {
   return {
     name: inner.name,
     async complete(req: ProviderRequest) {
-      if (req.vars.target === failTarget) throw new Error(`模拟生成失败：${failTarget}`);
+      if (
+        req.vars.target === failTarget ||
+        (Array.isArray(req.vars.targets) &&
+          req.vars.targets.some((t: { target?: string }) => t.target === failTarget))
+      )
+        throw new Error(`模拟生成失败：${failTarget}`);
       return inner.complete(req);
     },
   };

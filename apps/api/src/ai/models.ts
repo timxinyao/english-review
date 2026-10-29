@@ -212,8 +212,12 @@ export function getResolvedModels(config: AppConfig): Promise<ResolvedModels> {
 export async function resolveModelForTask(config: AppConfig, task: AiTask): Promise<string> {
   const slot =
     providerSlotForTask(task, config) === 'background' ? backgroundSlot(config) : mainSlot(config);
+  const alias = TASK_MODEL_POLICY[task].alias;
+  // Resolving one explicitly configured task must not wait for unrelated aliases' discovery.
+  const configured = slot.glmModels[alias].trim();
+  if (configured) return configured;
   const resolved = await getResolvedModelsFor(slot);
-  return resolved.models[TASK_MODEL_POLICY[task].alias].model;
+  return resolved.models[alias].model;
 }
 
 /** GET /api/ai/models 响应构建（不含 endpoint/密钥） */

@@ -1,5 +1,6 @@
 import {
   reconstructFromSegments,
+  scrambleTargetPositions,
   type AiTask,
   type CheckProductionResult,
   type GenerateReadResult,
@@ -105,17 +106,9 @@ export function checkAiOutput(
       if (out.reference_tokens.length > 24) {
         violations.push(`reference_tokens 长度 ${out.reference_tokens.length} > 24`);
       }
-      const refLower = out.reference_tokens.map((t) => t.toLowerCase());
       for (const surface of out.target_surfaces) {
-        const parts = surface.toLowerCase().split(/\s+/).filter(Boolean);
-        let ti = 0;
-        for (const tok of refLower) {
-          if (tok === parts[ti]) {
-            ti += 1;
-            if (ti === parts.length) break;
-          }
-        }
-        if (ti !== parts.length) {
+        const parts = surface.trim().split(/\s+/).filter(Boolean);
+        if (scrambleTargetPositions(out.reference_tokens, parts) === null) {
           violations.push(`reference_tokens 未按序覆盖 target_surface "${surface}"`);
         }
       }

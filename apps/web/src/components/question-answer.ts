@@ -1,4 +1,4 @@
-import type { CorrectionView } from '@el/shared';
+import type { CorrectionView, AnswerResponse } from '@el/shared';
 
 /**
  * Today 作答（AnswerResponse）与 Library 练一下（PracticeAnswerResponse）
@@ -25,7 +25,7 @@ export interface QuestionAnswerResult {
   referenceAnswer?: string | null;
   answerNote?: string | null;
   /** 拼词题每目标结果 */
-  itemResults?: Array<{ learningItemId: string; surface: string; result: "pass" | "fail" }> | null;
+  itemResults?: AnswerResponse['itemResults'];
   /** 拼词题提交后揭示的参考 token */
   referenceTokens?: string[] | null;
 }
@@ -39,3 +39,6 @@ export const PRODUCTION_VERDICTS: Record<
   basic_pass: { label: '基本通过', className: 'text-warning' },
   fail: { label: '未通过', className: 'text-destructive' },
 };
+
+/** Deterministic scramble guidance, not a promise of accepting arbitrary inflection variants. */
+export const SCRAMBLE_GUIDANCE = '本题按词序核对，不是自由造句批改。每个词块分别记录复习结果。';

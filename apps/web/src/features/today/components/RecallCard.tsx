@@ -16,6 +16,16 @@ interface Props {
   onAdvance: () => void;
 }
 
+function SourceTranslation({ text }: { text: string | null | undefined }) {
+  if (!text?.trim()) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">原句译文</p>
+      <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{text}</p>
+    </div>
+  );
+}
+
 /** 冻结反馈：按 outcomeSource 四态（2026-10-03 三档自评）——recalled=良好 / easy=简单
  *  （均为通过色）/ assisted=提示后想起（基础通过，历史数据）/ forgot=重来 + 正确释义与
  *  原句揭示；历史数据 outcomeSource 为空时按 result 回退：对=良好 / 错=重来 */
@@ -55,6 +65,7 @@ function RecallFeedback({
           <HighlightText text={task.sourceExample} target={task.item.target} />
         </p>
       )}
+      <SourceTranslation text={task.sourceExampleTranslation} />
     </div>
   );
 }
@@ -131,10 +142,11 @@ export function RecallCard({ task, result, outcomeSource, onAnswered, onAdvance 
           </p>
         )}
 
-        {/* 显示答案后自评（recall 直判）：meaning/notes 留在滚动区 */}
+        {/* 显示答案后自评（recall 直判）：释义、原句译文和笔记留在滚动区 */}
         {!frozen && revealed && (
           <div ref={meaningRef} className="reveal-in space-y-6 border-t border-border/70 pt-6">
             <p className="text-lg leading-relaxed text-foreground">{word.meaning}</p>
+            <SourceTranslation text={task.sourceExampleTranslation} />
             {word.notes ? (
               <details className="text-sm" open>
                 <summary className="cursor-pointer text-xs text-muted-foreground">笔记</summary>

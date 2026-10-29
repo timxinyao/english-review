@@ -9,6 +9,8 @@ export const LibraryImportItem = z.object({
   meaning: z.string().min(1),
   ipa: z.string().nullable().optional(),
   source_example: z.string().min(1),
+  /** 可选原句中文译文；缺省/null/空白兼容旧学习库。 */
+  source_example_translation: z.string().nullable().optional(),
   extra_examples: z.array(z.string().min(1)).max(10).default([]),
   source: z.string().nullable().optional(),
   source_url: z.string().nullable().optional(),

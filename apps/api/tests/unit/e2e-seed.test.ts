@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase, type AppDatabase } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
-import { learningItems, questions, reviewStates, reviewTasks, settings } from '../../src/db/schema.js';
+import { learningItems, questions, reviewStates, reviewTaskItems, reviewTasks, settings } from '../../src/db/schema.js';
 import type { QuestionRow } from '../../src/modules/questions/service.js';
 import {
   fakeEvaluateProduction,
@@ -21,16 +21,15 @@ beforeEach(() => {
 });
 
 describe('E2E 播种（seedE2eData）', () => {
-  it('V2 种子仍提供 Production 键盘流程，但旧 cloze 不进入任务', async () => {
+  it('种子提供当前拼词任务，旧 cloze 不进入正式任务', async () => {
     seedE2eData(db, NOW);
     const session = await startTodaySession(db, createFakeDeps(), 'Asia/Shanghai', NOW);
     expect(session.status).toBe('active');
     if (session.status !== 'active') throw new Error('expected active');
     expect(session.progress.total).toBe(5);
-    expect(session.currentTask).toMatchObject({
-      taskType: 'production',
-      item: { target: 'give up' },
-    });
+    const tasks = db.select().from(reviewTasks).all();
+    expect(tasks.some(task => task.taskType === 'production' && task.learningItemId === 'e2e-item-give-up')).toBe(true);
+    expect(tasks.some(task => task.taskType === 'cloze')).toBe(false);
   });
   it('播种确定性数据：6 个 item、9 道题（含撤销替换题、V2 练习 Recall 题库与 make sense 表达库存）、7 行 review_states、文案符合规格', () => {
     const seeded = seedE2eData(db, NOW);
@@ -122,8 +121,12 @@ describe('E2E 播种（seedE2eData）', () => {
     expect(makeSenseP.status).toBe('fresh');
     expect(makeSenseP.meaningSnapshot).toBe('讲得通');
     expect(JSON.parse(makeSenseP.payloadJson)).toEqual({
-      mustUse: 'make sense',
-      referenceAnswer: 'His explanation makes complete sense to me.',
+      schema: 'scramble_v1',
+      zhPrompt: '他的解释完全讲得通。',
+      targets: [{ learningItemId: 'e2e-item-make-sense', surface: 'make sense', tokens: ['make', 'sense'] }],
+      referenceTokens: ['His', 'explanation', 'makes', 'complete', 'sense', 'to', 'me'],
+      distractors: ['feel', 'reason'],
+      acceptableMorphology: ['make', 'makes'],
       acceptanceNotes: '允许正常时态和人称变化。',
     });
   });
@@ -168,8 +171,12 @@ describe('E2E 播种（seedE2eData）', () => {
     expect(q.correctOptionId).toBeNull();
     expect(q.meaningSnapshot).toBe('放弃');
     expect(JSON.parse(q.payloadJson)).toEqual({
-      mustUse: 'give up',
-      referenceAnswer: 'The constant stress makes me want to give up.',
+      schema: 'scramble_v1',
+      zhPrompt: '长期的压力让我想放弃。',
+      targets: [{ learningItemId: 'e2e-item-give-up', surface: 'give up', tokens: ['give', 'up'] }],
+      referenceTokens: ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up'],
+      distractors: ['quit', 'pressure'],
+      acceptableMorphology: [],
       acceptanceNotes: '允许正常时态和人称变化。',
     });
 
@@ -185,8 +192,12 @@ describe('E2E 播种（seedE2eData）', () => {
     expect(q2.promptText).toBe('他去年决定放弃吸烟。');
     expect(q2.lastUsedAt).toBe('2026-09-01T00:00:00.000Z');
     expect(JSON.parse(q2.payloadJson)).toEqual({
-      mustUse: 'give up',
-      referenceAnswer: 'He decided to give up smoking last year.',
+      schema: 'scramble_v1',
+      zhPrompt: '他去年决定放弃吸烟。',
+      targets: [{ learningItemId: 'e2e-item-give-up', surface: 'give up', tokens: ['give', 'up'] }],
+      referenceTokens: ['He', 'decided', 'to', 'give', 'up', 'smoking', 'last', 'year'],
+      distractors: ['quit', 'cigarette'],
+      acceptableMorphology: [],
       acceptanceNotes: '允许正常时态和人称变化。',
     });
   });
@@ -208,8 +219,8 @@ describe('E2E V2 journey 播种（Phase 9 Task 10）', () => {
     const session = await startTodaySession(db, createFakeDeps(), 'Asia/Shanghai', NOW);
     expect(session.status).toBe('active');
     if (session.status !== 'active') throw new Error('expected active');
-    // 5 基础任务 + set off 的 P 任务 + carry on 的 Learn；put off（显式关闭）不进队列
-    expect(session.progress.total).toBe(7);
+    // give up + set off form one P task; carry on adds a Learn, disabled put off stays out.
+    expect(session.progress.total).toBe(6);
     const putOffTasks = db
       .select()
       .from(reviewTasks)
@@ -222,7 +233,10 @@ describe('E2E V2 journey 播种（Phase 9 Task 10）', () => {
       .all()
       .map((t) => `${t.learningItemId}:${t.taskType}`)
       .sort();
-    expect(dimensions).toContain('e2e-item-set-off:production');
+    const productionTasks = db.select().from(reviewTasks).all().filter(task => task.taskType === 'production');
+    expect(productionTasks).toHaveLength(1);
+    const members = db.select().from(reviewTaskItems).all().filter(member => member.reviewTaskId === productionTasks[0]!.id);
+    expect(members.map(member => member.learningItemId).sort()).toEqual(['e2e-item-give-up', 'e2e-item-set-off']);
     expect(dimensions).toContain('e2e-item-carry-on:learn');
     // put off 的 P 状态保持 S5 未被动过（排除≠清除）
     const putOffP = db

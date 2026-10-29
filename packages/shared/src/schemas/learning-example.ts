@@ -9,6 +9,8 @@ export const LearningExample = z.object({
   kind: ExampleKind,
   /** personal 为 corrected 版本；source/extra 为原文 */
   text: z.string().min(1),
+  /** 与本句对应的已保存中文译文；旧例句可缺省。 */
+  translation: z.string().nullable().optional(),
   originalText: z.string().nullable(),
   betterText: z.string().nullable(),
   /** 仅 personal 有效 */

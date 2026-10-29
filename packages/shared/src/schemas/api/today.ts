@@ -61,6 +61,8 @@ export const TodayTaskView = z.object({
   }),
   /** learn 卡展示；理解/填空题默认隐藏，用户点「查看原句」后前端再显示，并随答案提交 viewedSource */
   sourceExample: z.string().nullable(),
+  /** 已保存的原句译文；Recall 仅在「显示答案」后展示，不动态生成。 */
+  sourceExampleTranslation: z.string().nullable().optional(),
   /** 补充/个人例句（learn 卡最多展示 1 条） */
   supplementaryExamples: z.array(z.string()),
   question: z.union([ChoiceQuestionView, ClozeQuestionView, ProductionQuestionView]).nullable(),
@@ -99,7 +101,7 @@ export type TodayProgress = z.infer<typeof TodayProgress>;
 
 export const TodayIdleResponse = z.object({
   status: z.literal('idle'),
-  /** 到期的 item-dimension 数量 */
+  /** 到期复习任务数：U 每项一题，P 按组题后计数（不含新学）。 */
   dueItems: z.number().int(),
   /** 今日计划复习题数 = min(dueItems, todayReviewLimit)（不限制=dueItems，2026-10-27） */
   plannedReviews: z.number().int().min(0),
@@ -228,7 +230,7 @@ export const AnswerResponse = z.object({
       z.object({
         learningItemId: z.string(),
         surface: z.string(),
-        result: z.enum(['pass', 'fail']),
+        result: z.enum(['pass', 'basic_pass', 'fail']),
       }),
     )
     .nullable()

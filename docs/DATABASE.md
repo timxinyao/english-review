@@ -48,6 +48,7 @@
 | learning_item_id | FK | → learning_items |
 | kind | text | `source` / `extra` / `personal` |
 | text | text | 实际进入长期库的 corrected 或 polish 版本，由批改候选 source 明确选择 |
+| translation | text nullable | 可选中文译文，与本行 text 对应；0011 非破坏新增，既有行默认 NULL。不影响复习状态或历史。 |
 | original_text | text nullable | personal 原始用户输入 |
 | better_text | text nullable | 可选润色版本 |
 | pinned | integer | 仅 personal 有效 |
@@ -280,3 +281,6 @@ Prompt 正文**不进入数据库**。数据库仅保存某次 AI 产物所使�
 - `review_task_items`：Today 任务参与项与分项结果
 - `attempt_item_results`：分项作答审计
 - `app_metadata.production_scramble_v1`：一次性 cutover 标记
+
+### Phase 14 — Non-destructive multi-item rollback
+`post_state_json.prunedProductionItemResults` optionally preserves the `attempt_item_results` children of history-capped attempts alongside `prunedProductionAttempts`. Undo restores parent rows before their children in the same transaction. This is derived rollback metadata, not a new column or migration. Old snapshots without the optional field remain readable. Reverting one dimension must preserve the other dimension's later progress.

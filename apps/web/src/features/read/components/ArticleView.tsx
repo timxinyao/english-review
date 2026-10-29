@@ -50,7 +50,7 @@ export function ArticleView({ article: initial }: { article: ReadArticleView }) 
             aria-label={article.favorite ? '取消收藏文章' : '收藏文章'}
             disabled={favorite.isPending}
             onClick={() => favorite.mutate(!article.favorite)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
           >
             <Star
               aria-hidden

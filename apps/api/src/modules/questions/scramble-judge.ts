@@ -1,80 +1,49 @@
-/** Rule-first scramble grading (spec §6.1; plan Task 3). */
+/** Rule-only evidence for chip assembly; not a general English grammar checker. */
+import { normalizeScrambleToken as normalizeToken, scrambleTargetPositions } from '@el/shared';
+export { normalizeScrambleToken as normalizeToken } from '@el/shared';
 
-export function normalizeToken(t: string): string {
-  return t
-    .trim()
-    .toLowerCase()
-    .replace(/[.?!,"]+$/g, "")
-    .replace(/^[("]+/g, "");
-}
-
-function morphSet(acceptableMorphology: string[]): Set<string> {
-  const set = new Set<string>();
-  for (const m of acceptableMorphology) {
-    const n = normalizeToken(m);
-    if (n) set.add(n);
+/** Chip identity is the displayed string; repeated words consume distinct available chips. */
+export function validChipSelection(selected: string[], available: string[]): boolean {
+  const remaining = new Map<string, number>();
+  for (const token of available) remaining.set(token, (remaining.get(token) ?? 0) + 1);
+  for (const token of selected) {
+    const count = remaining.get(token) ?? 0;
+    if (count === 0) return false;
+    remaining.set(token, count - 1);
   }
-  return set;
-}
-
-/** True if `needle` equals `hay` under exact ignore-case or shared morphology group. */
-function tokensMatch(a: string, b: string, morph: Set<string>): boolean {
-  const na = normalizeToken(a);
-  const nb = normalizeToken(b);
-  if (na === nb) return true;
-  return morph.has(na) && morph.has(nb);
-}
-
-/**
- * Ordered (not necessarily contiguous) subsequence match.
- * Phrasal targets like wear/down must pass inside "wear me down".
- */
-export function targetTokensPresent(
-  selected: string[],
-  targetTokens: string[],
-  morph: Set<string>,
-): boolean {
-  if (targetTokens.length === 0) return false;
-  let ti = 0;
-  for (const tok of selected) {
-    if (tokensMatch(tok, targetTokens[ti]!, morph)) {
-      ti += 1;
-      if (ti === targetTokens.length) return true;
-    }
-  }
-  return false;
+  return true;
 }
 
 export function judgeScramble(input: {
   selectedTokens: string[];
   referenceTokens: string[];
   targets: { learningItemId: string; tokens: string[] }[];
+  /** Legacy generation metadata only: a flat list cannot safely define equivalence classes. */
   acceptableMorphology: string[];
 }): {
-  taskResult: "pass" | "fail";
-  itemResults: { learningItemId: string; result: "pass" | "fail" }[];
+  taskResult: 'pass' | 'fail';
+  itemResults: { learningItemId: string; result: 'pass' | 'basic_pass' | 'fail' }[];
 } {
-  const morph = morphSet(input.acceptableMorphology);
   const selected = input.selectedTokens;
   const reference = input.referenceTokens;
-
-  if (selected.length === 0) {
-    return {
-      taskResult: "fail",
-      itemResults: input.targets.map((t) => ({ learningItemId: t.learningItemId, result: "fail" })),
-    };
-  }
-
-  const itemResults = input.targets.map((t) => ({
-    learningItemId: t.learningItemId,
-    result: (targetTokensPresent(selected, t.tokens, morph) ? "pass" : "fail") as "pass" | "fail",
-  }));
-
-  const allTargetsPass = itemResults.every((r) => r.result === "pass");
-  const lengthOk = selected.length === reference.length;
+  const complete = selected.length > 0 && selected.length === reference.length;
   const sequenceOk =
-    lengthOk && selected.every((tok, i) => tokensMatch(tok, reference[i]!, morph));
-
-  const taskResult: "pass" | "fail" = allTargetsPass && sequenceOk ? "pass" : "fail";
-  return { taskResult, itemResults };
+    complete &&
+    selected.every((token, i) => normalizeToken(token) === normalizeToken(reference[i]!));
+  const evidence = input.targets.map((target) => {
+    const positions = scrambleTargetPositions(reference, target.tokens);
+    return (
+      complete &&
+      positions !== null &&
+      positions.every((i) => normalizeToken(selected[i]!) === normalizeToken(reference[i]!))
+    );
+  });
+  const taskPass = sequenceOk && evidence.length > 0 && evidence.every(Boolean);
+  return {
+    taskResult: taskPass ? 'pass' : 'fail',
+    itemResults: input.targets.map((target, i) => ({
+      learningItemId: target.learningItemId,
+      result: taskPass ? 'pass' : evidence[i] ? 'basic_pass' : 'fail',
+    })),
+  };
 }

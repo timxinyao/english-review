@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { AiModelsResponse } from '@el/shared';
+import { AiModelsResponse, AI_TASKS } from '@el/shared';
 import { loadConfig } from '../../src/config.js';
 import { createDatabase } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
@@ -54,8 +54,8 @@ describe('GET /api/ai/models', () => {
     expect(AiModelsResponse.safeParse(body).success).toBe(true);
     expect(body.models.flash.source).toBe('fallback');
     expect(body.models.air.source).toBe('fallback');
-    // 任务映射覆盖全部 7 个 AI 任务
-    expect(body.taskMapping).toHaveLength(7);
+    // All current tasks, including scramble, are exposed exactly once.
+    expect(body.taskMapping.map((task: { task: string }) => task.task).sort()).toEqual([...AI_TASKS].sort());
     // 不暴露 baseUrl / apiKey
     expect(JSON.stringify(body)).not.toMatch(/bigmodel|api-key|apiKey/i);
   });

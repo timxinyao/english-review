@@ -79,3 +79,47 @@ describe('cardFromSnapshot / replayRatings', () => {
     expect(replayRatings([]).reps).toBe(0);
   });
 });
+
+describe('FSRS persistence and interval edge cases (unchanged scheduler policy)', () => {
+  it.each([Rating.Again, Rating.Hard, Rating.Good, Rating.Easy] as const)(
+    'reconstructs rating %s faithfully across same-day, fractional-day and overdue reviews',
+    (rating) => {
+      let direct = newCard(T0);
+      let rebuilt = newCard(T0);
+      let previous = T0;
+      for (const days of [0, 0.1, 0.9, 1.5, 30, 365, 900]) {
+        const now = at(days);
+        direct = advanceCard(direct, now, rating);
+        rebuilt = advanceCard(
+          cardFromSnapshot(
+            {
+              difficulty: rebuilt.reps ? rebuilt.difficulty : null,
+              stability: rebuilt.reps ? rebuilt.stability : null,
+              reps: rebuilt.reps,
+              lapses: rebuilt.lapses,
+              nextReviewAt: rebuilt.due.toISOString(),
+              lastReviewAt: rebuilt.reps ? previous.toISOString() : null,
+            },
+            now,
+          ),
+          now,
+          rating,
+        );
+        expect(rebuilt.stability).toBe(direct.stability);
+        expect(rebuilt.difficulty).toBe(direct.difficulty);
+        expect(rebuilt.due.toISOString()).toBe(direct.due.toISOString());
+        expect(rebuilt.reps).toBe(direct.reps);
+        expect(rebuilt.lapses).toBe(direct.lapses);
+        expect(Number.isFinite(rebuilt.stability)).toBe(true);
+        const interval = (rebuilt.due.getTime() - now.getTime()) / DAY;
+        expect(interval).toBeGreaterThanOrEqual(1);
+        expect(interval).toBeLessThanOrEqual(365);
+        previous = now;
+      }
+    },
+  );
+  it('repeating the same persisted state and rating is deterministic', () => {
+    const first = advanceCard(newCard(T0), T0, Rating.Good);
+    expect(advanceCard(first, at(5), Rating.Good)).toEqual(advanceCard(first, at(5), Rating.Good));
+  });
+});

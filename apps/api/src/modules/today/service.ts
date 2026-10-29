@@ -12,6 +12,7 @@ import {
   lt,
   lte,
   ne,
+  or,
   sql,
 } from 'drizzle-orm';
 import {
@@ -47,7 +48,6 @@ import {
   dailyStats,
   learningExamples,
   learningItems,
-  questionItems,
   questions,
   reviewSessions,
   reviewStates,
@@ -56,10 +56,11 @@ import {
   settings,
 } from '../../db/schema.js';
 import { AppError, appError } from '../../lib/errors.js';
-import { judgeScramble } from '../questions/scramble-judge.js';
+import { judgeScramble, validChipSelection } from '../questions/scramble-judge.js';
 import {
   generateProductionScramble,
   invalidateQuestions,
+  parseScramblePayload,
   type DbExecutor,
   type DbTx,
   type ProductionEvaluation,
@@ -69,9 +70,8 @@ import {
 } from '../questions/service.js';
 import { groupProductionItems } from './scramble-group.js';
 import { effectiveProductionEnabled, isMastered } from '../review/goals.js';
-import { INACTIVE_SNAPSHOT } from '../review/service.js';
+import { INACTIVE_SNAPSHOT, reconcileItemStatus } from '../review/service.js';
 import {
-  maybeSavePersonalExample,
   trimProductionHistory,
   type AttemptRowSnapshot,
   type ExampleRowSnapshot,
@@ -121,6 +121,8 @@ export interface StateSnapshot {
   replacedPersonalExample?: ExampleRowSnapshot | null;
   /** 仅 post：本次结算被裁剪的表达历史 attempt 行快照（普通撤销在 10 条边界恢复；旧快照无此字段） */
   prunedProductionAttempts?: AttemptRowSnapshot[];
+  /** Per-item audit children of pruned attempts, restored atomically by undo. */
+  prunedProductionItemResults?: Array<typeof attemptItemResults.$inferSelect>;
   /** Multi-item scramble: other participants (primary item uses top-level fields) */
   participants?: Array<{
     learningItemId: string;
@@ -190,10 +192,7 @@ export interface TodayDeps {
     answerText: string,
   ): Promise<ProductionEvaluation>;
   /** Multi-item scramble generation (1–3 items); optional for tests that only cover U */
-  generateScramble?(
-    db: AppDatabase,
-    items: ScrambleItemInput[],
-  ): Promise<QuestionRow>;
+  generateScramble?(db: AppDatabase, items: ScrambleItemInput[]): Promise<QuestionRow>;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,10 +275,7 @@ export async function loadRealTodayDeps(): Promise<TodayDeps> {
         answerText,
       )) as ProductionEvaluation,
     generateScramble: async (db, items) =>
-      generateProductionScramble(
-        { db, runtime: getAiRuntime() as never },
-        items,
-      ),
+      generateProductionScramble({ db, runtime: getAiRuntime() as never }, items),
   };
 }
 
@@ -439,44 +435,86 @@ function writeDimState(
   }
 }
 
-/** 坏题撤销：按 pre 快照恢复两维状态、item.status 与 queue_state（含 Read 补强旗回滚） */
-function restoreSnapshot(
+/** Reject stale/corrupt evidence before restoring or regrading a dimension. */
+function requireMatchingPostState(
   exec: DbExecutor,
+  itemId: string,
+  dim: Dimension,
+  post: StateSnapshot | null,
+): void {
+  const expected = post?.reviewStates[dim];
+  if (expected === undefined) throw appError('CONFLICT', '该作答缺少状态快照，无法安全修改');
+  const current = exec
+    .select()
+    .from(reviewStates)
+    .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, dim)))
+    .get();
+  const currentSnapshot = current ? rowToDim(current) : null;
+  const matches =
+    expected === null
+      ? currentSnapshot === null
+      : currentSnapshot !== null &&
+        Object.entries(expected).every(
+          ([key, value]) => currentSnapshot[key as keyof typeof currentSnapshot] === value,
+        );
+  if (!matches) throw appError('CONFLICT', '已有后续作答或进度修改，无法修改该作答');
+}
+
+/** Restore only evidence this attempt changed, never the independent dimension. */
+function restoreSnapshot(
+  exec: DbTx,
   itemId: string,
   snap: StateSnapshot,
   nowIso: string,
+  dimensions: Dimension[],
+  post: StateSnapshot | null,
 ): void {
-  for (const dim of ['understanding', 'production'] as const) {
-    const current = exec
-      .select()
-      .from(reviewStates)
-      .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, dim)))
-      .get();
-    exec
-      .delete(reviewStates)
-      .where(and(eq(reviewStates.learningItemId, itemId), eq(reviewStates.dimension, dim)))
-      .run();
-    const pre = snap.reviewStates[dim];
-    if (pre) {
-      exec
-        .insert(reviewStates)
-        .values(restoreDimValues(itemId, dim, pre, current, nowIso))
-        .run();
-    }
+  if (!post) throw appError('CONFLICT', '该作答缺少状态快照，无法安全撤销');
+  const currentItem = exec.select().from(learningItems).where(eq(learningItems.id, itemId)).get();
+  if (!currentItem) throw appError('CONFLICT', '学习项已变更，无法安全撤销');
+  for (const dim of dimensions) requireMatchingPostState(exec, itemId, dim, post);
+  if (dimensions.length === 2 && currentItem.queueState !== post.queueState) {
+    throw appError('CONFLICT', '学习项进度已修改，无法撤销');
   }
+  for (const dim of dimensions) restoreDimState(exec, itemId, dim, snap.reviewStates[dim], nowIso);
+  // User lifecycle choices and changed goals are not owned by this attempt.
   exec
     .update(learningItems)
     .set({
-      status: snap.itemStatus,
-      queueState: snap.queueState,
-      // 旧快照无此字段时保持现值（Phase 5 前的 attempts）
-      ...(snap.needsReinforcement === undefined
-        ? {}
-        : { needsReinforcement: snap.needsReinforcement }),
+      ...(dimensions.length === 2 ? { queueState: snap.queueState } : {}),
+      ...(snap.needsReinforcement !== undefined &&
+      snap.needsReinforcement !== post.needsReinforcement &&
+      currentItem.needsReinforcement === post.needsReinforcement
+        ? { needsReinforcement: snap.needsReinforcement }
+        : {}),
       updatedAt: nowIso,
     })
     .where(eq(learningItems.id, itemId))
     .run();
+  reconcileItemStatus(exec, itemId, nowIso);
+}
+
+function restoreAttemptState(
+  tx: DbTx,
+  task: TaskRow,
+  pre: StateSnapshot,
+  post: StateSnapshot | null,
+  nowIso: string,
+): void {
+  const dimensions: Dimension[] =
+    task.taskType === 'learn' ? ['understanding', 'production'] : [task.dimension as Dimension];
+  const ids =
+    task.taskType === 'production'
+      ? loadTaskParticipantIds(tx, task.id, task.learningItemId)
+      : [task.learningItemId];
+  for (const id of ids) {
+    const before =
+      id === task.learningItemId ? pre : pre.participants?.find((p) => p.learningItemId === id);
+    const after =
+      id === task.learningItemId ? post : post?.participants?.find((p) => p.learningItemId === id);
+    if (!before || !after) throw appError('CONFLICT', '该作答缺少参与项快照，无法安全撤销');
+    restoreSnapshot(tx, id, before, nowIso, dimensions, after);
+  }
 }
 
 interface StatsDelta {
@@ -520,6 +558,70 @@ function progressOf(exec: DbExecutor, sessionId: string): TodayProgress {
   };
 }
 
+/** Cancel pending work only; completed attempts and unrelated participants' progress survive. */
+function cancelPendingItemTasks(
+  tx: DbTx,
+  itemId: string,
+  nowIso: string,
+  scope: { sessionId?: string; dimension?: Dimension } = {},
+): void {
+  const pending = tx
+    .select({ id: reviewTasks.id, sessionId: reviewTasks.sessionId })
+    .from(reviewTasks)
+    .where(
+      and(
+        or(
+          eq(reviewTasks.learningItemId, itemId),
+          inArray(
+            reviewTasks.id,
+            tx
+              .select({ taskId: reviewTaskItems.reviewTaskId })
+              .from(reviewTaskItems)
+              .where(eq(reviewTaskItems.learningItemId, itemId)),
+          ),
+        ),
+        isNull(reviewTasks.completedAt),
+        isNull(reviewTasks.canceledAt),
+        scope.sessionId ? eq(reviewTasks.sessionId, scope.sessionId) : undefined,
+        scope.dimension ? eq(reviewTasks.dimension, scope.dimension) : undefined,
+      ),
+    )
+    .all();
+  if (pending.length === 0) return;
+  tx.update(reviewTasks)
+    .set({ canceledAt: nowIso })
+    .where(
+      inArray(
+        reviewTasks.id,
+        pending.map((task) => task.id),
+      ),
+    )
+    .run();
+  for (const sessionId of new Set(pending.map((task) => task.sessionId))) {
+    const session = tx.select().from(reviewSessions).where(eq(reviewSessions.id, sessionId)).get();
+    if (!session) continue;
+    const live = tx
+      .select()
+      .from(reviewTasks)
+      .where(and(eq(reviewTasks.sessionId, sessionId), isNull(reviewTasks.canceledAt)))
+      .all();
+    tx.update(reviewSessions)
+      .set({
+        baseTaskCount: live.filter((task) => task.origin === 'base').length,
+        completedAt: live.every((task) => task.completedAt !== null)
+          ? (session.completedAt ?? nowIso)
+          : null,
+      })
+      .where(eq(reviewSessions.id, sessionId))
+      .run();
+  }
+}
+
+/** Explicit pause/archive/reset invalidates pending work, including grouped secondary membership. */
+export function cancelPendingTasksForItem(tx: DbTx, itemId: string, nowIso: string): void {
+  cancelPendingItemTasks(tx, itemId, nowIso);
+}
+
 /** Library 关闭造句目标时，在同一事务取消今天尚未作答的 P 任务。 */
 export function cancelPendingProductionTasksForItem(
   tx: DbTx,
@@ -532,32 +634,11 @@ export function cancelPendingProductionTasksForItem(
     .from(reviewSessions)
     .where(eq(reviewSessions.sessionDate, sessionDate))
     .get();
-  if (!session) return;
-  tx.update(reviewTasks)
-    .set({ canceledAt: nowIso })
-    .where(
-      and(
-        eq(reviewTasks.sessionId, session.id),
-        eq(reviewTasks.learningItemId, itemId),
-        eq(reviewTasks.dimension, 'production'),
-        isNull(reviewTasks.completedAt),
-        isNull(reviewTasks.canceledAt),
-      ),
-    )
-    .run();
-  const live = tx
-    .select()
-    .from(reviewTasks)
-    .where(and(eq(reviewTasks.sessionId, session.id), isNull(reviewTasks.canceledAt)))
-    .all();
-  const baseTaskCount = live.filter((task) => task.origin === 'base').length;
-  const completedAt = live.every((task) => task.completedAt !== null)
-    ? (session.completedAt ?? nowIso)
-    : null;
-  tx.update(reviewSessions)
-    .set({ baseTaskCount, completedAt })
-    .where(eq(reviewSessions.id, session.id))
-    .run();
+  if (session)
+    cancelPendingItemTasks(tx, itemId, nowIso, {
+      sessionId: session.id,
+      dimension: 'production',
+    });
 }
 
 /** 完成摘要：计数来自该 session 的非 void attempts（PRODUCT_DESIGN §4.3） */
@@ -662,7 +743,6 @@ function productionReveal(question: QuestionRow): {
   };
 }
 
-
 /** Deterministic chip shuffle seeded by questionId (stable across prepares). */
 function shuffleChips(chips: string[], seed: string): string[] {
   const arr = [...chips];
@@ -681,33 +761,6 @@ function shuffleChips(chips: string[], seed: string): string[] {
     arr[j] = tmp;
   }
   return arr;
-}
-
-function parseScramblePayload(question: QuestionRow): {
-  schema: 'scramble_v1';
-  targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
-  zhPrompt: string;
-  referenceTokens: string[];
-  distractors: string[];
-  acceptableMorphology: string[];
-  acceptanceNotes: string;
-} | null {
-  try {
-    const parsed = JSON.parse(question.payloadJson) as Record<string, unknown>;
-    if (!parsed || parsed.schema !== 'scramble_v1') return null;
-    if (!Array.isArray(parsed.targets) || !Array.isArray(parsed.referenceTokens)) return null;
-    return parsed as {
-      schema: 'scramble_v1';
-      targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
-      zhPrompt: string;
-      referenceTokens: string[];
-      distractors: string[];
-      acceptableMorphology: string[];
-      acceptanceNotes: string;
-    };
-  } catch {
-    return null;
-  }
 }
 
 function scrambleViewFromQuestion(question: QuestionRow): TodayTaskView['question'] {
@@ -738,6 +791,26 @@ function loadTaskParticipantIds(exec: DbExecutor, taskId: string, primaryItemId:
     .all();
   if (rows.length === 0) return [primaryItemId];
   return rows.map((r) => r.learningItemId);
+}
+
+/** Automatic mastery does not invalidate scheduled work; explicit lifecycle/goal changes do. */
+function requireEligibleTaskParticipants(exec: DbExecutor, task: TaskRow, forUndo = false): void {
+  const ids =
+    task.taskType === 'production'
+      ? loadTaskParticipantIds(exec, task.id, task.learningItemId)
+      : [task.learningItemId];
+  const startsNewItem = task.taskType === 'learn' && !forUndo;
+  for (const id of ids) {
+    const item = exec.select().from(learningItems).where(eq(learningItems.id, id)).get();
+    if (
+      !item ||
+      (item.status !== 'active' && (startsNewItem || item.status !== 'mastered')) ||
+      item.queueState !== (startsNewItem ? 'new' : 'started') ||
+      (task.taskType === 'production' && !effectiveProductionEnabled(item))
+    ) {
+      throw appError('CONFLICT', '学习项状态或输出目标已变更，请刷新今日学习');
+    }
+  }
 }
 
 function snapshotParticipants(
@@ -772,7 +845,7 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
     .where(eq(learningExamples.learningItemId, task.learningItemId))
     .orderBy(asc(learningExamples.sortOrder), asc(learningExamples.createdAt))
     .all();
-  const sourceExample = examples.find((e) => e.kind === 'source')?.text ?? null;
+  const source = examples.find((e) => e.kind === 'source');
 
   let supplementaryExamples: string[] = [];
   if (task.taskType === 'learn') {
@@ -843,7 +916,8 @@ function taskToView(exec: DbExecutor, task: TaskRow): TodayTaskView {
       ipa: item.ipa,
       notes: item.notes,
     },
-    sourceExample,
+    sourceExample: source?.text ?? null,
+    sourceExampleTranslation: source?.translation ?? null,
     supplementaryExamples,
     question: questionView,
   };
@@ -973,9 +1047,11 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
       ),
     )
     .all();
-  const dueItems = dueRows.filter(
-    (row) => row.dimension !== 'production' || effectiveProductionEnabled(row),
+  const understandingCount = dueRows.filter((row) => row.dimension === 'understanding').length;
+  const productionCount = dueRows.filter(
+    (row) => row.dimension === 'production' && effectiveProductionEnabled(row),
   ).length;
+  const dueItems = understandingCount + Math.ceil(productionCount / 3);
   // 今日计划 vs 积压（PRODUCT V2 规则 2026-10-27）：到期按 next_review_at 最早优先截取上限
   const limit = readTodayReviewLimit(db);
   const plannedReviews =
@@ -1000,7 +1076,12 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
 
   // recentlyLearned：最近完成的 Learn 任务对应项；无历史时退化为最近创建的 started 项
   let recent = db
-    .select({ id: learningItems.id, target: learningItems.target, meaning: learningItems.meaning, type: learningItems.type })
+    .select({
+      id: learningItems.id,
+      target: learningItems.target,
+      meaning: learningItems.meaning,
+      type: learningItems.type,
+    })
     .from(reviewTasks)
     .innerJoin(learningItems, eq(learningItems.id, reviewTasks.learningItemId))
     .where(
@@ -1015,7 +1096,12 @@ function idleResponse(db: AppDatabase, timezone: string, now: Date): TodayIdleRe
     .all();
   if (recent.length === 0) {
     recent = db
-      .select({ id: learningItems.id, target: learningItems.target, meaning: learningItems.meaning, type: learningItems.type })
+      .select({
+        id: learningItems.id,
+        target: learningItems.target,
+        meaning: learningItems.meaning,
+        type: learningItems.type,
+      })
       .from(learningItems)
       .where(and(eq(learningItems.queueState, 'started'), ne(learningItems.status, 'archived')))
       .orderBy(desc(learningItems.createdAt), desc(learningItems.id))
@@ -1240,47 +1326,47 @@ async function startTodaySessionInner(
   const reviewLimit = readTodayReviewLimit(db);
   type PlanTaskExt = PlanTask & { participantIds?: string[] };
   const plans: PlanTaskExt[] = [];
-  let queuedReviews = 0;
-
   const understandingDue = dueRows.filter((row) => row.state.dimension === 'understanding');
   const productionDue = dueRows.filter(
-    (row) =>
-      row.state.dimension === 'production' && effectiveProductionEnabled(row.item),
+    (row) => row.state.dimension === 'production' && effectiveProductionEnabled(row.item),
   );
-
-  for (const row of understandingDue) {
-    if (reviewLimit !== TODAY_REVIEW_LIMIT_UNLIMITED && queuedReviews >= reviewLimit) break;
-    queuedReviews += 1;
-    plans.push({
+  const candidates: Array<{ dueAt: string; plan: PlanTaskExt }> = understandingDue.map((row) => ({
+    dueAt: row.state.nextReviewAt!,
+    plan: {
       itemId: row.item.id,
       dimension: 'understanding',
       taskType: 'understanding',
       questionId: null,
       origin: 'base',
-    });
-  }
-
-  if (reviewLimit === TODAY_REVIEW_LIMIT_UNLIMITED || queuedReviews < reviewLimit) {
-    const remainingSlots =
-      reviewLimit === TODAY_REVIEW_LIMIT_UNLIMITED
-        ? Number.POSITIVE_INFINITY
-        : reviewLimit - queuedReviews;
-    const groups = groupProductionItems(
-      productionDue.map((row) => ({ id: row.item.id, row })),
-    ).slice(0, remainingSlots === Number.POSITIVE_INFINITY ? undefined : remainingSlots);
-    for (const group of groups) {
-      queuedReviews += 1;
-      const ids = group.map((g) => g.id);
-      plans.push({
+    },
+  }));
+  for (const group of groupProductionItems(
+    productionDue.map((row) => ({ id: row.item.id, row })),
+  )) {
+    const ids = group.map((entry) => entry.id);
+    candidates.push({
+      dueAt: group[0]!.row.state.nextReviewAt!,
+      plan: {
         itemId: ids[0]!,
         dimension: 'production',
         taskType: 'production',
         questionId: null,
         origin: 'base',
         participantIds: ids,
-      });
-    }
+      },
+    });
   }
+  candidates.sort(
+    (a, b) =>
+      a.dueAt.localeCompare(b.dueAt) ||
+      a.plan.itemId.localeCompare(b.plan.itemId) ||
+      a.plan.dimension.localeCompare(b.plan.dimension),
+  );
+  plans.push(
+    ...candidates
+      .slice(0, reviewLimit === TODAY_REVIEW_LIMIT_UNLIMITED ? undefined : Math.max(0, reviewLimit))
+      .map((candidate) => candidate.plan),
+  );
 
   for (const item of learnItems) {
     plans.push({
@@ -1340,8 +1426,7 @@ async function startTodaySessionInner(
           })
           .run();
         const participantIds =
-          (p as PlanTaskExt).participantIds ??
-          (p.taskType === 'production' ? [p.itemId] : null);
+          (p as PlanTaskExt).participantIds ?? (p.taskType === 'production' ? [p.itemId] : null);
         if (participantIds && participantIds.length > 0) {
           participantIds.forEach((itemId, sortIndex) => {
             tx.insert(reviewTaskItems)
@@ -1530,13 +1615,11 @@ export async function prepareTodayTask(
       session.sessionDate !== localDateString(now, timezone) ||
       session.completedAt !== null ||
       task.completedAt !== null ||
-      task.canceledAt !== null ||
-      item.status !== 'active' ||
-      (task.taskType === 'learn' ? item.queueState !== 'new' : item.queueState !== 'started') ||
-      (task.dimension === 'production' && !effectiveProductionEnabled(item))
+      task.canceledAt !== null
     ) {
       throw appError('CONFLICT', '任务已失效，请刷新今日学习');
     }
+    requireEligibleTaskParticipants(exec, task);
     return { task, item };
   };
   const validQuestion = (exec: DbExecutor, task: TaskRow, meaning: string): boolean => {
@@ -1558,9 +1641,7 @@ export async function prepareTodayTask(
       if (expected.length !== got.length) return false;
       return expected.every((id, i) => id === got[i]);
     }
-    return (
-      question.learningItemId === task.learningItemId && question.meaningSnapshot === meaning
-    );
+    return question.learningItemId === task.learningItemId && question.meaningSnapshot === meaning;
   };
 
   const initial = validate(db);
@@ -1820,7 +1901,8 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
           surface:
             scramble.targets.find((t) => t.learningItemId === r.learningItemId)?.surface ??
             r.learningItemId,
-          result: (r.result === 'pass' ? 'pass' : 'fail') as 'pass' | 'fail',
+          result: (r.result === 'pass' || r.result === 'basic_pass' ? r.result : 'fail') as
+            'pass' | 'basic_pass' | 'fail',
         }))
       : null;
   return {
@@ -1835,7 +1917,7 @@ function replayAnswer(exec: DbExecutor, task: TaskRow): AnswerResponse {
       (scramble && stored === 'fail' ? scramble.referenceTokens.join(' ') : null),
     answerNote:
       production?.answerNote ??
-      (scramble && stored === 'fail' ? scramble.acceptanceNotes ?? null : null),
+      (scramble && stored === 'fail' ? (scramble.acceptanceNotes ?? null) : null),
     alreadyCompleted: true,
     explanation: attempt?.explanation ?? null,
     correctOptionId: question && !isCloze && !isProduction ? question.correctOptionId : null,
@@ -1880,6 +1962,7 @@ export async function answerTodayTask(
   // 本地日校验必须先于幂等回放，旧标签页不能重放过期 Session。
   if (task.completedAt !== null) return replayAnswer(db, task);
   if (session.completedAt !== null) throw appError('CONFLICT', '会话已完成');
+  requireEligibleTaskParticipants(db, task);
 
   const question = task.questionId
     ? (db.select().from(questions).where(eq(questions.id, task.questionId)).get() ?? null)
@@ -1928,7 +2011,27 @@ export async function answerTodayTask(
 
   // ---- 事务外：评估（giveUp 不调用判定；scramble 本地 judge，无 AI）----
   let scrambleJudge: ReturnType<typeof judgeScramble> | null = null;
-  let scramblePayload = question && isProduction ? parseScramblePayload(question) : null;
+  const scramblePayload = question && isProduction ? parseScramblePayload(question) : null;
+  if (isProduction) {
+    const participantIds = loadTaskParticipantIds(db, task.id, task.learningItemId);
+    if (
+      !scramblePayload ||
+      task.taskType !== 'production' ||
+      scramblePayload.targets.length !== participantIds.length ||
+      !participantIds.every((id, i) => scramblePayload.targets[i]!.learningItemId === id)
+    ) {
+      throw appError('CONFLICT', '题目与学习项不一致，请刷新今日学习');
+    }
+    if (
+      !giveUp &&
+      !validChipSelection(body.selectedTokens!, [
+        ...scramblePayload.referenceTokens,
+        ...scramblePayload.distractors,
+      ])
+    ) {
+      throw appError('VALIDATION_ERROR', '只能使用题目提供的词芯片，且不能重复使用同一芯片');
+    }
+  }
   let outcome: EvaluateOutcome;
   if (giveUp) {
     // 主动不会：直接按 fail 结算，零生产/填空/选择判定调用（TECHNICAL_DESIGN §7.5）
@@ -2045,6 +2148,7 @@ export async function answerTodayTask(
       }
     }
 
+    requireEligibleTaskParticipants(tx, fresh);
     const itemId = task.learningItemId;
     const participantIdsForSnap = isProduction
       ? loadTaskParticipantIds(tx, task.id, itemId)
@@ -2090,20 +2194,11 @@ export async function answerTodayTask(
       );
       for (const pid of participantIds) {
         const itemResult = resultByItem.get(pid) ?? 'fail';
-        deps.advance(
-          tx,
-          pid,
-          'production',
-          { kind: itemResult },
-          now,
-        );
+        deps.advance(tx, pid, 'production', { kind: itemResult }, now);
         tx.update(reviewTaskItems)
           .set({ result: itemResult })
           .where(
-            and(
-              eq(reviewTaskItems.reviewTaskId, task.id),
-              eq(reviewTaskItems.learningItemId, pid),
-            ),
+            and(eq(reviewTaskItems.reviewTaskId, task.id), eq(reviewTaskItems.learningItemId, pid)),
           )
           .run();
       }
@@ -2192,21 +2287,17 @@ export async function answerTodayTask(
         ? productionReveal(question)
         : null;
     const giveUpProductionReveal =
-      giveUp && question && isProduction && !scramblePayload
-        ? productionReveal(question)
-        : null;
+      giveUp && question && isProduction && !scramblePayload ? productionReveal(question) : null;
     const productionRevealOut = failProductionReveal ?? giveUpProductionReveal;
     const scrambleReferenceTokens =
-      scramblePayload && result === 'fail'
-        ? scramblePayload.referenceTokens
-        : null;
+      scramblePayload && result === 'fail' ? scramblePayload.referenceTokens : null;
     const scrambleItemResults =
       scrambleJudge && scramblePayload
         ? scrambleJudge.itemResults.map((r) => ({
             learningItemId: r.learningItemId,
             surface:
-              scramblePayload.targets.find((t) => t.learningItemId === r.learningItemId)
-                ?.surface ?? r.learningItemId,
+              scramblePayload.targets.find((t) => t.learningItemId === r.learningItemId)?.surface ??
+              r.learningItemId,
             result: r.result,
           }))
         : null;
@@ -2226,9 +2317,7 @@ export async function answerTodayTask(
         // 未绑题的 recall 作答允许 question_id=null（列本就可空，schema set null）
         questionId: question?.id ?? null,
         mode: 'today',
-        answerText:
-          body.answerText ??
-          (body.selectedTokens ? body.selectedTokens.join(' ') : null),
+        answerText: body.answerText ?? (body.selectedTokens ? body.selectedTokens.join(' ') : null),
         // recall 直判时归一化丢弃并存选项，避免统计层误读
         selectedOptionId: isRecallTask && body.recall ? null : (body.selectedOptionId ?? null),
         result,
@@ -2268,9 +2357,20 @@ export async function answerTodayTask(
     // 造句历史裁剪：保留该 item 最近 10 条 production attempts（PRODUCT §7.5）；
     // 被裁剪行快照在裁剪后补写进 post 快照（DATABASE §8：撤销期间保留恢复快照）
     if (isProduction) {
+      const auditBeforeTrim = tx
+        .select({ result: attemptItemResults })
+        .from(attemptItemResults)
+        .innerJoin(attempts, eq(attempts.id, attemptItemResults.attemptId))
+        .where(eq(attempts.learningItemId, task.learningItemId))
+        .all()
+        .map((row) => row.result);
       const pruned = trimProductionHistory(tx, task.learningItemId);
       if (pruned.length > 0) {
         post.prunedProductionAttempts = pruned;
+        const prunedIds = new Set(pruned.map((row) => row.id));
+        post.prunedProductionItemResults = auditBeforeTrim.filter((row) =>
+          prunedIds.has(row.attemptId),
+        );
         tx.update(attempts)
           .set({ postStateJson: JSON.stringify(post) })
           .where(eq(attempts.id, attemptId))
@@ -2315,7 +2415,7 @@ export async function answerTodayTask(
         (scrambleReferenceTokens ? scrambleReferenceTokens.join(' ') : null),
       answerNote:
         productionRevealOut?.answerNote ??
-        (result === 'fail' ? scramblePayload?.acceptanceNotes ?? null : null),
+        (result === 'fail' ? (scramblePayload?.acceptanceNotes ?? null) : null),
       explanation,
       correctOptionId: question && !isCloze && !isProduction ? question.correctOptionId : null,
       completeSentence: reveal?.completeSentence ?? null,
@@ -2442,24 +2542,11 @@ export function reportBadQuestion(
         .run();
     }
 
-    // 2) 恢复 pre 快照：两维 review 状态、item.status、queue_state
+    // 2) 仅恢复本次作答影响的维度，保留独立进度与用户状态选择
     const pre = parseSnapshot(attempt.preStateJson);
-    if (pre) restoreSnapshot(tx, task.learningItemId, pre, nowIso);
-
-    // Multi-item scramble: restore other participants from pre.participants
-    for (const part of pre?.participants ?? []) {
-      restoreSnapshot(
-        tx,
-        part.learningItemId,
-        {
-          reviewStates: part.reviewStates,
-          itemStatus: part.itemStatus,
-          queueState: part.queueState,
-          needsReinforcement: part.needsReinforcement,
-        },
-        nowIso,
-      );
-    }
+    const post = parseSnapshot(attempt.postStateJson);
+    if (!pre) throw appError('CONFLICT', '该作答缺少状态快照，无法安全撤销');
+    restoreAttemptState(tx, task, pre, post, nowIso);
 
     // Void attempt_item_results for this attempt
     tx.update(attemptItemResults)
@@ -2472,7 +2559,6 @@ export function reportBadQuestion(
       .run();
 
     // 3) 取消本次结算新增的补强任务
-    const post = parseSnapshot(attempt.postStateJson);
     for (const rid of post?.reinforcementTaskIds ?? []) {
       tx.update(reviewTasks)
         .set({ canceledAt: nowIso })
@@ -2581,6 +2667,8 @@ export async function undoTodayTask(
     throw appError('CONFLICT', '已有更新的作答，无法撤销该任务');
   }
 
+  requireEligibleTaskParticipants(db, task, true);
+
   // Scramble production: regenerate for the same participant set; other types reuse binding.
   let replacement: QuestionRow | null = null;
   if (task.taskType === 'production') {
@@ -2639,6 +2727,7 @@ export async function undoTodayTask(
     if (!freshTask) throw appError('NOT_FOUND', '任务不存在');
     if (freshTask.canceledAt !== null) throw appError('CONFLICT', '该任务已撤销');
     if (freshTask.completedAt === null) throw appError('CONFLICT', '该任务尚未作答，无法撤销');
+    requireEligibleTaskParticipants(tx, freshTask, true);
 
     // 依赖数据安全：快照缺失 / 新例句已被用户固定或编辑 → 拒绝撤销以保护用户数据
     const pre = parseSnapshot(attempt.preStateJson);
@@ -2676,23 +2765,12 @@ export async function undoTodayTask(
     }
 
     // ---- 精确回滚（仅本次 attempt 的变动）----
-    // 1) 恢复 pre 快照：两维 review 状态、item.status/queue_state、Read 补强旗
-    restoreSnapshot(tx, task.learningItemId, pre, nowIso);
-
-    // Multi-item scramble: restore other participants from pre.participants
-    for (const part of pre?.participants ?? []) {
-      restoreSnapshot(
-        tx,
-        part.learningItemId,
-        {
-          reviewStates: part.reviewStates,
-          itemStatus: part.itemStatus,
-          queueState: part.queueState,
-          needsReinforcement: part.needsReinforcement,
-        },
-        nowIso,
-      );
-    }
+    // 1) 仅恢复本次作答影响的维度、Learn 队列和本次修改的 Read 补强旗
+    restoreAttemptState(tx, task, pre, post, nowIso);
+    tx.update(reviewTaskItems)
+      .set({ result: 'void' })
+      .where(eq(reviewTaskItems.reviewTaskId, task.id))
+      .run();
 
     tx.update(attemptItemResults)
       .set({ result: 'void' })
@@ -2734,6 +2812,9 @@ export async function undoTodayTask(
     }
     for (const pruned of post?.prunedProductionAttempts ?? []) {
       tx.insert(attempts).values(pruned).run();
+    }
+    for (const result of post?.prunedProductionItemResults ?? []) {
+      tx.insert(attemptItemResults).values(result).run();
     }
 
     // 5) 作废该次 attempt + 取消旧任务
@@ -2846,12 +2927,17 @@ export function submitTaskFeedback(
     if (attempt.result === 'void') throw appError('CONFLICT', '该作答已撤销');
     if (attempt.feedback !== null) throw appError('CONFLICT', '该任务已反馈过');
 
+    requireEligibleTaskParticipants(tx, task);
     const dim = task.dimension as Dimension;
+    requireMatchingPostState(tx, task.learningItemId, dim, parseSnapshot(attempt.postStateJson));
     let adjusted: TaskFeedbackResponse['adjustedResult'];
     if (feedback === 'guessed') {
       // 其实蒙的：以 attempt.pre_state 为基准按 fail 重算（先恢复该维度快照，再 advance）
       const pre = parseSnapshot(attempt.preStateJson);
-      restoreDimState(tx, task.learningItemId, dim, pre?.reviewStates[dim] ?? null, nowIso);
+      if (!pre || pre.reviewStates[dim] === undefined) {
+        throw appError('CONFLICT', '该作答缺少状态快照，无法安全修改');
+      }
+      restoreDimState(tx, task.learningItemId, dim, pre.reviewStates[dim], nowIso);
       deps.advance(tx, task.learningItemId, dim, { kind: 'fail' }, now);
       adjusted = 'fail';
     } else {

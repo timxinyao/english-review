@@ -6,6 +6,8 @@ import { stopSpeaking } from '../lib/tts';
 import { toggleKeyboardDebug, useKeyboardPhase } from '../lib/keyboard-inset';
 import { useLogout } from '../features/auth/api';
 import { Button } from '../components/ui/button';
+import { useQueryClient } from '@tanstack/react-query';
+import { haptic } from '../lib/haptics';
 import { useTodayImmersiveSession } from '../lib/today-chrome';
 
 const MAIN_NAV = [
@@ -23,7 +25,7 @@ function navLinkClass({ isActive }: { isActive: boolean }): string {
 
 function bottomLinkClass({ isActive }: { isActive: boolean }): string {
   return cn(
-    'flex flex-1 flex-col items-center gap-1 py-2.5 text-xs',
+    'native-tab flex flex-1 flex-col items-center gap-1 py-2.5 text-xs',
     isActive ? 'text-accent' : 'text-muted-foreground',
   );
 }
@@ -39,6 +41,7 @@ function headerTitle(pathname: string): string {
 
 export function AppShell() {
   const logout = useLogout();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [refreshed, setRefreshed] = useState(false);
@@ -56,9 +59,14 @@ export function AppShell() {
     stopSpeaking();
   }, [pathname]);
 
-  function onRefresh() {
+  async function onRefresh() {
+    if (refreshed) return;
     setRefreshed(true);
-    setTimeout(() => window.location.reload(), 300);
+    try {
+      await queryClient.invalidateQueries();
+    } finally {
+      setRefreshed(false);
+    }
   }
 
   function onLogout() {
@@ -82,13 +90,19 @@ export function AppShell() {
       data-keyboard-anchored={todayKeyboardAnchored ? '' : undefined}
       data-keyboard-open={todayKeyboardOpen ? '' : undefined}
     >
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:z-toast focus:bg-card focus:p-3"
+      >
+        跳到主要内容
+      </a>
       {/* PC 侧边导航：菜单项贴近顶部（用户偏好），标题与菜单间距收紧 */}
       <aside className="hidden md:flex md:flex-col md:border-r md:border-border md:px-3 md:pt-4 md:pb-6 md:sticky md:top-0 md:h-dvh md:overflow-y-auto">
         <div className="flex items-center gap-2 px-3 pb-2">
           <img src="/icon.svg" alt="Foxi" className="h-5 w-5 rounded" />
           <p className="text-sm font-semibold tracking-wide text-foreground">Foxi</p>
         </div>
-        <nav className="space-y-1">
+        <nav className="space-y-1" aria-label="主导航">
           {MAIN_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={navLinkClass}>
               <Icon className="h-4 w-4" aria-hidden />
@@ -113,8 +127,12 @@ export function AppShell() {
 
       <div className="flex min-h-dvh flex-col pt-header-space md:pt-0">
         {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
-        <header className="fixed inset-x-0 top-0 z-header flex items-center justify-between gap-3 border-b border-border bg-background px-5 pb-3 pt-safe-lg md:hidden">
-          <button type="button" className="flex min-w-0 items-center gap-2" onClick={onLogoTap}>
+        <header className="fixed inset-x-0 top-0 z-header flex items-center justify-between gap-3 native-chrome border-b border-border/60 px-5 pb-3 pt-safe-lg md:hidden">
+          <button
+            type="button"
+            className="flex min-h-11 min-w-11 items-center gap-2"
+            onClick={onLogoTap}
+          >
             <img src="/icon.svg" alt="" className="h-6 w-6 rounded-md" />
             <span className="text-sm font-semibold tracking-wide text-foreground">Foxi</span>
           </button>
@@ -128,7 +146,7 @@ export function AppShell() {
               <>
                 <NavLink
                   to="/stats"
-                  className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+                  className="hidden h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted sm:flex"
                   aria-label="统计"
                 >
                   <BarChart3 className="h-4 w-4" aria-hidden />
@@ -136,11 +154,15 @@ export function AppShell() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-11 w-11 text-muted-foreground"
+                  className="hidden h-11 w-11 text-muted-foreground sm:inline-flex"
                   aria-label="刷新"
-                  onClick={onRefresh}
+                  disabled={refreshed}
+                  onClick={() => void onRefresh()}
                 >
-                  <RotateCw className={refreshed ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} aria-hidden />
+                  <RotateCw
+                    className={refreshed ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
+                    aria-hidden
+                  />
                 </Button>
               </>
             )}
@@ -157,6 +179,7 @@ export function AppShell() {
         {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12）；移动端底部大留白（iOS 惯例）+ 覆盖导航与指示条。
             Today 活动卡改由页面自身贴导航（pb 由 TodayPage 按会话态接管） */}
         <main
+          id="main-content"
           className={cn(
             'mx-auto w-full max-w-[900px] flex-1 px-5 pt-3 md:px-8 md:pb-10 md:pt-6',
             immersiveToday ? 'pb-0' : 'pb-40',
@@ -167,13 +190,19 @@ export function AppShell() {
 
         {/* 手机底部导航：pb-safe 避开 iOS home 指示条（globals.css 定义的工具类） */}
         <nav
+          aria-label="底部导航"
           className={cn(
-            'fixed inset-x-0 bottom-0 z-nav flex border-t border-border bg-background pb-safe-tight md:hidden',
+            'fixed inset-x-0 bottom-0 z-nav native-chrome flex border-t border-border/60 pb-safe-tight md:hidden',
             todayKeyboardAnchored && 'hidden',
           )}
         >
           {MAIN_NAV.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} className={bottomLinkClass}>
+            <NavLink
+              key={to}
+              to={to}
+              className={bottomLinkClass}
+              onClick={() => haptic('selection')}
+            >
               <Icon className="h-5 w-5" aria-hidden />
               {label}
             </NavLink>

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { SCRAMBLE_GUIDANCE } from '../../../components/question-answer';
+import { Dialog } from '../../../components/ui/dialog';
 import type { SessionTaskEntry, TodayTaskView } from '@el/shared';
 import { ThumbsDown } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
@@ -16,17 +17,32 @@ export const TYPE_LABEL: Record<TodayTaskView['taskType'], string> = {
 // ---------- 纯派生：只读记录展示 ----------
 
 export interface TodayItemGroup {
-  item: TodayTaskView['item'];
+  item: Pick<TodayTaskView['item'], 'id' | 'target'> & Partial<TodayTaskView['item']>;
   entries: SessionTaskEntry[];
 }
 
 /** 按 Learning Item 去重分组（首次出现顺序），同 item 多题共用一组（PRODUCT §5.1） */
 export function groupByItem(entries: SessionTaskEntry[]): TodayItemGroup[] {
   const groups = new Map<string, TodayItemGroup>();
+  const knownItems = new Map(entries.map((entry) => [entry.task.item.id, entry.task.item]));
   for (const entry of entries) {
-    const existing = groups.get(entry.task.item.id);
-    if (existing) existing.entries.push(entry);
-    else groups.set(entry.task.item.id, { item: entry.task.item, entries: [entry] });
+    const question = entry.task.question;
+    const targets =
+      question && 'targets' in question ? question.targets : entry.result?.itemResults;
+    const participants = targets?.length
+      ? targets.map(
+          (target) =>
+            knownItems.get(target.learningItemId) ?? {
+              id: target.learningItemId,
+              target: target.surface,
+            },
+        )
+      : [entry.task.item];
+    for (const item of participants) {
+      const existing = groups.get(item.id);
+      if (existing) existing.entries.push(entry);
+      else groups.set(item.id, { item, entries: [entry] });
+    }
   }
   return [...groups.values()];
 }
@@ -82,7 +98,7 @@ function correctAnswerOf(entry: SessionTaskEntry): string | null {
 
 const TRACK_LABEL = {
   pass: '对',
-  basic_pass: '基础',
+  basic_pass: '基本正确',
   fail: '错',
   pending: '未做',
   canceled: '撤销',
@@ -96,18 +112,21 @@ const TRACK_CLASS = {
   canceled: 'text-muted-foreground/70',
 } as const;
 
-function entryTrackKind(entry: SessionTaskEntry): keyof typeof TRACK_LABEL {
+function entryTrackKind(entry: SessionTaskEntry, itemId: string): keyof typeof TRACK_LABEL {
   if (entry.canceled) return 'canceled';
   if (!entry.result) return 'pending';
-  return entry.result.result;
+  return (
+    entry.result.itemResults?.find((result) => result.learningItemId === itemId)?.result ??
+    entry.result.result
+  );
 }
 
 /** 分组头内的结果轨迹：每次作答一枚文字徽标（不只靠颜色） */
-function ResultTrack({ entries }: { entries: SessionTaskEntry[] }) {
+function ResultTrack({ entries, itemId }: { entries: SessionTaskEntry[]; itemId: string }) {
   return (
     <span className="flex shrink-0 flex-wrap items-center justify-end gap-x-1 gap-y-0.5">
       {entries.map((entry) => {
-        const kind = entryTrackKind(entry);
+        const kind = entryTrackKind(entry, itemId);
         return (
           <span
             key={entry.task.taskId}
@@ -122,14 +141,14 @@ function ResultTrack({ entries }: { entries: SessionTaskEntry[] }) {
 }
 
 /** 单条作答记录（只读）：题面 / 作答 / 正确答案 / 解释；已完成记录可标记坏题（§6.5） */
-function RecordRow({ entry }: { entry: SessionTaskEntry }) {
+function RecordRow({ entry, itemId }: { entry: SessionTaskEntry; itemId: string }) {
   const badQuestion = useBadQuestion();
   const [confirmBad, setConfirmBad] = useState(false);
   const { task, result, canceled } = entry;
   const snippet = questionSnippetOf(task);
   const submitted = submittedAnswerOf(entry);
   const correct = correctAnswerOf(entry);
-  const kind = entryTrackKind(entry);
+  const kind = entryTrackKind(entry, itemId);
   const verdict =
     kind === 'canceled'
       ? '已撤销'
@@ -138,7 +157,7 @@ function RecordRow({ entry }: { entry: SessionTaskEntry }) {
         : kind === 'pass'
           ? '通过'
           : kind === 'basic_pass'
-            ? '基础通过'
+            ? '基本正确'
             : '未通过';
   const originSuffix = task.origin === 'reinforcement' ? ' · 补强' : '';
 
@@ -172,9 +191,11 @@ function RecordRow({ entry }: { entry: SessionTaskEntry }) {
           <span>{result.correction.betterVersion}</span>
         </p>
       )}
-      {result?.explanation != null && (
+      {result && task.question && 'kind' in task.question && task.question.kind === 'scramble' ? (
+        <p className="text-sm text-muted-foreground">{SCRAMBLE_GUIDANCE}</p>
+      ) : result?.explanation != null ? (
         <p className="text-sm text-muted-foreground">{result.explanation}</p>
-      )}
+      ) : null}
 
       {/* 坏题入口在具体作答记录上（PRODUCT §4.2/§6.5）；未作答/已撤销无记录可失效 */}
       {!canceled &&
@@ -240,20 +261,22 @@ function ItemGroup({ group }: { group: TodayItemGroup }) {
         <span className="min-w-0">
           <span className="flex items-baseline gap-2">
             <span className="truncate text-sm font-medium text-foreground">{item.target}</span>
-            {item.type === 'word' && item.ipa !== null && (
+            {item.type === 'word' && item.ipa != null && (
               <span className="shrink-0 text-xs text-muted-foreground">{item.ipa}</span>
             )}
           </span>
-          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-            {item.meaning}
-          </span>
+          {item.meaning && (
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+              {item.meaning}
+            </span>
+          )}
         </span>
-        <ResultTrack entries={entries} />
+        <ResultTrack entries={entries} itemId={item.id} />
       </button>
       {open && (
         <ul className="space-y-2 border-t border-border p-3">
           {entries.map((entry) => (
-            <RecordRow key={entry.task.taskId} entry={entry} />
+            <RecordRow key={entry.task.taskId} entry={entry} itemId={item.id} />
           ))}
         </ul>
       )}
@@ -282,27 +305,16 @@ export function TodayLearningSheet({
   entries: SessionTaskEntry[];
   onClose: () => void;
 }) {
-  return createPortal(
-    <div
-      role="dialog"
-      aria-label="今日学习"
-      className="fixed inset-0 z-overlay flex items-end justify-center bg-foreground/20"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[70vh] w-full max-w-[420px] overflow-y-auto rounded-t-xl border-t border-border bg-card p-4 pb-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-sm font-medium text-foreground">今日学习</p>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            关闭
-          </Button>
-        </div>
-        <p className="mb-3 text-xs text-muted-foreground">按学习项汇总今日作答，只读回看</p>
-        <TodayLearningList entries={entries} />
+  return (
+    <Dialog label="今日学习" onClose={onClose} sheet>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">今日学习</h2>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          关闭
+        </Button>
       </div>
-    </div>,
-    document.body,
+      <p className="mb-4 text-xs leading-6 text-muted-foreground">按学习项汇总今日作答，只读回看</p>
+      <TodayLearningList entries={entries} />
+    </Dialog>
   );
 }

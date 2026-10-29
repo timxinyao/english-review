@@ -54,3 +54,8 @@
 - 留档：`docs/phases/phase-13-scramble-production.md`
 - 规格：`docs/superpowers/specs/2026-10-28-multi-item-scramble-production-design.md`
 
+
+## Phase 14 — Native learning reliability
+- 状态：implemented / locally verified（2026-10-29）；原生设备验收与完整浏览器 runner 限制见 `docs/NATIVE_LEARNING_QA.md`
+- 留档：`docs/phases/phase-14-native-learning.md`
+- 规格：`docs/superpowers/specs/2026-10-29-native-learning-upgrade-design.md`

@@ -32,3 +32,5 @@ export * from './schemas/api/backup.js';
 
 // AI 任务 Schema 与目录
 export * from './schemas/ai/index.js';
+
+export * from './scramble.js';

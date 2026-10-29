@@ -127,6 +127,19 @@ describe('完成页再学一批', () => {
     expect(await screen.findByRole('button', { name: '再学 10 个新词' })).toBeVisible();
   });
 
+  it('empty new queue never offers an impossible extra learning batch', async () => {
+    stubApi({ '/api/today': { ...makeCompleted({}, 9), newQueueCount: 0 } });
+    renderTodayApp();
+    await screen.findByText('今天完成了');
+    expect(screen.queryByRole('button', { name: /再学/ })).toBeNull();
+  });
+
+  it('extra batch count is capped by available new items, not only quota', async () => {
+    stubApi({ '/api/today': { ...makeCompleted({}, 9), newQueueCount: 2 } });
+    renderTodayApp();
+    expect(await screen.findByRole('button', { name: '再学 2 个新词' })).toBeVisible();
+  });
+
   it('remainingNewQuota=0：无按钮', async () => {
     stubApi({ '/api/today': makeCompleted({}, 0) });
     renderTodayApp();

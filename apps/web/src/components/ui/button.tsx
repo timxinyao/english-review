@@ -3,7 +3,7 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { cn } from '../../lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex shrink-0 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50 select-none',
+  'native-button inline-flex shrink-0 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50 select-none',
   {
     variants: {
       variant: {
@@ -16,10 +16,10 @@ const buttonVariants = cva(
         destructive: 'bg-destructive text-accent-foreground hover:brightness-90',
       },
       size: {
-        default: 'h-11 px-4',
+        default: 'h-12 px-4 text-base',
         sm: 'h-8 px-3 text-xs',
         lg: 'h-12 px-6 text-base',
-        icon: 'h-9 w-9',
+        icon: 'h-11 w-11',
       },
     },
     defaultVariants: {

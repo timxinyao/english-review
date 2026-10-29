@@ -77,7 +77,7 @@ export const PracticeAnswerResponse = z.object({
       z.object({
         learningItemId: z.string(),
         surface: z.string(),
-        result: z.enum(['pass', 'fail']),
+        result: z.enum(['pass', 'basic_pass', 'fail']),
       }),
     )
     .nullable()

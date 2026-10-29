@@ -7,7 +7,7 @@ import { notificationTag, parsePushPayload, shouldShowNotification } from './lib
  * - precache：构建时注入 self.__WB_MANIFEST（precacheAndRoute 挂路由）；不注册导航回退
  *   （沿用旧 generateSW 配置 navigateFallback=undefined 语义）→ 不拦截页面导航与 /api
  * - autoUpdate 语义保留：install 即 skipWaiting + activate 即 clients.claim
- *   （配合 lib/pwa-update.ts 的 controllerchange 自动刷新），cleanupOutdatedCaches 清旧缓存
+ *   （页面不强制热刷新，保留未提交作答，下次正常打开生效），cleanupOutdatedCaches 清旧缓存
  * - push：造句批改完成通知。服务端恒发（覆盖 iOS 后台冻结——页面冻结时连接未断、
  *   服务端无从得知客户端已不等结果），前台是否静默由这里兜底：存在可见窗口
  *   （用户正看着结果卡）即跳过 showNotification；payload.test===true 为订阅即自检，

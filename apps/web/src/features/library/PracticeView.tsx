@@ -6,7 +6,6 @@ import { HighlightText } from '../../components/highlight-text';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import { speak } from '../../lib/tts';
-import { ApiError } from '../../lib/api';
 import { usePractice, usePracticeAnswer } from './api';
 
 interface PracticeViewProps {
@@ -65,7 +64,7 @@ function RecallPracticeCard({
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 text-muted-foreground"
+        className="h-11 w-11 text-muted-foreground"
         aria-label="发音"
         onClick={() => void speak(question.target, { userGesture: true })}
       >

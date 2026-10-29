@@ -73,7 +73,7 @@ export function LibraryPage() {
             aria-pressed={filter === key}
             onClick={() => setFilter(key)}
             className={cn(
-              'inline-flex h-9 min-h-9 shrink-0 items-center rounded-full border px-3.5 text-[13px] transition-colors',
+              'inline-flex h-11 min-h-11 shrink-0 items-center rounded-full border px-3.5 text-[13px] transition-colors',
               filter === key
                 ? 'border-accent bg-accent-soft text-accent'
                 : 'border-border text-muted-foreground hover:bg-muted',
@@ -84,7 +84,11 @@ export function LibraryPage() {
         ))}
       </div>
 
-      {isLoading && <p className="py-8 text-center text-sm text-muted-foreground">加载中…</p>}
+      {isLoading && (
+        <p role="status" className="py-8 text-center text-sm text-muted-foreground">
+          加载中…
+        </p>
+      )}
       {isError && (
         <div className="space-y-2 py-8 text-center">
           <p className="text-sm text-destructive">读取失败，请重试。</p>
@@ -115,15 +119,15 @@ export function LibraryPage() {
       )}
 
       {data && data.items.length > 0 && (
-        <ul className="border-t border-border">
+        <ul className="overflow-hidden rounded-xl bg-card">
           {data.items.map((item) => (
             <li key={item.id} className="border-b border-border">
               <Link
                 to={`/library/${item.id}`}
-                className="block rounded-lg px-1 py-3 transition-colors hover:bg-muted"
+                className="block px-4 py-4 transition-colors hover:bg-muted"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium text-foreground">{item.target}</p>
+                  <p className="text-xl font-literary text-foreground break-words">{item.target}</p>
                   {item.tags.length > 0 && (
                     <span className="flex flex-wrap justify-end gap-1">
                       {item.tags.map((tag) => (
@@ -146,7 +150,9 @@ export function LibraryPage() {
                     输出 {item.productionStage}
                   </span>
                   {item.source && (
-                    <span className="rounded border border-border px-1.5 py-0.5">{item.source}</span>
+                    <span className="rounded border border-border px-1.5 py-0.5">
+                      {item.source}
+                    </span>
                   )}
                 </p>
               </Link>

@@ -134,6 +134,16 @@ describe('ImportWizard 导入向导', () => {
     expect(select1.value).toBe('merge');
   });
 
+  it('导入预览显示原句译文，便于确认补译文内容', async () => {
+    const { textarea } = await openWizard();
+    const fixture = makePreview();
+    fixture.items[0]!.candidate.source_example_translation = '这会让你精疲力尽。';
+    preview.mockResolvedValue(fixture);
+    fireEvent.change(textarea, { target: { value: JSON.stringify(VALID_DOC) } });
+    fireEvent.click(screen.getByRole('button', { name: '预览' }));
+    expect(await screen.findByText('这会让你精疲力尽。')).toBeVisible();
+  });
+
   it('提交带回用户决定，成功后显示摘要并 invalidate library query', async () => {
     const { queryClient } = await openPreview();
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
@@ -156,7 +166,9 @@ describe('ImportWizard 导入向导', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: libraryKeys.all });
 
     fireEvent.click(screen.getByRole('button', { name: '返回 Library 列表' }));
-    expect(await screen.findByText('还没有学习项。可由教练帮你导入，或在电脑上打开本页使用导入。')).toBeVisible();
+    expect(
+      await screen.findByText('还没有学习项。可由教练帮你导入，或在电脑上打开本页使用导入。'),
+    ).toBeVisible();
   });
 
   it('commit 404（token 过期）提示重新预览', async () => {

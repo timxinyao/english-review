@@ -23,11 +23,11 @@ export function CompletedToday({
   const entries = sessionTasks?.tasks ?? [];
   const undoableTaskId = sessionTasks?.undoableTaskId ?? null;
   const extend = useExtendSession();
-  const extendCount = remainingNewQuota ?? EXTEND_BATCH_UNLIMITED;
+  const extendCount = Math.min(data.newQueueCount, remainingNewQuota ?? EXTEND_BATCH_UNLIMITED);
   const [showLog, setShowLog] = useState(false);
 
   function renderExtend() {
-    if (remainingNewQuota === 0) return null;
+    if (!(extendCount > 0)) return null;
     if (extend.isSuccess) return null; // invalidate 后组件将卸载，双保险
     return (
       <div className="space-y-1">
@@ -72,12 +72,7 @@ export function CompletedToday({
         <section className="space-y-1.5">
           {!showLog ? (
             <div className="flex justify-center">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowLog(true)}
-              >
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowLog(true)}>
                 查看今日记录
               </Button>
             </div>

@@ -232,6 +232,12 @@ describe('Today「今日学习」只读列表（PRODUCT §5.1/§6.5）', () => {
   it('作答历史按 betterVersionKind 标记 rewrite 为参考表达', async () => {
     const prod = makeProductionTask({
       taskId: 'task-honored-guests',
+      // Historical correction record predates scramble; preserve its legacy question shape.
+      question: {
+        questionId: 'legacy-honored',
+        zhPrompt: '欢迎尊贵的来宾。',
+        mustUse: 'honored guests',
+      },
       item: {
         id: 'i-honored-guests',
         type: 'chunk',
@@ -244,6 +250,8 @@ describe('Today「今日学习」只读列表（PRODUCT §5.1/§6.5）', () => {
     const answer = makeProductionAnswer({
       result: 'basic_pass',
       submittedAnswerText: 'I am honored guests.',
+      itemResults: null,
+      referenceTokens: null,
       correction: {
         segments: [{ text: 'I am honored guests.', type: 'same' }],
         correctedSentence: 'I am honored guests.',
@@ -274,6 +282,7 @@ describe('Today「今日学习」只读列表（PRODUCT §5.1/§6.5）', () => {
     const t1b = makeChoiceTask({ taskId: 'task-1b', item: alphaItem });
     const prod = makeProductionTask({
       taskId: 'task-p',
+      question: { questionId: 'legacy-epsilon', zhPrompt: '不要放弃梦想。', mustUse: 'epsilon' },
       item: { id: 'i9', type: 'chunk', target: 'epsilon', meaning: '放弃', ipa: null, notes: null },
     });
     const gaveUp = makeWrongAnswer({

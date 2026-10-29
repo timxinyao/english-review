@@ -23,8 +23,14 @@ import {
   undoTodayTask,
   type TodayDeps,
 } from '../../src/modules/today/service.js';
+import { maybeSavePersonalExample } from '../../src/modules/learning-items/service.js';
 import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
-import { choicePayload, createFakeDeps, DEFAULT_OPTIONS } from '../helpers/today-fakes.js';
+import {
+  choicePayload,
+  createFakeDeps,
+  fakeScramblePayload,
+  DEFAULT_OPTIONS,
+} from '../helpers/today-fakes.js';
 
 const TZ = 'Asia/Shanghai';
 const NOW = new Date('2026-09-24T02:00:00.000Z');
@@ -696,11 +702,7 @@ describe('undo（回滚覆盖）', () => {
         id: `${itemId}-${suffix}`,
         type: 'production',
         promptText: `请使用 ${itemId} 表达这个意思。`,
-        payloadJson: JSON.stringify({
-          mustUse: itemId,
-          referenceAnswer: `They ${itemId} naturally.`,
-          acceptanceNotes: '允许变化。',
-        }),
+        payloadJson: JSON.stringify(fakeScramblePayload([{ id: itemId, target: itemId }])),
         correctOptionId: null,
       });
     }
@@ -849,7 +851,7 @@ describe('undo（回滚覆盖）', () => {
     await seedDueChoiceItem('another-word');
     await startSession();
     const t = liveTasksOf('pp-1').find((x) => x.taskType === 'production')!;
-    await answerTodayTask(db, deps, TZ, NOW, t.id, { answerText: `I use pp-1 well.` });
+    await answerTodayTask(db, deps, TZ, NOW, t.id, { selectedTokens: ['Please', 'pp-1', 'today'] });
     expect(db.select().from(learningItems).where(eq(learningItems.id, 'pp-1')).get()!.status).toBe(
       'mastered',
     );
@@ -893,7 +895,7 @@ describe('undo（回滚覆盖）', () => {
     await seedProductionItemWithSpare('pf-1', 25);
     await startSession();
     const t = liveTasksOf('pf-1').find((x) => x.taskType === 'production')!;
-    await answerTodayTask(db, deps, TZ, NOW, t.id, { answerText: 'nothing relevant' }); // fail
+    await answerTodayTask(db, deps, TZ, NOW, t.id, { selectedTokens: ['today', 'Please'] }); // fail
     expect(dim('pf-1', 'production')!.lapses).toBe(1);
     expect(
       db
@@ -1020,7 +1022,9 @@ describe('undo（回滚覆盖）', () => {
     db.delete(questions).where(eq(questions.id, 'na-1-p2')).run(); // 仅原题，生成失败
     await startTodaySession(db, depsNoGen, TZ, NOW);
     const t = taskByItem('na-1')!;
-    await answerTodayTask(db, depsNoGen, TZ, NOW, t.id, { answerText: 'I use na-1 well.' });
+    await answerTodayTask(db, depsNoGen, TZ, NOW, t.id, {
+      selectedTokens: ['Please', 'na-1', 'today'],
+    });
     const statsBefore = db.select().from(dailyStats).get();
 
     await expect(undoTodayTask(db, depsNoGen, TZ, T1, t.id)).rejects.toMatchObject({
@@ -1060,11 +1064,7 @@ describe('undo（保留数据恢复）', () => {
         id: `${itemId}-${suffix}`,
         type: 'production',
         promptText: `请使用 ${itemId} 表达这个意思。`,
-        payloadJson: JSON.stringify({
-          mustUse: itemId,
-          referenceAnswer: `They ${itemId} naturally.`,
-          acceptanceNotes: '允许变化。',
-        }),
+        payloadJson: JSON.stringify(fakeScramblePayload([{ id: itemId, target: itemId }])),
         correctOptionId: null,
       });
     }
@@ -1100,6 +1100,50 @@ describe('undo（保留数据恢复）', () => {
       .all();
   }
 
+  /** Historical settled-data fixture. Current scramble deliberately does not produce these assets. */
+  async function attachHistoricalExample(
+    task: typeof reviewTasks.$inferSelect,
+    when: Date,
+    testDeps: TodayDeps,
+  ) {
+    const question = db.select().from(questions).where(eq(questions.id, task.questionId!)).get()!;
+    const originalText = `I use ${task.learningItemId} well.`;
+    const evaluation = await testDeps.evaluateProduction(db, question, originalText);
+    const saved = maybeSavePersonalExample(
+      db,
+      task.learningItemId,
+      {
+        result: evaluation.result,
+        ...evaluation.candidate,
+        correctedSentence: evaluation.correctedSentence,
+        originalText,
+        betterVersion: evaluation.betterVersion,
+        betterVersionKind: evaluation.betterVersionKind ?? null,
+      },
+      when,
+    );
+    const attempt = attemptOfTask(task.id);
+    const post = JSON.parse(attempt.postStateJson!);
+    post.personalExampleId = saved.exampleId;
+    post.personalExampleText = saved.exampleId
+      ? db.select().from(learningExamples).where(eq(learningExamples.id, saved.exampleId)).get()!
+          .text
+      : null;
+    post.replacedPersonalExample = saved.replacedExampleSnapshot;
+    db.update(attempts)
+      .set({
+        answerText: originalText,
+        correctionJson: JSON.stringify({
+          segments: evaluation.segments,
+          corrected: evaluation.correctedSentence,
+          better: evaluation.betterVersion,
+        }),
+        postStateJson: JSON.stringify(post),
+      })
+      .where(eq(attempts.id, attempt.id))
+      .run();
+  }
+
   async function answerPass(
     itemId: string,
     when: Date,
@@ -1108,7 +1152,10 @@ describe('undo（保留数据恢复）', () => {
     const started = await startTodaySession(db, testDeps, TZ, NOW);
     if (started.status !== 'active') throw new Error('start 失败');
     const t = liveTasksOf(itemId).find((x) => x.taskType === 'production')!;
-    await answerTodayTask(db, testDeps, TZ, when, t.id, { answerText: `I use ${itemId} well.` });
+    await answerTodayTask(db, testDeps, TZ, when, t.id, {
+      selectedTokens: ['Please', itemId, 'today'],
+    });
+    await attachHistoricalExample(t, when, testDeps);
     return t;
   }
 
@@ -1211,8 +1258,9 @@ describe('undo（保留数据恢复）', () => {
     await startTodaySession(db, polishedDeps, TZ, NOW);
     const task = taskByItem('legacy-insert')!;
     await answerTodayTask(db, polishedDeps, TZ, NOW, task.id, {
-      answerText: 'I use legacy-insert well.',
+      selectedTokens: ['Please', 'legacy-insert', 'today'],
     });
+    await attachHistoricalExample(task, NOW, polishedDeps);
     const attempt = attemptOfTask(task.id);
     const correction = JSON.parse(attempt.correctionJson!) as {
       corrected: string;

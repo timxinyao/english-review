@@ -64,6 +64,11 @@ export function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/** Translation attachment is stricter than legacy duplicate detection: case can change meaning. */
+function sentenceIdentity(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 // ---------- AI judge（可注入） ----------
 
 export type DuplicateJudge = (
@@ -212,6 +217,20 @@ export async function previewImport(
   payload: LibraryImport,
 ): Promise<ImportPreviewResponse> {
   const rows = await loadLibraryRows(deps.db);
+  const exampleRows = await deps.db
+    .select({
+      learningItemId: learningExamples.learningItemId,
+      text: learningExamples.text,
+      translation: learningExamples.translation,
+      kind: learningExamples.kind,
+    })
+    .from(learningExamples);
+  const examplesByItem = new Map<string, typeof exampleRows>();
+  for (const example of exampleRows) {
+    const own = examplesByItem.get(example.learningItemId) ?? [];
+    own.push(example);
+    examplesByItem.set(example.learningItemId, own);
+  }
   const items: ImportPreviewItem[] = [];
 
   for (const [index, candidate] of payload.items.entries()) {
@@ -253,15 +272,29 @@ export async function previewImport(
         ? { from: existingOverride, to: candidate.production_enabled_override }
         : null;
 
+    const incomingTranslation = candidate.source_example_translation?.trim() || null;
+    const sameSentence = (examplesByItem.get(match.id) ?? []).filter(
+      (example) => sentenceIdentity(example.text) === sentenceIdentity(candidate.source_example),
+    );
+    const matchingExample =
+      sameSentence.find((example) => example.kind === 'source') ?? sameSentence[0];
+    const existingTranslation = matchingExample?.translation?.trim() || null;
+    if (incomingTranslation && existingTranslation && incomingTranslation !== existingTranslation) {
+      warnings.push('原句译文与现有译文不同，合并时保留已有译文；如需修改请在 Library 编辑。');
+    }
+
     if (isExactDuplicate(match, candidate)) {
+      const translationBackfill = incomingTranslation !== null && existingTranslation === null;
       items.push({
         index,
         candidate,
         suggestion: {
-          action: productionGoalChange ? 'merge' : 'skip_exact_duplicate',
+          action: productionGoalChange || translationBackfill ? 'merge' : 'skip_exact_duplicate',
           reason: productionGoalChange
             ? '内容完全重复，但造句目标与现有项不同；确认合并才会修改目标。'
-            : '与库内现有项的 target、释义与原句完全一致，属于完全重复。',
+            : translationBackfill
+              ? '建议合并保存缺失的原句译文（仅关联对应句子），保留已有学习进度。'
+              : '与库内现有项的 target、释义与原句完全一致，属于完全重复。',
           confidence: 1,
           source: 'rule_exact',
         },
@@ -353,12 +386,14 @@ function newExampleRow(
   text: string,
   sortOrder: number,
   now: string,
+  translation: string | null = null,
 ) {
   return {
     id: randomUUID(),
     learningItemId: itemId,
     kind,
     text,
+    translation,
     originalText: null,
     betterText: null,
     pinned: 0,
@@ -401,7 +436,14 @@ function createItemFromCandidate(tx: DbTx, candidate: LibraryImportItem): string
     .run();
   tx.insert(learningExamples)
     .values([
-      newExampleRow(id, 'source', candidate.source_example, 0, now),
+      newExampleRow(
+        id,
+        'source',
+        candidate.source_example,
+        0,
+        now,
+        candidate.source_example_translation?.trim() || null,
+      ),
       ...candidate.extra_examples.map((text, i) => newExampleRow(id, 'extra', text, i, now)),
     ])
     .run();
@@ -447,14 +489,29 @@ function mergeCandidateIntoItem(
     .where(eq(learningExamples.learningItemId, existingId))
     .all();
   const seenTexts = new Set(examples.map((e) => normalizeText(e.text)));
+  const sourceText = sentenceIdentity(candidate.source_example);
+  const translation = candidate.source_example_translation?.trim() || null;
+  // Prefer the retained source if historical data happens to repeat it among extras.
+  const matchingExample =
+    examples.find((e) => e.kind === 'source' && sentenceIdentity(e.text) === sourceText) ??
+    examples.find((e) => sentenceIdentity(e.text) === sourceText);
+  if (translation && matchingExample && !matchingExample.translation?.trim()) {
+    tx.update(learningExamples)
+      .set({ translation, updatedAt: now })
+      .where(eq(learningExamples.id, matchingExample.id))
+      .run();
+  }
   const nextSortOrder =
     examples.filter((e) => e.kind === 'extra').reduce((max, e) => Math.max(max, e.sortOrder), -1) +
     1;
 
   const appendTexts: string[] = [];
-  for (const text of [candidate.source_example, ...candidate.extra_examples]) {
+  for (const [index, text] of [candidate.source_example, ...candidate.extra_examples].entries()) {
     const normalized = normalizeText(text);
-    if (seenTexts.has(normalized)) continue;
+    // Preserve legacy case-insensitive deduplication for ordinary examples, but a
+    // translated source with different capitalization needs its own safe association.
+    const translatedDistinctSource = index === 0 && translation && !matchingExample;
+    if (seenTexts.has(normalized) && !translatedDistinctSource) continue;
     seenTexts.add(normalized);
     appendTexts.push(text);
   }
@@ -462,7 +519,14 @@ function mergeCandidateIntoItem(
     tx.insert(learningExamples)
       .values(
         appendTexts.map((text, i) =>
-          newExampleRow(existingId, 'extra', text, nextSortOrder + i, now),
+          newExampleRow(
+            existingId,
+            'extra',
+            text,
+            nextSortOrder + i,
+            now,
+            sentenceIdentity(text) === sourceText ? translation : null,
+          ),
         ),
       )
       .run();
@@ -610,6 +674,7 @@ export async function exportLibrary(db: AppDatabase): Promise<ExportLibraryRespo
       meaning: row.meaning,
       ipa: row.type === 'word' ? row.ipa : null,
       source_example: source.text,
+      source_example_translation: source.translation,
       // LibraryImportItem 约束 extra_examples ≤ 10，超出截断
       extra_examples: [...extras, ...personals].slice(0, 10),
       source: row.source,
@@ -693,6 +758,7 @@ export function exportBackup(db: AppDatabase, now: Date): BackupExport {
     examples: (examplesByItem.get(row.id) ?? []).map((e): BackupExample => ({
       kind: e.kind as BackupExample['kind'],
       text: e.text,
+      translation: e.translation,
       originalText: e.originalText,
       betterText: e.betterText,
       pinned: e.pinned,
@@ -837,6 +903,7 @@ export async function commitRestore(
       learningItemId: item.id,
       kind: ex.kind,
       text: ex.text,
+      translation: ex.translation ?? null,
       originalText: ex.originalText ?? null,
       betterText: ex.betterText ?? null,
       pinned: ex.pinned ?? 0,

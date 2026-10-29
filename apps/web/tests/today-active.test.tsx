@@ -18,6 +18,20 @@ import {
 
 afterEach(cleanup);
 
+it('revealing recall brings the meaning into the scroll region on short screens', async () => {
+  const scroll = vi.fn();
+  const previous = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = scroll;
+  try {
+    stubApi({ '/api/today': () => makeActive(makeChoiceTask()) });
+    renderTodayApp();
+    fireEvent.click(await screen.findByRole('button', { name: '显示答案' }));
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: 'nearest' }));
+  } finally {
+    HTMLElement.prototype.scrollIntoView = previous;
+  }
+});
+
 describe('V2 pending 题目准备（2026-10-03 两级契约）', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -77,7 +91,7 @@ describe('V2 pending 题目准备（2026-10-03 两级契约）', () => {
     resolve();
   });
 
-  it('生成失败保留任务和总数，重试后 Production target 与底部输入可达', async () => {
+  it('生成失败保留任务和总数，重试后 Production target、词库与提交可达', async () => {
     const ready = makeProductionTask();
     let tries = 0;
     stubApi({
@@ -95,7 +109,8 @@ describe('V2 pending 题目准备（2026-10-03 两级契约）', () => {
     expect(screen.queryByLabelText('表达答案')).toBeNull();
     expect(apiCalls('/api/today/tasks/task-prod/answer')).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
-    expect(await screen.findByLabelText('表达答案')).toBeVisible();
+    expect(await screen.findByTestId('scramble-chip-bank')).toBeVisible();
+    expect(screen.getByRole('button', { name: '提交' })).toBeDisabled();
     expect(screen.getByText('give up')).toBeVisible();
     expect(screen.queryByLabelText('填空答案')).toBeNull();
   });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   AnswerRequest,
+  AnswerResponse,
+  PracticeAnswerResponse,
   GenerateProductionScrambleResult,
   ProductionQuestionView,
   ScramblePayload,
@@ -67,9 +69,9 @@ describe('ScrambleQuestionView / ProductionQuestionView', () => {
 
 describe('AnswerRequest selectedTokens', () => {
   it('accepts selectedTokens alone', () => {
-    expect(AnswerRequest.parse({ selectedTokens: ['Long', 'meetings'] }).selectedTokens).toHaveLength(
-      2,
-    );
+    expect(
+      AnswerRequest.parse({ selectedTokens: ['Long', 'meetings'] }).selectedTokens,
+    ).toHaveLength(2);
   });
 
   it('rejects giveUp with selectedTokens', () => {
@@ -89,4 +91,32 @@ describe('GenerateProductionScrambleResult', () => {
     });
     expect(r.reference_tokens).toHaveLength(6);
   });
+});
+
+describe('scramble payload integrity', () => {
+  it('rejects duplicate target ids', () => {
+    expect(
+      ScramblePayload.safeParse({
+        ...fixturePayload,
+        targets: [fixturePayload.targets[0], fixturePayload.targets[0]],
+      }).success,
+    ).toBe(false);
+  });
+  it('rejects whitespace-only chips and surfaces', () => {
+    expect(ScramblePayload.safeParse({ ...fixturePayload, referenceTokens: [' '] }).success).toBe(
+      false,
+    );
+    expect(
+      ScramblePayload.safeParse({
+        ...fixturePayload,
+        targets: [{ ...fixturePayload.targets[0], surface: ' ' }],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+it('accepts conservative per-target evidence in Today and Practice responses', () => {
+  const evidence = [{ learningItemId: 'a', surface: 'wear down', result: 'basic_pass' }];
+  expect(AnswerResponse.shape.itemResults.safeParse(evidence).success).toBe(true);
+  expect(PracticeAnswerResponse.shape.itemResults.safeParse(evidence).success).toBe(true);
 });

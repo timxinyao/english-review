@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiTask } from '@el/shared';
 import type { AppConfig } from '../../src/config.js';
 import { TASK_MODEL_POLICY, providerSlotForTask } from '../../src/ai/taskConfig.js';
 import { createRoutingProvider, type AiProvider, type ProviderRequest } from '../../src/ai/provider/index.js';
 import { clearModelsCacheForTests, resolveModelForTask } from '../../src/ai/models.js';
 import { testAiConfig } from '../helpers/ai.js';
+
+afterEach(() => { vi.restoreAllMocks(); clearModelsCacheForTests(); });
 
 function configWithBg(bg: Partial<Pick<AppConfig, 'aiBgApiKey' | 'aiBgApiBase' | 'aiBgModels'>>): AppConfig {
   return {
@@ -77,6 +79,7 @@ describe('任务 → provider 槽路由（2026-10-06 双槽）', () => {
 
   it('resolveModelForTask：background 任务解析后台槽模型（显式配置直取，无网络发现）', async () => {
     clearModelsCacheForTests();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected model discovery'));
     const config = {
       ...configWithBg({
         aiBgApiKey: 'bg-key',
@@ -87,6 +90,7 @@ describe('任务 → provider 槽路由（2026-10-06 双槽）', () => {
     };
     expect(await resolveModelForTask(config, 'generateProductionPrompt')).toBe('glm-5.3');
     expect(await resolveModelForTask(config, 'checkProduction')).toBe('deepseek-flash');
+    expect(fetchSpy).not.toHaveBeenCalled();
     clearModelsCacheForTests();
   });
 });

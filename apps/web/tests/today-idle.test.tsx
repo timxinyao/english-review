@@ -26,7 +26,7 @@ describe('TodayPage idle 态', () => {
     expect(screen.queryByText(/积压还剩/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '开始今日复习' })).toBeVisible();
     expect(screen.getByText('做一点也行，不必一次清完')).toBeVisible();
-    expect(screen.getByText('Recently learned')).toBeVisible();
+    expect(screen.getByText('最近学过')).toBeVisible();
     expect(screen.getByText('wear down')).toBeVisible();
     expect(screen.getByText('消耗；使疲惫')).toBeVisible();
     expect(screen.getByText('raw')).toBeVisible();
@@ -43,7 +43,7 @@ describe('TodayPage idle 态', () => {
     expect(screen.getByText('积压还剩 12 题，之后每天自动安排')).toBeVisible();
   });
 
-  it('无到期无新学：显示空态文案，仍可开始（空会话直接完成）', async () => {
+  it('empty plan links to Library without creating an empty session', async () => {
     stubApi({
       '/api/today': makeIdle({
         dueItems: 0,
@@ -55,7 +55,8 @@ describe('TodayPage idle 态', () => {
     renderTodayApp();
 
     expect(await screen.findByText('今天没有到期的复习')).toBeVisible();
-    expect(screen.getByRole('button', { name: '开始今日复习' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '开始今日复习' })).toBeNull();
+    expect(screen.getByRole('link', { name: '看看词库' })).toHaveAttribute('href', '/library');
   });
 
   it('Recently learned 最多展示 5 条', async () => {

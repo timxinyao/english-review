@@ -83,6 +83,7 @@ export const LibraryItemDetail = z.object({
     archivedAt: z.string().nullable(),
   }),
   sourceExample: z.string(),
+  sourceExampleTranslation: z.string().nullable().optional(),
   extraExamples: z.array(z.string()),
   personalExamples: z.array(PersonalExampleDto),
   reviewStates: z.array(ReviewStateDto),
@@ -116,6 +117,7 @@ export const UpdateLearningItemRequest = z.object({
   tags: z.array(z.string().min(1)).optional(),
   notes: z.string().nullable().optional(),
   sourceExample: z.string().min(1).optional(),
+  sourceExampleTranslation: z.string().nullable().optional(),
   extraExamples: z.array(z.string().min(1)).optional(),
   personalExamples: z
     .array(

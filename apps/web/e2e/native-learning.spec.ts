@@ -14,6 +14,30 @@ test('compact learning: stable chips, feedback, visible recall meaning and modal
   await expect(page).toHaveURL(/\/today$/);
   const reset = await page.request.post('/api/__e2e/reset');
   expect(reset.ok()).toBe(true);
+  // Backfill an existing source sentence through the real import path, without resetting its review state.
+  const translation = '他的解释在我看来很有道理。';
+  const preview = await page.request.post('/api/import/preview', {
+    data: {
+      version: '2.0',
+      items: [
+        {
+          type: 'chunk',
+          target: 'make sense',
+          meaning: '讲得通',
+          source_example: 'His explanation makes sense to me.',
+          source_example_translation: translation,
+        },
+      ],
+    },
+  });
+  expect(preview.ok()).toBe(true);
+  const previewBody = await preview.json();
+  expect(previewBody.items[0].suggestion.action).toBe('merge');
+  const imported = await page.request.post('/api/import/commit', {
+    data: { previewToken: previewBody.previewToken, decisions: [] },
+  });
+  expect(imported.ok()).toBe(true);
+  expect((await imported.json()).merged).toBe(1);
   await page.reload();
   await page.getByRole('button', { name: '开始今日复习' }).click();
   const bank = page.getByTestId('scramble-chip-bank');
@@ -27,10 +51,13 @@ test('compact learning: stable chips, feedback, visible recall meaning and modal
   await expect(page.getByTestId('scramble-result')).toBeVisible();
   await expect(page.getByText(/不是自由造句批改/)).toBeVisible();
   await page.getByRole('button', { name: '继续', exact: true }).click();
+  await expect(page.getByText(translation, { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '显示答案', exact: true }).click();
   await expect(page.getByText('讲得通', { exact: true })).toBeInViewport();
+  await expect(page.getByText(translation, { exact: true })).toBeInViewport();
   await expect(page.getByRole('button', { name: '良好', exact: true })).toBeInViewport();
   await page.getByRole('button', { name: '良好', exact: true }).click();
+  await expect(page.getByText(translation, { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '查看今日学习' }).click();
   const dialog = page.getByRole('dialog', { name: '今日学习' });
   await expect(dialog).toHaveAttribute('aria-modal', 'true');

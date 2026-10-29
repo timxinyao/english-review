@@ -9,15 +9,16 @@ import type {
 import type { AppDatabase } from '../../db/client.js';
 import { JobLockTimeoutError, withJobLock } from '../../db/job-lock.js';
 import { attempts, learningExamples, learningItems, questions } from '../../db/schema.js';
-import { AppError, appError } from '../../lib/errors.js';
+import { appError } from '../../lib/errors.js';
 import type {
   DbExecutor,
   ProductionEvaluation,
   QuestionPoolType,
   QuestionRow,
 } from '../questions/service.js';
-import { judgeScramble } from '../questions/scramble-judge.js';
-import { maybeSavePersonalExample, trimProductionHistory } from '../learning-items/service.js';
+import { judgeScramble, validChipSelection } from '../questions/scramble-judge.js';
+import { parseScramblePayload } from '../questions/service.js';
+import { trimProductionHistory } from '../learning-items/service.js';
 import { effectiveProductionEnabled } from '../review/goals.js';
 
 // ---------------------------------------------------------------------------
@@ -189,33 +190,6 @@ function shuffleChips(chips: string[], seed: string): string[] {
     arr[j] = tmp;
   }
   return arr;
-}
-
-function parseScramblePayload(question: QuestionRow): {
-  schema: 'scramble_v1';
-  targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
-  zhPrompt: string;
-  referenceTokens: string[];
-  distractors: string[];
-  acceptableMorphology: string[];
-  acceptanceNotes: string;
-} | null {
-  try {
-    const parsed = JSON.parse(question.payloadJson) as Record<string, unknown>;
-    if (!parsed || parsed.schema !== 'scramble_v1') return null;
-    if (!Array.isArray(parsed.targets) || !Array.isArray(parsed.referenceTokens)) return null;
-    return parsed as {
-      schema: 'scramble_v1';
-      targets: Array<{ learningItemId: string; surface: string; tokens: string[] }>;
-      zhPrompt: string;
-      referenceTokens: string[];
-      distractors: string[];
-      acceptableMorphology: string[];
-      acceptanceNotes: string;
-    };
-  } catch {
-    return null;
-  }
 }
 
 /** production 题行 → scramble 视图（不泄漏 referenceTokens） */
@@ -413,11 +387,20 @@ export async function answerLibraryPractice(
 
   // ---- Scramble production：本地 judge；不沉淀 Personal Example（spec §4.3.6）----
   const scramble = parseScramblePayload(question);
-  if (!scramble) {
+  if (
+    !scramble ||
+    scramble.targets.length !== 1 ||
+    scramble.targets[0]!.learningItemId !== itemId
+  ) {
     throw appError('CONFLICT', '该题目已失效，无法作答');
   }
   if (!body.selectedTokens || body.selectedTokens.length === 0) {
     throw appError('VALIDATION_ERROR', '表达题必须提交 selectedTokens');
+  }
+  if (
+    !validChipSelection(body.selectedTokens, [...scramble.referenceTokens, ...scramble.distractors])
+  ) {
+    throw appError('VALIDATION_ERROR', '只能使用题目提供的词芯片，且不能重复使用同一芯片');
   }
   const judged = judgeScramble({
     selectedTokens: body.selectedTokens,
@@ -481,4 +464,3 @@ export async function answerLibraryPractice(
     referenceTokens: scramble.referenceTokens,
   };
 }
-

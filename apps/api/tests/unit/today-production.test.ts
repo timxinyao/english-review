@@ -140,7 +140,11 @@ describe('P 维度题型映射（TodayTaskView scramble）', () => {
     await seedProductionItem('g-b', 25, { target: 'meetings' });
     await seedProductionItem('g-c', 25, { target: 'deadlines' });
     await startTodaySession(db, deps(), TZ, NOW);
-    const tasks = db.select().from(reviewTasks).all().filter((t) => t.taskType === 'production');
+    const tasks = db
+      .select()
+      .from(reviewTasks)
+      .all()
+      .filter((t) => t.taskType === 'production');
     expect(tasks).toHaveLength(1);
     const links = db
       .select()
@@ -213,7 +217,11 @@ describe('today scramble production answer', () => {
     expect(stats.productionPass).toBe(1);
 
     expect(
-      db.select().from(learningExamples).all().filter((e) => e.kind === 'personal'),
+      db
+        .select()
+        .from(learningExamples)
+        .all()
+        .filter((e) => e.kind === 'personal'),
     ).toHaveLength(0);
   });
 
@@ -289,9 +297,9 @@ describe('today scramble production answer', () => {
     await expect(
       answerTodayTask(db, d, TZ, NOW, task.id, { selectedOptionId: 'o1' }),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
-    await expect(answerTodayTask(db, d, TZ, NOW, task.id, { answerText: 'x' })).rejects.toMatchObject(
-      { code: 'VALIDATION_ERROR' },
-    );
+    await expect(
+      answerTodayTask(db, d, TZ, NOW, task.id, { answerText: 'x' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   it('多词组句：一项对一项错 → 拆开回写 FSRS 与 attempt_item_results', async () => {
@@ -310,14 +318,14 @@ describe('today scramble production answer', () => {
       db.select().from(reviewTaskItems).where(eq(reviewTaskItems.reviewTaskId, task.id)).all(),
     ).toHaveLength(2);
 
-    // Fake multi payload: Please alpha beta today — omit beta → m-a pass, m-b fail
+    // Full-length assembly with a wrong beta slot → alpha basic_pass, beta fail
     const res = await answerTodayTask(db, d, TZ, NOW, task.id, {
-      selectedTokens: ['Please', 'alpha', 'today'],
+      selectedTokens: ['Please', 'alpha', 'always', 'today'],
     });
     expect(res.result).toBe('fail');
     expect(res.itemResults).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ learningItemId: 'm-a', result: 'pass' }),
+        expect.objectContaining({ learningItemId: 'm-a', result: 'basic_pass' }),
         expect.objectContaining({ learningItemId: 'm-b', result: 'fail' }),
       ]),
     );
@@ -390,7 +398,7 @@ describe('production 与 bad-question / feedback（scramble）', () => {
   it.each([
     { tokens: (id: string) => refTokensFor(id), result: 'pass' as const, productionPass: 1 },
     {
-      tokens: (_id: string) => ['wrong', 'order'],
+      tokens: (_id: string) => ['today', 'Please'],
       result: 'fail' as const,
       productionPass: 0,
     },
@@ -432,7 +440,7 @@ describe('scramble 无 AI 批改窗口（断连语义）', () => {
     const d = deps();
     await startTodaySession(db, d, TZ, NOW);
     const task = db.select().from(reviewTasks).all()[0]!;
-    let disconnected = false;
+    const disconnected = false;
     const res = await answerTodayTask(
       db,
       d,

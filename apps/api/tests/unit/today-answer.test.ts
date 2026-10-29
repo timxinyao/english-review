@@ -5,7 +5,6 @@ import { runMigrations } from '../../src/db/migrate.js';
 import {
   attempts,
   dailyStats,
-  learningExamples,
   learningItems,
   questions,
   reviewSessions,
@@ -539,15 +538,11 @@ describe('answer：幂等', () => {
     await seedDueProductionItem('edited', 'wear down');
     await startSession();
     const task = taskByItem('edited')!;
-    db.update(questions)
-      .set({ status: 'retired' })
-      .where(eq(questions.id, task.questionId!))
-      .run();
+    db.update(questions).set({ status: 'retired' }).where(eq(questions.id, task.questionId!)).run();
     await expect(
       answerTodayTask(db, deps, TZ, NOW, task.id, {
-        selectedTokens: fakeScramblePayload([
-          { id: 'edited', target: 'wear down' },
-        ]).referenceTokens,
+        selectedTokens: fakeScramblePayload([{ id: 'edited', target: 'wear down' }])
+          .referenceTokens,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(db.select().from(attempts).all()).toEqual([]);
@@ -565,7 +560,10 @@ describe('answer：幂等', () => {
         TZ,
         NOW,
         taskByItem('midnight')!.id,
-        { selectedTokens: fakeScramblePayload([{ id: 'midnight', target: 'wear down' }]).referenceTokens },
+        {
+          selectedTokens: fakeScramblePayload([{ id: 'midnight', target: 'wear down' }])
+            .referenceTokens,
+        },
         () => nextDay,
       ),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
@@ -708,7 +706,7 @@ describe('answer：完成检测与摘要', () => {
     const resA = await answerTodayTask(db, deps, TZ, NOW, a.id, { recall: 'recalled' });
     expect(resA.completed).toBeNull();
     const resB = await answerTodayTask(db, deps, TZ, new Date(NOW.getTime() + 60_000), b.id, {
-      selectedTokens: ['totally', 'wrong'],
+      selectedTokens: ['today', 'Please'],
     });
     expect(resB.reinforcementAdded).toBe(false);
     expect(resB.completed).toEqual({

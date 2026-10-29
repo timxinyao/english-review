@@ -12,6 +12,7 @@ import { jobLocks } from '../../src/db/schema.js';
 import { runPrefetch } from '../../src/jobs/daily-prefetch.js';
 import { countQuestionStock } from '../../src/modules/questions/service.js';
 import { buildMockRuntime, failingForTargetProvider } from '../helpers/ai';
+import { fakeScramblePayload } from '../helpers/today-fakes.js';
 import { seedExample, seedItem, seedQuestion, seedReviewState } from '../helpers/seed.js';
 
 let db: AppDatabase;
@@ -120,11 +121,7 @@ describe('runPrefetch（daily-prefetch job 核心）', () => {
         type: 'production',
         status: 'fresh',
         promptText: `题 ${i}`,
-        payloadJson: JSON.stringify({
-          mustUse: 'mix-stocked',
-          referenceAnswer: `Ref ${i}`,
-          acceptanceNotes: '允许变化。',
-        }),
+        payloadJson: JSON.stringify(fakeScramblePayload([{ id: itemId, target: 'mix-stocked' }])),
       });
     }
     const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
@@ -204,7 +201,12 @@ describe('runPrefetch（daily-prefetch job 核心）', () => {
 
   it('部分库存只补差额', async () => {
     const itemId = await seedDueItem('iota', 'production', inHours(24), { type: 'chunk' });
-    await seedQuestion(db, itemId, { id: 'existing', type: 'production', status: 'fresh' });
+    await seedQuestion(db, itemId, {
+      id: 'existing',
+      type: 'production',
+      status: 'fresh',
+      payloadJson: JSON.stringify(fakeScramblePayload([{ id: itemId, target: 'iota' }])),
+    });
     const summary = await runPrefetch({ db, runtime: buildMockRuntime() }, NOW);
     expect(summary.generated).toBe(1);
     expect(countQuestionStock(db, itemId, 'production')).toBe(2);

@@ -242,3 +242,30 @@ describe('V2 维度题型映射', () => {
     expect(questionTypesForDue('production')).toEqual(['production']);
   });
 });
+
+describe('scramble generation boundary punctuation', () => {
+  it('accepts a reference ending in punctuation when the target surface is covered', async () => {
+    const itemId = await seededItem();
+    const provider = {
+      name: 'mock' as const,
+      async complete() {
+        return JSON.stringify({
+          zh_prompt: '它会让你疲惫。',
+          reference_tokens: ['It', 'can', 'wear', 'you', 'down.'],
+          distractors: ['up'],
+          acceptable_morphology: [],
+          acceptance_notes: '',
+          target_surfaces: ['wear down'],
+        });
+      },
+    };
+    const rows = await generateQuestionsForItem(
+      { db, runtime: buildMockRuntime(provider) },
+      itemId,
+      'production',
+      1,
+    );
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0]!.payloadJson).referenceTokens.at(-1)).toBe('down.');
+  });
+});

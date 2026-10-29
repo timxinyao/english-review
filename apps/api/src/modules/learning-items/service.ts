@@ -19,6 +19,7 @@ import {
 import type { AppDatabase } from '../../db/client.js';
 import {
   attempts,
+  attemptItemResults,
   learningExamples,
   learningItems,
   questions,
@@ -28,7 +29,10 @@ import { appError } from '../../lib/errors.js';
 import { invalidateQuestions, type DbExecutor, type DbTx } from '../questions/service.js';
 import { effectiveProductionEnabled } from '../review/goals.js';
 import { ensureProductionDueAfterGoalEnabled, reconcileItemStatus } from '../review/service.js';
-import { cancelPendingProductionTasksForItem } from '../today/service.js';
+import {
+  cancelPendingProductionTasksForItem,
+  cancelPendingTasksForItem,
+} from '../today/service.js';
 
 type ItemRow = typeof learningItems.$inferSelect;
 type ExampleRow = typeof learningExamples.$inferSelect;
@@ -282,16 +286,21 @@ function parseCorrectionJson(json: string | null): {
 
 /**
  * 近期造句历史（PRODUCT §7.5）：该 item 的 production attempts（mode ∈ today/library_practice）
- * 最新 PRODUCTION_HISTORY_KEEP 条，按时间倒序。production attempt = 关联 production 题的作答。
+ * 最新 PRODUCTION_HISTORY_KEEP 条，按时间倒序。包含多项任务的所有参与项，展示该项证据；
+ * 旧历史无 per-item 行时回退主项 attempt.result，整次作答作废优先于保留的子结果。
  */
 function productionHistoryOf(exec: DbExecutor, id: string): LibraryItemDetail['productionHistory'] {
   const rows = exec
-    .select({ attempt: attempts })
+    .select({ attempt: attempts, itemResult: attemptItemResults.result })
     .from(attempts)
     .innerJoin(questions, eq(questions.id, attempts.questionId))
+    .leftJoin(
+      attemptItemResults,
+      and(eq(attemptItemResults.attemptId, attempts.id), eq(attemptItemResults.learningItemId, id)),
+    )
     .where(
       and(
-        eq(attempts.learningItemId, id),
+        or(eq(attempts.learningItemId, id), eq(attemptItemResults.learningItemId, id)),
         eq(questions.type, 'production'),
         inArray(attempts.mode, ['today', 'library_practice']),
       ),
@@ -299,8 +308,12 @@ function productionHistoryOf(exec: DbExecutor, id: string): LibraryItemDetail['p
     .orderBy(desc(attempts.createdAt), desc(attempts.id))
     .limit(PRODUCTION_HISTORY_KEEP)
     .all();
-  return rows.map(({ attempt }) => {
+  return rows.map(({ attempt, itemResult }) => {
     const parsed = parseCorrectionJson(attempt.correctionJson);
+    const result =
+      attempt.result === 'void' || attempt.voidedAt !== null
+        ? 'void'
+        : (itemResult ?? attempt.result);
     return {
       id: attempt.id,
       createdAt: attempt.createdAt,
@@ -308,7 +321,7 @@ function productionHistoryOf(exec: DbExecutor, id: string): LibraryItemDetail['p
       correctedSentence: parsed.corrected,
       betterVersion: attempt.betterVersion ?? parsed.better,
       betterVersionKind: parsed.betterVersionKind,
-      result: attempt.result as 'pass' | 'basic_pass' | 'fail' | 'void',
+      result: result as 'pass' | 'basic_pass' | 'fail' | 'void',
       mode: attempt.mode as 'today' | 'library_practice',
     };
   });
@@ -609,6 +622,7 @@ async function applyTransition(
       .set({ ...TRANSITIONS[action](now), updatedAt: now })
       .where(eq(learningItems.id, id))
       .run();
+    if (action === 'pause' || action === 'archive') cancelPendingTasksForItem(tx, id, now);
   });
   return getLearningItemDetail(db, id);
 }
@@ -643,6 +657,7 @@ export async function resetLearningItem(db: AppDatabase, id: string): Promise<Li
       .set({ status: 'active', queueState: 'new', needsReinforcement: 0, updatedAt: now })
       .where(eq(learningItems.id, id))
       .run();
+    cancelPendingTasksForItem(tx, id, now);
   });
   return getLearningItemDetail(db, id);
 }

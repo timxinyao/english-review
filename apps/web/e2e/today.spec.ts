@@ -260,9 +260,7 @@ test.describe('Today 复习全流程', () => {
 
     // idle 主卡片：种子 5 个到期（Phase 4 新增 give up 的 P 任务）；new today 为剩余新学额度
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
-    await expect(
-      page.getByText(/^今日计划 \d+ 题（复习 4 · 新学 \d+）$/),
-    ).toBeVisible();
+    await expect(page.getByText(/^今日计划 \d+ 题（复习 4 · 新学 \d+）$/)).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
     // active 态：进度行（已完成数/总数，批量 entries 未落地时用会话进度兜底）
@@ -512,10 +510,10 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
     expect(seeded).toBe(200);
 
     await page.goto('/today');
-    // 到期 5 = 基础 4 + set off 次日到期的 P；put off（显式关闭）与 raw（word 默认关）不计入
-    await expect(page.getByText(/今日计划 \d+ 题（复习 5 · 新学 \d+）/)).toBeVisible();
+    // give up 与 set off 合为 1 道 P，另有 3 道 U；显式关闭与默认关闭不计入
+    await expect(page.getByText(/今日计划 \d+ 题（复习 4 · 新学 \d+）/)).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
-    await expect(page.getByText('0 / 7', { exact: true })).toBeVisible();
+    await expect(page.getByText('今日 0 / 6', { exact: true })).toBeVisible();
 
     let setOffDone = false;
     let carryOnDone = false;
@@ -529,16 +527,24 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
       // 拼词表达卡（give up / set off）
       const bank = page.getByTestId('scramble-chip-bank');
       if (await bank.isVisible()) {
-        const tokens = (await page.getByText('长期的压力让我想放弃。').count())
-          ? ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up']
-          : ['We', 'set', 'off', 'at', 'dawn'];
-        for (const tok of tokens) {
-          const btn = bank.getByRole('button', { name: tok, exact: true });
-          if (await btn.count()) await btn.first().click();
+        const targets = await page.getByLabel('本题目标').locator('span').allTextContents();
+        if (targets.includes('set off')) setOffDone = true;
+        // Deterministic mock provider's grouped sentence, using the visible target order.
+        const tokens = [
+          'People',
+          ...targets.flatMap((target) => ['often', ...target.split(/\s+/), 'here']),
+          'daily',
+        ];
+        for (const token of tokens) {
+          await bank
+            .getByRole('button', { name: token, exact: true })
+            .and(bank.locator('button:enabled'))
+            .first()
+            .click();
         }
-        await page.getByRole('button', { name: '提交' }).click();
+        await page.getByRole('button', { name: '提交', exact: true }).click();
         await expect(page.getByText('通过', { exact: true })).toBeVisible({ timeout: 10_000 });
-        await page.getByRole('button', { name: '下一题' }).click();
+        await page.getByRole('button', { name: '继续', exact: true }).click();
         continue;
       }
       // Recall 卡（理解复习 / learn 新学）：显示答案 → 良好 → 评分即前进
@@ -586,7 +592,9 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
     expect(putOffP.lastReviewAt).not.toBe(setOffP.lastReviewAt);
   });
 
-  test.skip('目标关闭取消当日 P：Library 关闭造句后 Today 队列收敛、当前卡顺延', async ({ page }) => {
+  test.skip('目标关闭取消当日 P：Library 关闭造句后 Today 队列收敛、当前卡顺延', async ({
+    page,
+  }) => {
     await login(page);
     await resetSeedData(page);
     await page.goto('/today');
@@ -688,7 +696,9 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
     await expect(page.getByTestId('scramble-chip-bank')).toBeVisible();
   });
 
-  test.skip('短屏：卡填满顶栏/导航之间，输入与主操作停靠其上；主动不会揭示参考句', async ({ page }) => {
+  test.skip('短屏：卡填满顶栏/导航之间，输入与主操作停靠其上；主动不会揭示参考句', async ({
+    page,
+  }) => {
     test.setTimeout(90_000);
     await login(page);
     await resetSeedData(page);
@@ -730,7 +740,9 @@ test.describe('Today 沉浸式卡（移动端，PRODUCT §5.1 一题一屏）', 
   test.describe('键盘避让（iPhone 高度）', () => {
     test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
 
-    test.skip('造句输入一行起步、逐行增长封顶、删除缩回，键盘期间题干与目标词可见', async ({ page }) => {
+    test.skip('造句输入一行起步、逐行增长封顶、删除缩回，键盘期间题干与目标词可见', async ({
+      page,
+    }) => {
       await login(page);
       await resetSeedData(page);
       await page.goto('/today');

@@ -15,6 +15,7 @@ import { LearningItemStatus, LearningItemType, QueueState } from '../learning-it
 export const BackupExample = z.object({
   kind: z.enum(['source', 'extra', 'personal']),
   text: z.string().min(1),
+  translation: z.string().nullable().optional(),
   originalText: z.string().nullable().optional(),
   betterText: z.string().nullable().optional(),
   pinned: z.number().int().min(0).max(1).optional(),

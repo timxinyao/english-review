@@ -61,6 +61,8 @@ export const TodayTaskView = z.object({
   }),
   /** learn 卡展示；理解/填空题默认隐藏，用户点「查看原句」后前端再显示，并随答案提交 viewedSource */
   sourceExample: z.string().nullable(),
+  /** 已保存的原句译文；Recall 仅在「显示答案」后展示，不动态生成。 */
+  sourceExampleTranslation: z.string().nullable().optional(),
   /** 补充/个人例句（learn 卡最多展示 1 条） */
   supplementaryExamples: z.array(z.string()),
   question: z.union([ChoiceQuestionView, ClozeQuestionView, ProductionQuestionView]).nullable(),

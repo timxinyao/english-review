@@ -1,0 +1,1 @@
+ALTER TABLE `learning_examples` ADD `translation` text;

@@ -57,6 +57,13 @@ export function reconcileProductionGoalChange(
   nowDate: Date,
   timezone: string,
 ): void {
+  // Content-only edits/imports must not undo an explicit lifecycle choice (for
+  // example, resuming an item whose existing stability already reaches mastery).
+  if (
+    before.type === after.type &&
+    before.productionEnabledOverride === after.productionEnabledOverride
+  )
+    return;
   const wasEnabled = effectiveProductionEnabled(before);
   const isEnabled = effectiveProductionEnabled(after);
   if (wasEnabled && !isEnabled) {
@@ -236,6 +243,7 @@ function buildDetail(
       archivedAt: row.archivedAt,
     },
     sourceExample: source.text,
+    sourceExampleTranslation: source.translation,
     extraExamples: examples
       .filter((e) => e.kind === 'extra')
       .sort(bySort)
@@ -531,16 +539,37 @@ export async function updateLearningItem(
     };
     reconcileProductionGoalChange(tx, id, row, afterGoal, nowDate, timezone);
 
-    if (patch.sourceExample !== undefined) {
-      const result = tx
-        .update(learningExamples)
-        .set({ text: patch.sourceExample, updatedAt: now })
+    if (patch.sourceExample !== undefined || patch.sourceExampleTranslation !== undefined) {
+      const source = tx
+        .select()
+        .from(learningExamples)
         .where(and(eq(learningExamples.learningItemId, id), eq(learningExamples.kind, 'source')))
+        .get();
+      if (!source) throw appError('INTERNAL', '学习项缺少 source 例句');
+      const text = patch.sourceExample ?? source.text;
+      // A saved translation belongs to the sentence, not the item: changing text cannot
+      // silently leave the previous sentence's translation attached.
+      const translation =
+        patch.sourceExampleTranslation !== undefined
+          ? patch.sourceExampleTranslation?.trim() || null
+          : text === source.text
+            ? source.translation
+            : null;
+      tx.update(learningExamples)
+        .set({ text, translation, updatedAt: now })
+        .where(eq(learningExamples.id, source.id))
         .run();
-      if (result.changes === 0) throw appError('INTERNAL', '学习项缺少 source 例句');
     }
 
     if (patch.extraExamples !== undefined) {
+      const retainedTranslations = new Map(
+        tx
+          .select()
+          .from(learningExamples)
+          .where(and(eq(learningExamples.learningItemId, id), eq(learningExamples.kind, 'extra')))
+          .all()
+          .map((example) => [example.text, example.translation]),
+      );
       tx.delete(learningExamples)
         .where(and(eq(learningExamples.learningItemId, id), eq(learningExamples.kind, 'extra')))
         .run();
@@ -552,6 +581,7 @@ export async function updateLearningItem(
               learningItemId: id,
               kind: 'extra',
               text,
+              translation: retainedTranslations.get(text) ?? null,
               originalText: null,
               betterText: null,
               pinned: 0,
@@ -567,20 +597,20 @@ export async function updateLearningItem(
 
     if (patch.personalExamples !== undefined) {
       for (const personal of patch.personalExamples) {
+        const where = and(
+          eq(learningExamples.id, personal.id),
+          eq(learningExamples.learningItemId, id),
+          eq(learningExamples.kind, 'personal'),
+        );
         const set: Partial<typeof learningExamples.$inferInsert> = { updatedAt: now };
         if (personal.pinned !== undefined) set.pinned = personal.pinned ? 1 : 0;
-        if (personal.text !== undefined) set.text = personal.text;
-        const result = tx
-          .update(learningExamples)
-          .set(set)
-          .where(
-            and(
-              eq(learningExamples.id, personal.id),
-              eq(learningExamples.learningItemId, id),
-              eq(learningExamples.kind, 'personal'),
-            ),
-          )
-          .run();
+        if (personal.text !== undefined) {
+          const existing = tx.select().from(learningExamples).where(where).get();
+          if (!existing) throw appError('NOT_FOUND', `个人例句不存在：${personal.id}`);
+          set.text = personal.text;
+          if (personal.text !== existing.text) set.translation = null;
+        }
+        const result = tx.update(learningExamples).set(set).where(where).run();
         if (result.changes === 0) throw appError('NOT_FOUND', `个人例句不存在：${personal.id}`);
       }
     }

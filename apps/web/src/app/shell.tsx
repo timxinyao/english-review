@@ -126,7 +126,7 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-h-dvh flex-col pt-header-space md:pt-0">
-        {/* 手机顶栏：安全区 + 适度呼吸（用户校准：0 太贴、14px 太松，取 8px） */}
+        {/* 手机顶栏：安全区 + 6px 上方留白 */}
         <header className="fixed inset-x-0 top-0 z-header flex items-center justify-between gap-3 native-chrome border-b border-border/60 px-5 pb-3 pt-safe-lg md:hidden">
           <button
             type="button"

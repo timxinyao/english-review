@@ -56,6 +56,7 @@
 
 
 ## Phase 14 — Native learning reliability
-- 状态：implemented / locally verified（2026-10-29）；原生设备验收与完整浏览器 runner 限制见 `docs/NATIVE_LEARNING_QA.md`
+- 状态：implemented / locally verified（2026-10-29；2026-10-30 视觉回调）；升级历史验收见 `docs/NATIVE_LEARNING_QA.md`，本轮浏览器覆盖及平台限制见 `docs/WARM_REVIEW_UI_QA.md`
 - 留档：`docs/phases/phase-14-native-learning.md`
 - 规格：`docs/superpowers/specs/2026-10-29-native-learning-upgrade-design.md`
+- 2026-10-30 视觉回调：保留大字号与操作区，恢复暖纸色，收小圆角，活动复习卡与底部 Tab 留 20px。设计见 `docs/superpowers/specs/2026-10-30-warm-review-spacing-design.md`。

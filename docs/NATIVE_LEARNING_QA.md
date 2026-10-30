@@ -1,5 +1,7 @@
 # Native learning upgrade — verification
 
+> 2026-10-30：本报告保留原升级的历史验证。后续暖纸配色、圆角、复习卡片间距及本轮浏览器门禁见 [暖纸 UI 验证](WARM_REVIEW_UI_QA.md)。
+
 Date: 2026-10-29. Base: `d4a6799`.
 
 ## Automated verification

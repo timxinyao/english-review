@@ -41,6 +41,7 @@ test('compact learning: stable chips, feedback, visible recall meaning and modal
   await page.reload();
   await page.getByRole('button', { name: '开始今日复习' }).click();
   const bank = page.getByTestId('scramble-chip-bank');
+  await expect(bank.getByRole('button', { name: 'The', exact: true })).toBeVisible();
   const count = await bank.getByRole('button').count();
   await bank.getByRole('button', { name: 'The', exact: true }).click();
   await expect(bank.getByRole('button', { name: 'The', exact: true })).toBeDisabled();

@@ -95,12 +95,16 @@ async function driveSessionToCompleted(page: Page): Promise<boolean> {
     // 0) 拼词表达卡（give up 原题/撤销替换题）
     const bank = page.getByTestId('scramble-chip-bank');
     if (await bank.isVisible()) {
-      const tokens = (await page.getByText('长期的压力让我想放弃。').count())
-        ? ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up']
-        : ['He', 'decided', 'to', 'give', 'up', 'smoking', 'last', 'year'];
+      const prompt = page
+        .locator('article')
+        .getByText(/长期的压力让我想放弃。|他去年决定放弃吸烟。/);
+      await expect(prompt).toBeVisible();
+      const tokens =
+        (await prompt.textContent()) === '长期的压力让我想放弃。'
+          ? ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up']
+          : ['He', 'decided', 'to', 'give', 'up', 'smoking', 'last', 'year'];
       for (const tok of tokens) {
-        const btn = bank.getByRole('button', { name: tok, exact: true });
-        if (await btn.count()) await btn.first().click();
+        await bank.getByRole('button', { name: tok, exact: true }).click();
       }
       await page.getByRole('button', { name: '提交' }).click();
       await expect(page.getByText('通过', { exact: true })).toBeVisible();
@@ -205,7 +209,7 @@ test.describe('Today 复习全流程', () => {
     await expect(page.getByText('题目暂时无法生成，请稍后重试')).toBeVisible();
     await page.getByRole('button', { name: '稍后再做' }).click();
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
-    await expect(page.getByText('0 / 5', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '查看今日学习' })).toContainText('今日 0 / 5');
     await expect(page.getByRole('button', { name: '显示答案' })).toBeVisible();
     await expect(page.locator('vite-error-overlay')).toHaveCount(0);
     expect(runtimeErrors).toEqual([]);
@@ -264,7 +268,7 @@ test.describe('Today 复习全流程', () => {
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
     // active 态：进度行（已完成数/总数，批量 entries 未落地时用会话进度兜底）
-    await expect(page.getByText(/^\d+ \/ \d+$/)).toBeVisible();
+    await expect(page.getByRole('button', { name: '查看今日学习' })).toContainText('今日 0 / 5');
 
     const completed = await driveSessionToCompleted(page);
 
@@ -345,7 +349,7 @@ test.describe('Today 复习全流程', () => {
     await page.goto('/today');
     await page.getByRole('button', { name: '开始今日复习' }).click();
 
-    // 首卡是 give up 表达题（会话序 1/6）：提交通过 → 手动下一题，推进到 make sense
+    // 首卡 give up 拼词通过后，点击继续进入 make sense。
     await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
     {
       const bank = page.getByTestId('scramble-chip-bank');
@@ -355,7 +359,7 @@ test.describe('Today 复习全流程', () => {
     }
     await page.getByRole('button', { name: '提交' }).click();
     await expect(page.getByText('通过', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '下一题' }).click();
+    await page.getByRole('button', { name: '继续', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible();
 
     // 进度行显示结果分布（文字计数），点击打开「今日学习」
@@ -364,7 +368,7 @@ test.describe('Today 复习全流程', () => {
     const dialog = page.getByRole('dialog', { name: '今日学习' });
     await expect(dialog).toBeVisible();
 
-    // give up 组：一条通过记录；展开可读题面/作答/正确答案
+    // give up 组：一条通过记录；展开可读题面与作答。
     const giveUpGroup = dialog.getByRole('button', { name: /give up/ });
     await expect(giveUpGroup).toContainText('对');
     await giveUpGroup.click();
@@ -372,7 +376,9 @@ test.describe('Today 复习全流程', () => {
     await expect(giveUpRecord).toHaveCount(1);
     await expect(giveUpRecord).toContainText('通过');
     await expect(giveUpRecord).toContainText('作答');
-    await expect(giveUpRecord).toContainText('正确答案');
+    await expect(giveUpRecord).toContainText('长期的压力让我想放弃。');
+    await expect(giveUpRecord).toContainText('The constant stress makes me want to give up');
+    await expect(giveUpRecord).not.toContainText('正确答案');
 
     // 未作答条目（stable 等）在分组轨迹中展示"未做"，但只读：无链接、无跳转
     await expect(dialog.getByRole('link')).toHaveCount(0);
@@ -645,7 +651,9 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
     // start 建全量 pending 队列即返回：不逐题等 AI/库存（旧 V1 行为会分钟级阻塞）
     const startedAt = Date.now();
     await page.getByRole('button', { name: '开始今日复习' }).click();
-    await expect(page.getByText('0 / 45', { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('button', { name: '查看今日学习' })).toContainText('今日 0 / 45', {
+      timeout: 10_000,
+    });
     expect(Date.now() - startedAt).toBeLessThan(10_000);
 
     // 首卡 give up 表达题（到期序早于 bulk 批次）；题目绑定走预置库存，不依赖 AI
@@ -658,12 +666,12 @@ test.describe('Today V2 全流程（Phase 9 Task 10）', () => {
     }
     await page.getByRole('button', { name: '提交' }).click();
     await expect(page.getByText('通过', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '下一题' }).click();
+    await page.getByRole('button', { name: '继续', exact: true }).click();
     // 懒绑定逐题进行：次卡（make sense Recall）仍即时出现，进度推进且无填空
     await expect(page.getByRole('heading', { name: 'make sense' })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText('1 / 45', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '查看今日学习' })).toContainText('今日 1 / 45');
     await expect(page.getByLabel('填空答案')).toHaveCount(0);
   });
 });

@@ -93,6 +93,7 @@ src/
 - 语义 token 清单（新增颜色必须先加 token，再使用工具类）：
   `background / foreground / card / muted / muted-foreground / accent / accent-foreground / border / input / destructive / success / diff-delete / diff-insert`。
 - **禁止**在 feature 代码里写 hex 颜色、任意阴影、内联 style 样式；需求无法用现有 token 表达时，先扩展 tokens。
+- 2026-10-30：恢复纸张/陶土色卡及匹配的 PWA 元数据，基础圆角为 12px、大卡片为 16px；移动 Today 活动卡高度按实际顶栏、导航与安全区计算，并在导航可见时留 20px 间距。
 - 2026-10-03：纸张/陶土色系沿用上述唯一来源；英文词条的衬线字体与 UI 无衬线字体同样以全局 token 定义。Input、Select、Textarea 共用基础输入样式；`/tokens` 色块用工具类引用 token，不使用内联色值。Session 桌面限宽约 680px，移动端继续遵循现有视口与键盘布局约束。
 
 ### 3.3 请求与数据流

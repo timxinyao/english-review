@@ -1,10 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Phase 4 表达题与练一下（PC viewport；E2E_SEED=1 播种：
- * Phase 3 的 4 到期 + gravity（learn，Recall Card）之外，新增 give up（P-L4 表达题）：
- * zhPrompt “长期的压力让我想放弃。”、mustUse "give up"；
- * fake 批改：答案包含 "give up" → pass（corrected=原句、eligible 入个人例句），否则 fail。）
+ * Today 与 Library 练习的拼词表达题（PC viewport，E2E_SEED=1）：
+ * give up 使用预置拼词题；正式和练习作答按词序判定，不自动保存个人例句。
  */
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -32,19 +30,16 @@ async function continueAfterCorrect(page: Page) {
 }
 
 test.describe('Phase 4：表达题批改与 Library 练一下', () => {
-  test('Today 表达题：中文提示 → 提交 → 通过 + diff + 已存个人例句 → 手动下一题', async ({
-    page,
-  }) => {
+  test('Today 拼词表达题：提交完整句 → 按词条通过 → 完成会话', async ({ page }) => {
     test.setTimeout(120_000);
     await login(page);
     await resetSeedData(page);
     await page.goto('/today');
 
-    // idle 主卡片：种子 5 到期（含 give up）+ 新学额度
+    // 种子会话为 4 道复习 + 1 道新学。
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
     await page.getByRole('button', { name: '开始今日复习' }).click();
-    // active 态：批量 entries 落地前为 "1 / 6"，落地后为 "第 1 / 6"（两者都接受，避免竞态）
-    await expect(page.getByText(/^(第 )?\d+ \/ \d+$/)).toBeVisible();
+    await expect(page.getByRole('button', { name: '查看今日学习' })).toContainText('今日 0 / 5');
 
     let productionDone = false;
     let completed = false;
@@ -59,12 +54,25 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
         productionDone = true;
         await expect(page.getByText('give up')).toBeVisible();
         const bank = page.getByTestId('scramble-chip-bank');
-        for (const tok of ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up']) {
+        for (const tok of [
+          'The',
+          'constant',
+          'stress',
+          'makes',
+          'me',
+          'want',
+          'to',
+          'give',
+          'up',
+        ]) {
           await bank.getByRole('button', { name: tok, exact: true }).click();
         }
         await page.getByRole('button', { name: '提交' }).click();
-        await expect(page.getByTestId('scramble-result')).toBeVisible();
-        await expect(page.getByText('通过', { exact: true })).toBeVisible();
+        const result = page.getByTestId('scramble-result');
+        await expect(result).toContainText('通过');
+        await expect(result).toContainText('The constant stress makes me want to give up');
+        await expect(result.getByRole('listitem')).toContainText('give up');
+        await expect(result.getByRole('listitem')).toContainText('对');
         await page.getByRole('button', { name: '继续' }).click();
         continue;
       }
@@ -125,25 +133,34 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
     expect(completed, '会话应在有限步数内完成').toBe(true);
   });
 
-  test('Library 详情：造句历史 1 条（corrected）与个人例句 1 条（未固定）', async ({ page }) => {
+  test('Library 详情：拼词作答记录通过，且不自动保存个人例句', async ({ page }) => {
     await login(page);
+    await resetSeedData(page);
+    await page.goto('/today');
+    await page.getByRole('button', { name: '开始今日复习' }).click();
+    await expect(page.getByText('长期的压力让我想放弃。')).toBeVisible();
+    const bank = page.getByTestId('scramble-chip-bank');
+    for (const token of ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up']) {
+      await bank.getByRole('button', { name: token, exact: true }).click();
+    }
+    await page.getByRole('button', { name: '提交', exact: true }).click();
+    const result = page.getByTestId('scramble-result');
+    await expect(result).toContainText('通过');
+    await expect(result.getByRole('listitem')).toContainText('give up');
+    await expect(result.getByRole('listitem')).toContainText('对');
+
     await page.goto('/library');
-
     await page.getByLabel('搜索学习项').fill('give up');
-    const row = page.getByRole('link', { name: /give up/ }).first();
-    await expect(row).toBeVisible();
-    await row.click();
+    await page
+      .getByRole('link', { name: /give up/ })
+      .first()
+      .click();
     await expect(page).toHaveURL(/\/library\/[a-z0-9-]+$/i);
-
-    // 造句历史区块恰好 1 条，corrected 为答句
+    const sentence = 'The constant stress makes me want to give up';
     const historyItems = page.locator('section[aria-label="造句历史"] li');
     await expect(historyItems).toHaveCount(1);
-    await expect(
-      historyItems.getByText('The constant stress makes me want to give up.'),
-    ).toBeVisible();
-    await expect(
-      historyItems.getByText('参考表达：Constant stress is making me feel like giving up.'),
-    ).toBeVisible();
+    await expect(historyItems).toContainText(sentence);
+    await expect(historyItems).toContainText('通过');
 
     const itemId = page.url().match(/\/library\/([^/]+)$/)?.[1];
     expect(itemId).toBeTruthy();
@@ -151,26 +168,21 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
       const response = await fetch(`/api/library/${id}`, { credentials: 'include' });
       return (await response.json()) as {
         personalExamples: Array<{ text: string }>;
+        productionHistory: Array<{ originalText: string | null; result: string; mode: string }>;
       };
     }, itemId);
-    expect(detail.personalExamples.map((example) => example.text)).toContain(
-      'The constant stress makes me want to give up.',
-    );
-    expect(detail.personalExamples.map((example) => example.text)).not.toContain(
-      'Constant stress is making me feel like giving up.',
-    );
-
-    // 个人例句 1 条且未固定（未固定展示“收藏”，固定后为“取消收藏”）
-    await expect(
-      page.getByText('The constant stress makes me want to give up.', { exact: false }).first(),
-    ).toBeVisible();
-    await expect(page.getByRole('button', { name: '收藏', exact: true })).toBeVisible();
+    expect(detail.productionHistory).toHaveLength(1);
+    expect(detail.productionHistory[0]).toMatchObject({
+      originalText: sentence,
+      result: 'pass',
+      mode: 'today',
+    });
+    expect(detail.personalExamples.map((example) => example.text)).not.toContain(sentence);
   });
 
-  test('Library 练一下（V2）：Recall 自评+释义揭示 → 表达题通过 + diff → 完成返回详情', async ({
-    page,
-  }) => {
+  test('Library 练一下：Recall 自评与释义揭示 → 拼词通过 → 返回详情', async ({ page }) => {
     await login(page);
+    await resetSeedData(page);
     await page.goto('/library');
 
     await page.getByLabel('搜索学习项').fill('give up');
@@ -199,12 +211,12 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
     const bank1 = page.getByTestId('scramble-chip-bank');
     const giveUpTokens = ['The', 'constant', 'stress', 'makes', 'me', 'want', 'to', 'give', 'up'];
     const smokeTokens = ['He', 'decided', 'to', 'give', 'up', 'smoking', 'last', 'year'];
-    const tokens1 = (await page.getByText('长期的压力让我想放弃。').count())
-      ? giveUpTokens
-      : smokeTokens;
+    const prompt = page.locator('article').getByText(/长期的压力让我想放弃。|他去年决定放弃吸烟。/);
+    await expect(prompt).toBeVisible();
+    const promptText = await prompt.textContent();
+    const tokens1 = promptText === '长期的压力让我想放弃。' ? giveUpTokens : smokeTokens;
     for (const tok of tokens1) {
-      const btn = bank1.getByRole('button', { name: tok, exact: true });
-      if (await btn.count()) await btn.first().click();
+      await bank1.getByRole('button', { name: tok, exact: true }).click();
     }
     await page.getByRole('button', { name: '提交' }).click();
     await expect(page.getByTestId('scramble-result')).toBeVisible();
@@ -265,7 +277,14 @@ test.describe('Phase 9（Task 10）：练一下按有效造句目标选择性出
     // 第 2 题 拼词表达（make sense）
     await expect(page.getByText('make sense')).toBeVisible();
     const bank2 = page.getByTestId('scramble-chip-bank');
-    for (const tok of ['His', 'explanation', 'makes', 'complete', 'sense', 'to', 'me']) {
+    await expect(bank2).toBeVisible();
+    const seedPrompt = page.getByText('他的解释完全讲得通。', { exact: true });
+    const mockPrompt = page.getByText('请用所给词块表达：讲得通', { exact: true });
+    await expect(seedPrompt.or(mockPrompt)).toBeVisible();
+    const tokens2 = (await seedPrompt.isVisible())
+      ? ['His', 'explanation', 'makes', 'complete', 'sense', 'to', 'me']
+      : ['People', 'often', 'make', 'sense', 'here', 'daily'];
+    for (const tok of tokens2) {
       await bank2.getByRole('button', { name: tok, exact: true }).click();
     }
     await page.getByRole('button', { name: '提交' }).click();

@@ -1,6 +1,8 @@
 # 暖纸配色与复习卡片间距验证（2026-10-30）
 
-本次按用户确认的设计恢复暖纸色卡，保留新版大字号和操作区，收小圆角，并为手机活动复习卡与底部 Tab 留 20px 间距。规格见 [设计](superpowers/specs/2026-10-30-warm-review-spacing-design.md)，实施见 [计划](superpowers/plans/2026-10-30-warm-review-spacing.md)。本次没有部署或重启生产服务。
+本次按用户确认的设计恢复暖纸色卡，保留新版大字号和操作区，收小圆角，并为手机活动复习卡与底部 Tab 留 20px 间距。规格见 [设计](superpowers/specs/2026-10-30-warm-review-spacing-design.md)，实施见 [计划](superpowers/plans/2026-10-30-warm-review-spacing.md)。代码验收后，用户追加部署授权，已于 2026-10-30 16:21（Asia/Shanghai）将 `e0cf6c2` 的前端产物发布到生产；后端代码与运行目录一致，无需重启 API。
+
+生产 HTTPS 与 HTTP 两入口的首页、所引用 CSS/JS、manifest 和 Service Worker 均与新构建逐字节一致，API 健康检查均为 `ok`；线上 CSS 包含暖纸色、12px 基础圆角和 20px 导航留白。旧静态资源已备份，本机发布记录及独立复核位于 `output/warm-review-spacing/deployment/`。没有登录生产账号作答，iPhone/PWA 客户端更新仍需真机确认。
 
 ## 变更与回归
 

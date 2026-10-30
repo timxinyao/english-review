@@ -47,7 +47,7 @@ export function AppShell() {
   const [refreshed, setRefreshed] = useState(false);
   const logoTaps = useRef<number[]>([]);
   const keyboardPhase = useKeyboardPhase(); // 常驻订阅：几何由 CSS 变量更新，仅阶段变化重渲染
-  // Today 沉浸式会话（§5.1 一题一屏）：主内容不留移动端大留白，卡自身贴底部导航；
+  // Today 沉浸式会话（§5.1 一题一屏）：主内容不留移动端大留白，卡与底部导航之间留白；
   // 其余页面保留 iOS 惯例的底部大留白
   const immersiveToday = pathname === '/' || pathname.startsWith('/today');
   const todayKeyboardAnchored = immersiveToday && keyboardPhase !== 'idle';
@@ -177,7 +177,7 @@ export function AppShell() {
         </header>
 
         {/* 主内容：PC 限宽 900px（PRODUCT_DESIGN §12）；移动端底部大留白（iOS 惯例）+ 覆盖导航与指示条。
-            Today 活动卡改由页面自身贴导航（pb 由 TodayPage 按会话态接管） */}
+            Today 活动卡改由页面自身计算导航留白（pb 由 TodayPage 按会话态接管） */}
         <main
           id="main-content"
           className={cn(

@@ -38,37 +38,39 @@
 }
 
 :root {
-  --background: #f5f5f7; /* 冷白：PWA theme-color / manifest 同步 */
-  --foreground: #242528;
-  --card: #ffffff;
-  --card-foreground: #242528;
-  --muted: #eeeff2;
-  --muted-hover: #e4e5e9;
-  --muted-foreground: #686b73;
-  --accent: #a64e38; /* 陶土：兼顾暖色气质与白字可读性 */
+  --background: #f4f3ee; /* 暖纸：PWA theme-color / manifest 同步 */
+  --foreground: #30302e;
+  --card: #fbfaf7;
+  --card-foreground: #30302e;
+  --muted: #eeece5;
+  --muted-hover: #e5e2d9;
+  --muted-foreground: #696861;
+  --accent: #ae563d; /* 陶土：兼顾暖色气质与白字可读性 */
   --accent-foreground: #ffffff;
-  --accent-hover: #923e2b;
-  --accent-soft: #f5e8e1;
-  --border: #e2e3e7;
-  --input: #c5c7ce;
+  --accent-hover: #974831;
+  --accent-soft: #faf4f0;
+  --border: #e2dfd6;
+  --input: #cbc7bc;
   --destructive: #a0473c;
   --destructive-soft: #f6e9e5;
   --success: #497054;
   --warning: #846b26;
   --diff-delete: var(--destructive);
   --diff-insert: var(--success);
-  --radius: 1.125rem;
+  --radius: 0.75rem;
   --font-ui:
     system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Noto Sans SC', sans-serif;
   --font-reading:
     'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, 'Times New Roman', serif;
   /*
    * Today 沉浸式卡基准（Phase 8）：与 shell 的顶栏/导航间距同源。
-   * 顶栏总高 = 安全区 + 顶栏内容；导航总高 = 导航内容(py-2.5+图标+文字=3.75rem) + 收紧避让。
+   * 顶栏总高 = 安全区 + 44px 内容 + 6px 上边距 + 12px 下边距 + 1px 边框；
+   * 导航总高 = 内容 3.75rem + 1px 边框 + 收紧避让。
    * 改 shell.tsx 顶栏/导航间距时必须同步这里。
    */
-  --header-block: calc(env(safe-area-inset-top) + 3.375rem);
-  --nav-block: calc(3.75rem + max(0.5rem, calc(env(safe-area-inset-bottom) - 0.75rem)));
+  --header-block: calc(env(safe-area-inset-top) + 3.875rem + 1px);
+  --nav-block: calc(3.75rem + 1px + max(0.5rem, calc(env(safe-area-inset-bottom) - 0.75rem)));
+  --today-nav-gap: 1.25rem;
 }
 
 body {
@@ -261,7 +263,7 @@ body {
  * --kb-inset 时重复扣除键盘高度。
  */
 @utility h-today-viewport {
-  height: calc(100dvh - var(--header-block) - 0.75rem - var(--nav-block));
+  height: calc(100dvh - var(--header-block) - 0.75rem - var(--nav-block) - var(--today-nav-gap));
 }
 
 @media (max-width: 767px) {
@@ -286,7 +288,10 @@ body {
      min 两个高度始终生效，因此不存在超过 100px 时的突然切换。 */
   [data-today-route]:has(.h-today-viewport) .h-today-viewport {
     height: min(
-      calc(var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block)),
+      calc(
+        var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block) -
+          var(--today-nav-gap)
+      ),
       calc(var(--kb-visible-height, 100dvh) - var(--header-block) - 0.75rem)
     );
   }
@@ -294,7 +299,8 @@ body {
   /* pointerdown 无滚动聚焦后，到 click 落在真实输入前不移动它的命中区域。 */
   html[data-today-touch-pending] [data-today-route]:has(.h-today-viewport) .h-today-viewport {
     height: calc(
-      var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block)
+      var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block) -
+        var(--today-nav-gap)
     );
   }
 
@@ -304,7 +310,10 @@ body {
     [data-today-route]:not([data-keyboard-open]):has(.h-today-viewport)
     .h-today-viewport {
     height: min(
-      calc(var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block)),
+      calc(
+        var(--kb-baseline-height, 100dvh) - var(--header-block) - 0.75rem - var(--nav-block) -
+          var(--today-nav-gap)
+      ),
       calc(var(--kb-visible-height, 100dvh) - var(--header-block) - 0.75rem),
       calc(var(--kb-prime-visible-height, 100dvh) - var(--header-block) - 0.75rem)
     );
@@ -315,7 +324,7 @@ body {
 :root {
   --motion-fast: 160ms;
   --motion-enter: 240ms;
-  --chrome: #f5f5f7e8;
+  --chrome: #f4f3eee8;
 }
 html {
   color-scheme: light;

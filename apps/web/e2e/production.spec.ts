@@ -177,7 +177,7 @@ test.describe('Phase 4：表达题批改与 Library 练一下', () => {
       result: 'pass',
       mode: 'today',
     });
-    expect(detail.personalExamples.map((example) => example.text)).not.toContain(sentence);
+    expect(detail.personalExamples).toHaveLength(0);
   });
 
   test('Library 练一下：Recall 自评与释义揭示 → 拼词通过 → 返回详情', async ({ page }) => {

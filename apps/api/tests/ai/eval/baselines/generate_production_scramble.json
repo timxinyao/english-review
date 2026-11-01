@@ -1,0 +1,11 @@
+{
+  "promptVersion": 2,
+  "cases": {
+    "gps01-single-chunk-base-form": "5136ee843e03ba19",
+    "gps02-single-chunk-separable": "97a6f6ba1a5c5d76",
+    "gps03-single-chunk-long": "7522f6e92823fd1e",
+    "gps04-multi-target": "dfb1edb76c6b1381",
+    "gps05-frame-ellipsis": "7e353c7c883d2a05",
+    "gps06-frame-question": "602894011526be35"
+  }
+}

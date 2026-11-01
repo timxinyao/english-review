@@ -21,3 +21,28 @@
 
 - shared / api unit；web unit（scramble card + Today/Library production）
 - 部署后 health；API boot 跑 cutover 一次
+
+## 变更日志
+
+### 2026-11-01 修复：字典形 target 防线（预取失败回归）
+
+**现象**：`english-learning-prefetch` 自 2026-10-29 起 exit 1——`reference_tokens 未按序覆盖 target_surface "doze off" / "wear down" / "get one's butt kicked"`，重试 2 次仍失败。
+
+**根因（双重）**：
+
+1. Prompt v1 未要求 reference 使用字典原形，glm-5.3 按自然语感写屈折形（dozed off / wears down）或替换占位代词（get his butt kicked）。
+2. 旧不变式只对比**模型自己 echo 的 `target_surfaces`** 与模型自己的 `reference_tokens`（自指校验）：模型改写 echo（如 "got our butts kicked"）时静默通过并把漂移 tokens 写入批改目标（悄悄削弱批改）；模型诚实回显字典形但 reference 屈折时才失败——两类行为随机出现，失败仅是冰山一角。
+
+**修复**：
+
+- Prompt 升版 `generate_production_scramble.v2.md`：字典形硬约束（禁屈折/占位替换/echo 改写）+ 构句技巧（一般现在时/祈使/情态原形/动名词主语）+ distractors 数量硬带（多目标长句 4–8 个）。
+- `invariants.ts`：字典形覆盖按输入 `targets` 校验（fail-closed）；`target_surfaces` 逐词归一化回显校验（拦词级漂移，容忍标点/省略号——句式 target 如 `Is it just me, or...?` 可满足）。
+- `questions/service.ts`：入库 targets 恒用字典形 target（不信任 echo），service 层同口径双校验（AGENTS §5：AI 不得绕过业务规则）。
+- 数据修复：退役 6 道旧自指校验放行的漂移 fresh 题（butt kicked ×2、I'm good on... ×2、Is it just me, or...? ×2），由预取按新 prompt 重生成。
+
+**决策**：
+
+- echo 一致性用逐词归一化而非裸字符串比较：句式 target 含省略号/标点，裸比较会让该类 target 永远无法通过校验。
+- `acceptable_morphology` 维持"仅展示元数据"定位（`judgeScramble` 芯片拼句天然只能拼出参考形，不参与等价类判定）。
+
+**Eval**：fixtures 4→6（补句式省略号 target 两个 case），真实模型 glm-5.3 6/6 通过，v1 基线 4/4 失败复现根因；基线已保存 `tests/ai/eval/baselines/generate_production_scramble.json`。

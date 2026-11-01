@@ -1,4 +1,5 @@
 import {
+  normalizeScrambleToken,
   reconstructFromSegments,
   scrambleTargetPositions,
   type AiTask,
@@ -106,10 +107,48 @@ export function checkAiOutput(
       if (out.reference_tokens.length > 24) {
         violations.push(`reference_tokens 长度 ${out.reference_tokens.length} > 24`);
       }
-      for (const surface of out.target_surfaces) {
-        const parts = surface.trim().split(/\s+/).filter(Boolean);
-        if (scrambleTargetPositions(out.reference_tokens, parts) === null) {
-          violations.push(`reference_tokens 未按序覆盖 target_surface "${surface}"`);
+      // 2026-10-29 预取失败回归：字典形 target 必须逐词、按序、字面覆盖 reference_tokens
+      // （禁屈折/代词替换，形态变化只进 acceptable_morphology）；target_surfaces 必须原样
+      // 回显输入 target。旧校验对比模型自己的 echo 与 reference（自指），模型改写 echo
+      // （如 got our butts kicked）会静默通过并改变入库批改目标。
+      const inputTargets = Array.isArray(vars.targets)
+        ? (vars.targets as { target?: unknown }[]).map((t) => String(t?.target ?? '').trim())
+        : [];
+      if (inputTargets.length === 0 || inputTargets.some((t) => t === '')) {
+        violations.push('缺少 targets 输入：无法按字典形 target 校验（fail-closed）');
+      } else {
+        for (const target of inputTargets) {
+          const parts = target.split(/\s+/).filter(Boolean);
+          if (scrambleTargetPositions(out.reference_tokens, parts) === null) {
+            violations.push(`reference_tokens 未按序覆盖字典形 target "${target}"`);
+          }
+        }
+        if (out.target_surfaces.length !== inputTargets.length) {
+          violations.push(
+            `target_surfaces 数量 ${out.target_surfaces.length} ≠ 输入 targets ${inputTargets.length}`,
+          );
+        } else {
+          out.target_surfaces.forEach((surface, i) => {
+            // 逐词归一化比较（与覆盖校验同强度）：拦截词级漂移（got our butts kicked），
+            // 容忍标点/省略号形态（"Is it just me or" ≡ "Is it just me, or...?"）。
+            const echoed = surface
+              .trim()
+              .split(/\s+/)
+              .filter(Boolean)
+              .map(normalizeScrambleToken);
+            const expected = inputTargets[i]!
+              .split(/\s+/)
+              .filter(Boolean)
+              .map(normalizeScrambleToken);
+            if (
+              echoed.length !== expected.length ||
+              echoed.some((t, j) => t !== expected[j])
+            ) {
+              violations.push(
+                `target_surfaces[${i}] "${surface}" 与输入 target "${inputTargets[i]}" 不一致（须原样回显字典形）`,
+              );
+            }
+          });
         }
       }
       const n = out.reference_tokens.length;

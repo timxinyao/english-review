@@ -1,0 +1,116 @@
+{
+  "task": "generateProductionScramble",
+  "cases": [
+    {
+      "id": "gps01-single-chunk-base-form",
+      "input": {
+        "targets": [
+          {
+            "id": "fixture-doze-off",
+            "type": "chunk",
+            "target": "doze off",
+            "meaning": "不知不觉睡着；打瞌睡睡着"
+          }
+        ],
+        "content_level": "A2"
+      },
+      "expected_invariants": [
+        "reference_tokens contains 'doze' then 'off' in order (dictionary form)",
+        "no inflected variant (dozed/dozing/dozes) replaces the dictionary form"
+      ]
+    },
+    {
+      "id": "gps02-single-chunk-separable",
+      "input": {
+        "targets": [
+          {
+            "id": "fixture-wear-down",
+            "type": "chunk",
+            "target": "wear down",
+            "meaning": "逐渐使……疲惫；消耗"
+          }
+        ],
+        "content_level": "A2"
+      },
+      "expected_invariants": [
+        "reference_tokens contains 'wear' then 'down' in order",
+        "no inflected variant (wore/worn/wears/wearing) replaces the dictionary form"
+      ]
+    },
+    {
+      "id": "gps03-single-chunk-long",
+      "input": {
+        "targets": [
+          {
+            "id": "fixture-butt-kicked",
+            "type": "chunk",
+            "target": "get one's butt kicked",
+            "meaning": "被狠狠打败；被揍得很惨"
+          }
+        ],
+        "content_level": "A2"
+      },
+      "expected_invariants": [
+        "reference_tokens contains get/one's/butt/kicked in order",
+        "no variant (got/gotten) replaces the dictionary form"
+      ]
+    },
+    {
+      "id": "gps04-multi-target",
+      "input": {
+        "targets": [
+          {
+            "id": "fixture-doze-off",
+            "type": "chunk",
+            "target": "doze off",
+            "meaning": "不知不觉睡着；打瞌睡睡着"
+          },
+          {
+            "id": "fixture-wear-down",
+            "type": "chunk",
+            "target": "wear down",
+            "meaning": "逐渐使……疲惫；消耗"
+          }
+        ],
+        "content_level": "A2"
+      },
+      "expected_invariants": [
+        "both targets appear in order as dictionary forms"
+      ]
+    },
+    {
+      "id": "gps05-frame-ellipsis",
+      "input": {
+        "targets": [
+          {
+            "id": "fixture-im-good-on",
+            "type": "chunk",
+            "target": "I'm good on...",
+            "meaning": "……我够了/不用了（婉拒再添加）"
+          }
+        ],
+        "content_level": "B1"
+      },
+      "expected_invariants": [
+        "reference_tokens covers I'm/good/on in order; echo matches input target"
+      ]
+    },
+    {
+      "id": "gps06-frame-question",
+      "input": {
+        "targets": [
+          {
+            "id": "fixture-just-me",
+            "type": "chunk",
+            "target": "Is it just me, or...?",
+            "meaning": "是只有我这样，还是……？"
+          }
+        ],
+        "content_level": "B1"
+      },
+      "expected_invariants": [
+        "reference_tokens covers is/it/just/me/or in order; echo matches input target"
+      ]
+    }
+  ]
+}

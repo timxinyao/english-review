@@ -364,4 +364,5 @@ Prompt 的优化必须可复现。以后用户让 Coding Agent “把批改调�
 ### generate_production_scramble / check_production_scramble
 
 - 生成：多目标参考句 token 序列 + 干扰项；服务端规则校验目标子序列。
+- 生成 v2 契约（2026-11-01，预取失败回归）：`reference_tokens` 必须逐词、按序、字面覆盖输入 target 的**字典原形**——禁止时态/人称/数变化（dozed/wears/wore）与占位成分替换（one's → my/his）；`target_surfaces` 必须逐词回显输入 target（归一化口径与覆盖校验一致，容忍标点/省略号形态）。形态变化只进 `acceptable_morphology`（仅展示元数据，不参与规则批改）。不变式与 service 双层校验：模型改写 echo 一律拒绝入库，入库 targets 恒用字典形 target。
 - 批改：默认规则 `judgeScramble`（词序 + 目标覆盖）；AI check 仅作可选补充（当前主路径为规则）。

@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { FALLBACK_MODELS } from '../../src/ai/models.js';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { AiProvider } from '../../src/ai/provider/index.js';
 import { loadPromptRegistry } from '../../src/ai/promptRegistry.js';
 import { createMockProvider } from '../../src/ai/provider/index.js';
 import { createDatabase, type AppDatabase } from '../../src/db/client.js';
@@ -38,6 +39,40 @@ function recordingMockRuntime() {
   const rec = recordingProvider(createMockProvider());
   return { runtime: buildMockRuntime(rec.provider), prompts: rec.prompts };
 }
+
+describe('scramble 生成：字典形 target 防线（2026-10-29 预取失败回归）', () => {
+  it('模型改写 target_surfaces（屈折/代词替换且自洽）→ 拒绝且不入库', async () => {
+    const itemId = await seededItem("get one's butt kicked", '被狠狠打败');
+    const driftedEchoProvider: AiProvider = {
+      name: 'mock',
+      async complete() {
+        // 与旧校验自洽的"合格"输出：echo 改写形 + reference 含改写形（生产中真实出现过）
+        return JSON.stringify({
+          zh_prompt: '昨天那场比赛我们被打得很惨。',
+          reference_tokens: ['We', 'got', 'our', 'butts', 'kicked', 'in', 'the', 'game'],
+          distractors: ['beaten', 'badly'],
+          acceptable_morphology: ['kick', 'kicked'],
+          acceptance_notes: '',
+          target_surfaces: ['got our butts kicked'],
+        });
+      },
+    };
+    const runtime = buildMockRuntime(driftedEchoProvider);
+
+    await expect(generateQuestionsForItem({ db, runtime }, itemId, 'production', 1)).rejects.toThrow(
+      /不一致|未按序覆盖/u,
+    );
+    expect(countQuestionStock(db, itemId, 'production')).toBe(0);
+  });
+
+  it('入库 payload 的 targets 使用字典形 target（不信任模型 echo）', async () => {
+    const itemId = await seededItem('wear down', '逐渐消耗');
+    const runtime = buildMockRuntime();
+    const rows = await generateQuestionsForItem({ db, runtime }, itemId, 'production', 1);
+    const payload = JSON.parse(rows[0]!.payloadJson) as { targets: { surface: string }[] };
+    expect(payload.targets[0]!.surface).toBe('wear down');
+  });
+});
 
 describe('generateQuestionsForItem：production（scramble）', () => {
   it('生成 scramble 表达题：promptKey=generate_production_scramble、payload schema=scramble_v1', async () => {

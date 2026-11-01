@@ -6,6 +6,7 @@ import {
   CONTENT_LEVELS,
   DEFAULT_CONTENT_LEVEL,
   ScramblePayload,
+  normalizeScrambleToken,
   scrambleTargetPositions,
   type BetterVersionKind,
   type CheckClozeResult,
@@ -505,15 +506,38 @@ export async function generateProductionScramble(
   if (data.target_surfaces.length !== items.length) {
     throw appError('INTERNAL', 'scramble 生成的 target_surfaces 数量与输入不一致');
   }
+  // 字典形防线（2026-10-29 预取失败回归）：入库 targets 一律用输入的字典形 target，
+  // 不信任模型 echo——模型改写 surface（屈折/代词替换）会静默改变批改目标。
+  // echo 比较用与不变式相同的逐词归一化口径（拦截词级漂移，容忍标点/省略号形态）。
+  for (let idx = 0; idx < items.length; idx++) {
+    const echoed = data.target_surfaces[idx] ?? '';
+    const dictionary = items[idx]!.target;
+    const echoedTokens = echoed
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(normalizeScrambleToken);
+    const dictionaryTokens = dictionary
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(normalizeScrambleToken);
+    if (
+      echoedTokens.length !== dictionaryTokens.length ||
+      echoedTokens.some((t, j) => t !== dictionaryTokens[j])
+    ) {
+      throw appError(
+        'INTERNAL',
+        `scramble target_surfaces[${idx}] 须原样回显 target「${dictionary}」，实际「${echoed}」`,
+      );
+    }
+  }
 
-  const targets = items.map((it, idx) => {
-    const surface = data.target_surfaces[idx] ?? it.target;
-    return {
-      learningItemId: it.id,
-      surface,
-      tokens: tokenizeSurface(surface),
-    };
-  });
+  const targets = items.map((it) => ({
+    learningItemId: it.id,
+    surface: it.target,
+    tokens: tokenizeSurface(it.target),
+  }));
 
   for (const t of targets) {
     if (scrambleTargetPositions(data.reference_tokens, t.tokens) === null) {

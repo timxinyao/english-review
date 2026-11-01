@@ -46,3 +46,7 @@
 - `acceptable_morphology` 维持"仅展示元数据"定位（`judgeScramble` 芯片拼句天然只能拼出参考形，不参与等价类判定）。
 
 **Eval**：fixtures 4→6（补句式省略号 target 两个 case），真实模型 glm-5.3 6/6 通过，v1 基线 4/4 失败复现根因；基线已保存 `tests/ai/eval/baselines/generate_production_scramble.json`。
+
+**生产部署核验（2026-11-01 11:07）**：deploy.sh 部署后手动触发 prefetch——首轮 get one's butt kicked 3 次重试全挂（温度 0.7 残余方差，one's 类 target 每次尝试约有失败概率），次轮 exit 0：生成 2 题、surface 全部字典形；doze off / wear down / get one's butt kicked / I'm good on... / Is it just me, or...? 五项库存均补齐至 2。已知限制见下。
+
+**已知限制**：one's 类 target 在 glm-5.3 + temp 0.7 下单次尝试仍有失败概率（观测过一次 3/3 全挂、随后 6/6 全过），completeStructured 盲重试（同 prompt 无违规反馈）无法利用模型一次提醒即可自纠的特性。后续可选增强：违规反馈重试（把上次 violation 附进重试请求）。当前依赖：次日预取补齐 + §14 懒生成兜底。
